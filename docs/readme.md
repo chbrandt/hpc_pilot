@@ -84,8 +84,8 @@ In the edge-node, user account `interlink`:
    DIR_BIN="$DIR_IL/bin"
    DIR_LOGS="$DIR_IL/logs"
    DIR_CONFIG="$DIR_IL/config"
-   SOCKET_IL="unix://${DIR_IL}/.interlink.sock"
-   SOCKET_PG="unix://${DIR_IL}/.plugin.sock"
+   SOCKET_IL="${DIR_IL}/.interlink.sock"
+   SOCKET_PG="${DIR_IL}/.plugin.sock"
    CHECKIN_SUB='<check-in user sub>'
    ```
 
@@ -94,6 +94,7 @@ In the edge-node, user account `interlink`:
    ```bash
    mkdir -p $DIR_BIN
    mkdir -p $DIR_CONFIG
+   mkdir -p $DIR_LOGS
    ```
 
 1. Create the SSL certificate/key:
@@ -101,7 +102,7 @@ In the edge-node, user account `interlink`:
    ```
    openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
      -keyout ${DIR_CONFIG}/tls.key \
-     -out ${DIR_CONFGI}/tls.crt \
+     -out ${DIR_CONFIG}/tls.crt \
      -subj "/CN=interlink.demo" \
      -addext "subjectAltName=IP:${PUBLIC_IP}"
    ```
@@ -118,28 +119,29 @@ In the edge-node, user account `interlink`:
 
    ```bash
    ${DIR_BIN}/oauth2-proxy \
-       --upstream $SOCKET_IL \
+       --upstream unix://$SOCKET_IL \
        --https-address 0.0.0.0:${PUBLIC_PORT} \
        --tls-cert-file ${DIR_CONFIG}/tls.crt \
        --tls-key-file ${DIR_CONFIG}/tls.key \
-       --allowed-group ${CHECKIN_SUB} \
-       --client-id "oidc-agent" \
+       --allowed-group $CHECKIN_SUB \
+       --client-id oidc-agent \
        --client-secret "\"\"" \
        --provider oidc \
        --oidc-groups-claim sub \
        --oidc-audience-claim azp \
        --oidc-extra-audience oidc-agent \
-       --oidc-issuer-url "https://aai.egi.eu/auth/realms/egi" \
-       --validate-url https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/token \
-       --cookie-secret 'RANDOM_VALUES_FOR_A_SESSION_SECRET' \
-       --redirect-url http://localhost:8081 \
+       --oidc-issuer-url 'https://aai.egi.eu/auth/realms/egi' \
+       --validate-url 'https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/token' \
+       --cookie-secret 'RANDOM_VALUES_FOR_SESSION_SECRET' \
+       --redirect-url 'http://localhost:8081' \
        --pass-authorization-header true \
        --skip-auth-route="*='*'" \
-       --email-domain=* \
+       --email-domain='*' \
        --force-https \
        --tls-cipher-suite=TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_256_GCM_SHA384 \
        --skip-jwt-bearer-tokens true \
        >${DIR_LOGS}/oauth2-proxy.log 2>&1 &
+
    # If you like to keep the PIDs at hand:
    echo $! >${DIR_IL}/oauth2-proxy.pid
    ```
@@ -164,13 +166,13 @@ The API is a thin layer responsible to get the requests coming from outside
 
    ```bash
    cat <<EOF >${DIR_CONFIG}/interlink.yaml
-   InterlinkAddress: "$SOCKET_IL"
-   InterlinkPort: "0"
-   SidecarURL: "$SOCKET_PG"
-   SidecarPort: "0"
+   InterlinkAddress: unix://$SOCKET_IL
+   InterlinkPort: 0
+   SidecarURL: unix://$SOCKET_PG
+   SidecarPort: 0
    VerboseLogging: false
    ErrorsOnlyLogging: false
-   DataRootFolder: "$DIR_IL/jobs"
+   DataRootFolder: $DIR_IL/jobs
    EOF
    ```
 
@@ -179,6 +181,7 @@ The API is a thin layer responsible to get the requests coming from outside
    ```bash
    INTERLINKCONFIGPATH=${DIR_CONFIG}/interlink.yaml \
      ${DIR_BIN}/interlink &>${DIR_LOGS}/interlink.log &
+
    # If you like to keep the PIDs at hand:
    echo $! >${DIR_IL}/interlink.pid
    ```
@@ -193,7 +196,7 @@ submit and monitor Slurm jobs.
 
    ```bash
    curl --fail -L -o ${DIR_BIN}/plugin \
-     https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.5.2/interlink-sidecar-slurm_Linux_x86_64
+     https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.5.2-patch1/interlink-sidecar-slurm_Linux_x86_64
    chmod +x $DIR_BIN/plugin
    ```
 
@@ -201,17 +204,17 @@ submit and monitor Slurm jobs.
 
    ```bash
    cat <<EOF >$DIR_CONFIG/plugin.yaml
-   Socket: "$SOCKET_PG"
-   InterlinkPort: "0"
-   SidecarPort: "0"
-   CommandPrefix: ""
-   DataRootFolder: "$DIR_IL/jobs"
-   BashPath: /bin/bash
+   Socket: unix://$SOCKET_PG
+   InterlinkPort: $PUBLIC_PORT
+   SidecarPort: 4000
+   DataRootFolder: $DIR_IL/jobs
    VerboseLogging: false
    ErrorsOnlyLogging: false
-   SbatchPath: "/usr/bin/sbatch"
-   ScancelPath: "/usr/bin/scancel"
-   SqueuePath: "/usr/bin/squeue"
+   BashPath: /bin/bash
+   SbatchPath: /usr/bin/sbatch
+   ScancelPath: /usr/bin/scancel
+   SqueuePath: /usr/bin/squeue
+   CommandPrefix: ""
    SingularityPrefix: ""
    EOF
    ```
@@ -219,11 +222,40 @@ submit and monitor Slurm jobs.
 1. Run plugin:
 
    ```bash
-   SLURMCONFIGPATH=$DIR_CONFIG/plugin.yaml
+   SLURMCONFIGPATH=$DIR_CONFIG/plugin.yaml \
      $DIR_BIN/plugin &> $DIR_LOGS/plugin.log &
+
    # If you like to keep the PIDs at hand:
    echo $! >${DIR_IL}/plugin.pid
    ```
+
+### Testing
+
+At this point, we've finished setting up interLink in the HPC system.
+We can run a simple test to see if the API and plugin are inline:
+
+```bash
+curl -v --unix-socket $SOCKET_IL http://unix/pinglink
+```
+
+and you should get something like:
+
+```text
+*   Trying /home/ubuntu/.interlink/.interlink.sock:0...
+* Connected to unix (/home/ubuntu/.interlink/.interlink.sock) port 80
+> GET /pinglink HTTP/1.1
+> Host: unix
+> User-Agent: curl/8.5.0
+> Accept: */*
+>
+< HTTP/1.1 200 OK
+< Date: Wed, 15 Oct 2025 16:19:01 GMT
+< Transfer-Encoding: chunked
+<
+PARTITION AVAIL  TIMELIMIT   NODES(A/I/O/T) NODELIST
+debug*       up   infinite          0/3/0/3 vnode-[1-3]
+* Connection #0 to host unix left intact
+```
 
 ## Authentication & Authorization
 
