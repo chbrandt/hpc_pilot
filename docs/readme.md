@@ -131,7 +131,7 @@ In the edge-node, user account `interlink`:
        --oidc-extra-audience oidc-agent \
        --oidc-issuer-url "https://aai.egi.eu/auth/realms/egi" \
        --validate-url https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/token \
-       --cookie-secret '2ISpxtx19fm7kJlhbgC4qnkuTlkGrshY82L3nfCSKy4=' \
+       --cookie-secret 'RANDOM_VALUES_FOR_A_SESSION_SECRET' \
        --redirect-url http://localhost:8081 \
        --pass-authorization-header true \
        --skip-auth-route="*='*'" \
@@ -146,6 +146,12 @@ In the edge-node, user account `interlink`:
 
 ### InterLink Server
 
+The interLink service is composed by two parts, the API and the plugin.
+The API is a thin layer responsible to get the requests coming from outside
+(and already approved by the OAuth proxy) and forward it to the plugin.
+
+#### API
+
 1. Download interLink API server:
 
    ```bash
@@ -157,24 +163,66 @@ In the edge-node, user account `interlink`:
 1. Create interLink config:
 
    ```bash
-   cat <<EOF >${DIR_CONFIG}/InterLinkConfig.yaml
+   cat <<EOF >${DIR_CONFIG}/interlink.yaml
    InterlinkAddress: "$SOCKET_IL"
    InterlinkPort: "0"
    SidecarURL: "$SOCKET_PG"
    SidecarPort: "0"
    VerboseLogging: false
    ErrorsOnlyLogging: false
-   DataRootFolder: "$DIR_IL"
+   DataRootFolder: "$DIR_IL/jobs"
    EOF
    ```
 
 1. Run interLink:
 
    ```bash
-   INTERLINKCONFIGPATH=${DIR_CONFIG}/InterLinkConfig.yaml \
+   INTERLINKCONFIGPATH=${DIR_CONFIG}/interlink.yaml \
      ${DIR_BIN}/interlink &>${DIR_LOGS}/interlink.log &
    # If you like to keep the PIDs at hand:
    echo $! >${DIR_IL}/interlink.pid
+   ```
+
+#### Plugin
+
+The plugin is the interLink component that knows about the underlying engine
+to run container jobs. We are going to use a plugin that knows how to
+submit and monitor Slurm jobs.
+
+1. Download the Slurm plugin
+
+   ```bash
+   curl --fail -L -o ${DIR_BIN}/plugin \
+     https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.5.2/interlink-sidecar-slurm_Linux_x86_64
+   chmod +x $DIR_BIN/plugin
+   ```
+
+1. Create plugin config:
+
+   ```bash
+   cat <<EOF >$DIR_CONFIG/plugin.yaml
+   Socket: "$SOCKET_PG"
+   InterlinkPort: "0"
+   SidecarPort: "0"
+   CommandPrefix: ""
+   DataRootFolder: "$DIR_IL/jobs"
+   BashPath: /bin/bash
+   VerboseLogging: false
+   ErrorsOnlyLogging: false
+   SbatchPath: "/usr/bin/sbatch"
+   ScancelPath: "/usr/bin/scancel"
+   SqueuePath: "/usr/bin/squeue"
+   SingularityPrefix: ""
+   EOF
+   ```
+
+1. Run plugin:
+
+   ```bash
+   SLURMCONFIGPATH=$DIR_CONFIG/plugin.yaml
+     $DIR_BIN/plugin &> $DIR_LOGS/plugin.log &
+   # If you like to keep the PIDs at hand:
+   echo $! >${DIR_IL}/plugin.pid
    ```
 
 ## Authentication & Authorization
