@@ -8,12 +8,12 @@ Remarks & assumptions:
 - The HPC's _edge-node_ can submit jobs (through Slurm).
 - AuthN/AuthZ is done by an external OAuth/OIDC server, EGI Check-in in our case.
 
-
 ## Computing resources
 
 We have two (virtual) clusters for this experiment:
 
 - an HPC cluster (deployed in Tubitak):
+
   - IP: 161.9.255.143
   - Sudo user: cloudadm
   - Slurm user: ubuntu
@@ -29,17 +29,19 @@ There are three components we need to set up:
 
 - InterLink Server: on the HPC side, in the edge-node, interLink is composed
   by three parts:
+
   - an OAuth proxy
   - the interLink API
   - interLink plugin
 
-- AuthN/AuthZ: OAuth/OIDC protocol is used to authenticate and authorize the 
+- AuthN/AuthZ: OAuth/OIDC protocol is used to authenticate and authorize the
   interaction between components. AuthN/AuthZ has the components itself:
+
   - an OAuth/OIDC server/client duo somewhere in the Web: EGI Check-in/`oidc-agent`, in our case
   - in the HPC: an OAuth proxy (i.e., oauth2-proxy)
   - in the K8S: a refresh token
 
-- InterLink Node: on the K8S side, interLink comes as a _virtual node_ 
+- InterLink Node: on the K8S side, interLink comes as a _virtual node_
   deploying multiple pods:
   - refresh-token pod: in possession of a Check-in's refresh token, continuously
     renews access tokens used to communicate with interLink server.
@@ -64,6 +66,7 @@ Requirements:
   - e.g., port `33333`
 
 ### OAuth Proxy
+
 [oauth2-proxy]: https://github.com/oauth2-proxy/oauth2-proxy
 
 The OAuth proxy is put in front of the interLink API to validate/authorize the
@@ -79,66 +82,100 @@ In the edge-node, user account `interlink`:
    PUBLIC_PORT='33333'
    DIR_IL="$HOME/.interlink"
    DIR_BIN="$DIR_IL/bin"
+   DIR_LOGS="$DIR_IL/logs"
    DIR_CONFIG="$DIR_IL/config"
-   CHECKIN_SUB="check-in user's sub"
+   SOCKET_IL="unix://${DIR_IL}/.interlink.sock"
+   SOCKET_PG="unix://${DIR_IL}/.plugin.sock"
+   CHECKIN_SUB='<check-in user sub>'
    ```
 
 1. Create a set of directories where everything will the set:
 
-  ```bash
-  mkdir -p $DIR_BIN 
-  mkdir -p $DIR_CONFIG
-  ```
+   ```bash
+   mkdir -p $DIR_BIN
+   mkdir -p $DIR_CONFIG
+   ```
 
 1. Create the SSL certificate/key:
 
-  ```
-  openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-    -keyout ${DIR_CONFIG}/tls.key \
-    -out ${DIR_CONFGI}/tls.crt \
-    -subj "/CN=interlink.demo" \
-    -addext "subjectAltName=IP:${PUBLIC_IP}"
-  ```
+   ```
+   openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+     -keyout ${DIR_CONFIG}/tls.key \
+     -out ${DIR_CONFGI}/tls.crt \
+     -subj "/CN=interlink.demo" \
+     -addext "subjectAltName=IP:${PUBLIC_IP}"
+   ```
 
 1. Download [oauth2-proxy][]:
 
-  ```bash
-  curl --fail -L -o ${DIR_BIN}/oauth2-proxy \
-    https://github.com/dciangot/oauth2-proxy/releases/download/v0.0.3/oauth2-proxy_Linux_amd64
-  chmod +x ${DIR_BIN}/oauth2-proxy
-  ```
+   ```bash
+   curl --fail -L -o ${DIR_BIN}/oauth2-proxy \
+     https://github.com/dciangot/oauth2-proxy/releases/download/v0.0.3/oauth2-proxy_Linux_amd64
+   chmod +x ${DIR_BIN}/oauth2-proxy
+   ```
 
 1. Run the proxy:
 
-  ```
-  ${DIR_BIN}/oauth2-proxy \
-      --upstream unix://${DIR_IL}/.interlink.sock \
-      --https-address 0.0.0.0:${PUBLIC_PORT} \
-      --tls-cert-file ${DIR_CONFIG}/tls.crt \
-      --tls-key-file ${DIR_CONFIG}/tls.key \
-      --allowed-group ${CHECKIN_SUB} \
-      --client-id "oidc-agent" \
-      --client-secret "\"\"" \
-      --provider oidc \
-      --oidc-groups-claim sub \
-      --oidc-audience-claim azp \
-      --oidc-extra-audience oidc-agent \
-      --oidc-issuer-url "https://aai.egi.eu/auth/realms/egi" \
-      --validate-url https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/token \
-      --cookie-secret '2ISpxtx19fm7kJlhbgC4qnkuTlkGrshY82L3nfCSKy4=' \
-      --redirect-url http://localhost:8081 \
-      --pass-authorization-header true \
-      --skip-auth-route="*='*'" \
-      --email-domain=* \
-      --force-https \
-      --tls-cipher-suite=TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_256_GCM_SHA384 \
-      --skip-jwt-bearer-tokens true \
-      >${DIR_IL}/logs/oauth2-proxy.log 2>&1 &
-  ```
+   ```bash
+   ${DIR_BIN}/oauth2-proxy \
+       --upstream $SOCKET_IL \
+       --https-address 0.0.0.0:${PUBLIC_PORT} \
+       --tls-cert-file ${DIR_CONFIG}/tls.crt \
+       --tls-key-file ${DIR_CONFIG}/tls.key \
+       --allowed-group ${CHECKIN_SUB} \
+       --client-id "oidc-agent" \
+       --client-secret "\"\"" \
+       --provider oidc \
+       --oidc-groups-claim sub \
+       --oidc-audience-claim azp \
+       --oidc-extra-audience oidc-agent \
+       --oidc-issuer-url "https://aai.egi.eu/auth/realms/egi" \
+       --validate-url https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/token \
+       --cookie-secret '2ISpxtx19fm7kJlhbgC4qnkuTlkGrshY82L3nfCSKy4=' \
+       --redirect-url http://localhost:8081 \
+       --pass-authorization-header true \
+       --skip-auth-route="*='*'" \
+       --email-domain=* \
+       --force-https \
+       --tls-cipher-suite=TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_256_GCM_SHA384 \
+       --skip-jwt-bearer-tokens true \
+       >${DIR_LOGS}/oauth2-proxy.log 2>&1 &
+   # If you like to keep the PIDs at hand:
+   echo $! >${DIR_IL}/oauth2-proxy.pid
+   ```
 
-### OAuth proxy
+### InterLink Server
 
-The OAuth proxy sits 
+1. Download interLink API server:
+
+   ```bash
+   curl --fail -L -o ${DIR_BIN}/interlink \
+     https://github.com/interlink-hq/interLink/releases/download/0.5.1/interlink_Linux_x86_64
+   chmod +x $DIR_BIN/interlink
+   ```
+
+1. Create interLink config:
+
+   ```bash
+   cat <<EOF >${DIR_CONFIG}/InterLinkConfig.yaml
+   InterlinkAddress: "$SOCKET_IL"
+   InterlinkPort: "0"
+   SidecarURL: "$SOCKET_PG"
+   SidecarPort: "0"
+   VerboseLogging: false
+   ErrorsOnlyLogging: false
+   DataRootFolder: "$DIR_IL"
+   EOF
+   ```
+
+1. Run interLink:
+
+   ```bash
+   INTERLINKCONFIGPATH=${DIR_CONFIG}/InterLinkConfig.yaml \
+     ${DIR_BIN}/interlink &>${DIR_LOGS}/interlink.log &
+   # If you like to keep the PIDs at hand:
+   echo $! >${DIR_IL}/interlink.pid
+   ```
 
 ## Authentication & Authorization
 
@@ -156,44 +193,48 @@ InterLink will keep hold of a refresh token in the K8S cluster, which will be us
 To request a (new) refresh token you can use the checkin-tokens.sh script at [1] or the following commands directly.
 Run the following in the terminal:
 
+```bash
 DEVICE_ENDPOINT="<https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/auth/device>"
 TOKEN_ENDPOINT="<https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/token>"
 
 resp=$(curl -sS -X POST "$DEVICE_ENDPOINT" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "client_id=oidc-agent" \
-  -d "scope=openid offline_access profile email")
+-H "Content-Type: application/x-www-form-urlencoded" \
+-d "client_id=oidc-agent" \
+-d "scope=openid offline_access profile email")
 
 device_code=$(echo "$resp" | jq -r .device_code)
-verify_url=$(echo "$resp"  | jq -r .verification_uri_complete)
-interval=$(echo "$resp"    | jq -r .interval)
+verify_url=$(echo "$resp" | jq -r .verification_uri_complete)
+interval=$(echo "$resp" | jq -r .interval)
 
 echo ""
 echo "Please visit the following URL in your browser:"
-echo "    $verify_url"
+echo " $verify_url"
 echo ""
 echo "Waiting for you to authenticate..."
 echo ""
 
 while :; do
-  out=$(curl -sS -X POST "$TOKEN_ENDPOINT" \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
-    -d "device_code=$device_code" \
-    -d "client_id=oidc-agent")
-  err=$(echo "$out" | jq -r .error 2>/dev/null || true)
+out=$(curl -sS -X POST "$TOKEN_ENDPOINT" \
+-H "Content-Type: application/x-www-form-urlencoded" \
+-d "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+-d "device_code=$device_code" \
+  -d "client_id=oidc-agent")
+err=$(echo "$out" | jq -r .error 2>/dev/null || true)
 
-  if [ "$err" = "authorization_pending" ] || [ "$err" = "slow_down" ]; then
-    sleep "${interval:-5}"
-  else
-    echo "$out" | jq .
-    break
-  fi
+if [ "$err" = "authorization_pending" ] || [ "$err" = "slow_down" ]; then
+sleep "${interval:-5}"
+else
+  echo "$out" | jq .
+break
+fi
 done
+```
+
 Go to “verify_url” in your browser and authenticate and authorize with your EGI Check-in account.
 
 In a few seconds an output like the following should print in your terminal:
 
+```json
 {
   "access_token": "eyJhbGciOi...",
   "expires_in": 3600,
@@ -205,3 +246,4 @@ In a few seconds an output like the following should print in your terminal:
   "session_state": "33fa2cee-...",
   "scope": "openid offline_access profile email"
 }
+```
