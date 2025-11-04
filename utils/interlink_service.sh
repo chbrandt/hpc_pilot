@@ -174,7 +174,7 @@ get_service_uptime() {
     # Get process start time
     local start_time=$(ps -p "$pid" -o lstart= 2>/dev/null)
     if [ -n "$start_time" ]; then
-        local start_epoch=$(date -j -f "%a %b %d %H:%M:%S %Y" "$start_time" "+%s" 2>/dev/null)
+        local start_epoch=$(date --date="$start_time" "+%s" 2>/dev/null)
         local now_epoch=$(date +%s)
         local uptime_seconds=$((now_epoch - start_epoch))
         
