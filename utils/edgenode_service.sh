@@ -8,7 +8,7 @@
 # - oauth2-proxy (OAuth2 Proxy)
 #
 # Usage:
-#   ./interlink_service.sh <action> [service]
+#   ./edgenode_service.sh <action> [service]
 #
 # Actions:
 #   start [service]      Start all services or a specific service
@@ -24,18 +24,18 @@
 #   all                  All services (default)
 #
 # Examples:
-#   ./interlink_service.sh start
-#   ./interlink_service.sh stop oauth2-proxy
-#   ./interlink_service.sh restart interlink
-#   ./interlink_service.sh status
-#   ./interlink_service.sh logs plugin 50
+#   ./edgenode_service.sh start
+#   ./edgenode_service.sh stop oauth2-proxy
+#   ./edgenode_service.sh restart interlink
+#   ./edgenode_service.sh status
+#   ./edgenode_service.sh logs plugin 50
 #
 
 #===============================================================================
 # CONFIGURATION
 #===============================================================================
 
-# Directory structure (matches setup_edgenode.sh)
+# Directory structure (matches edgenode_setup.sh)
 IL_DIR="${IL_DIR:-$HOME/.interlink}"
 IL_DIR_BIN="$IL_DIR/bin"
 IL_DIR_LOGS="$IL_DIR/logs"
@@ -112,13 +112,13 @@ show_help() {
 check_installation() {
     if [ ! -d "$IL_DIR" ]; then
         log_error "InterLink installation not found at $IL_DIR"
-        log_error "Please run setup_edgenode.sh first"
+        log_error "Please run edgenode_setup.sh first"
         exit 1
     fi
     
     if [ ! -d "$IL_DIR_CONFIG" ] || [ ! -d "$IL_DIR_BIN" ]; then
         log_error "InterLink configuration incomplete"
-        log_error "Please run setup_edgenode.sh first"
+        log_error "Please run edgenode_setup.sh first"
         exit 1
     fi
 }
@@ -258,7 +258,7 @@ start_oauth2_proxy() {
     
     # Check if configuration exists
     if [ ! -f "${IL_DIR_CONFIG}/interlink.yaml" ]; then
-        log_service "oauth2-proxy" "stopped" "Configuration not found. Run setup_edgenode.sh first."
+        log_service "oauth2-proxy" "stopped" "Configuration not found. Run edgenode_setup.sh first."
         return 1
     fi
     

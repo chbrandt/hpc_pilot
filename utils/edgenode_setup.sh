@@ -8,7 +8,7 @@
 # - InterLink SLURM Plugin
 #
 # Usage:
-#   ./setup_edgenode.sh [OPTIONS]
+#   ./edgenode_setup.sh [OPTIONS]
 #
 # Options:
 #   --public-ip IP          Edge node public IP address (required)
@@ -17,7 +17,7 @@
 #   --help                  Show this help message
 #
 # Example:
-#   ./setup_edgenode.sh --public-ip 192.168.1.100 --checkin-sub "user-sub-id"
+#   ./edgenode_setup.sh --public-ip 192.168.1.100 --checkin-sub "user-sub-id"
 #
 
 set -e  # Exit on error
