@@ -14,14 +14,14 @@ We have two (virtual) clusters for this experiment:
 
 - an HPC cluster (deployed in Tubitak):
 
-  - IP: 161.9.255.143
-  - Sudo user: cloudadm
-  - Slurm user: ubuntu
-  - InterLink port: 33333
+  - IP: <public-IP> 
+  - Sudo user: 
+  - Slurm user: 
+  - InterLink port: <public-port>
 
 - a K8S cluster (deployed in Tubitak):
   - IP:
-  - Sudo user: cloudadm
+  - Sudo user:
 
 ## Install instructions
 
