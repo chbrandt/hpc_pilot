@@ -230,6 +230,27 @@ def run_device_flow(client_id: str, scope: str, audience: Optional[str]) -> Dict
     return tokens
 
 
+def revoke_token(refresh_token: str, access_token: str, client_id: str):
+    """
+    Revoke a refresh token using a valid access token.
+    """
+    data = {
+        "token": refresh_token,
+        "token_type_hint": "refresh_token",
+        "client_id": client_id,
+    }
+    resp = requests.post(
+        f"{REALM_BASE}/revocation",
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": f"Bearer {access_token}",
+        },
+        data=data,
+        timeout=30,
+    )
+    return resp
+
+
 if __name__ == "__main__":
 
     ap = argparse.ArgumentParser(
@@ -247,6 +268,9 @@ Examples:
   
   # Refresh using explicit refresh token
   %(prog)s refresh --token eyJhbG...
+
+  # Revoke using explicit refresh token
+  %(prog)s revoke --token eyJhbG... --access-token eyJhbG...
 """)
 
     subparsers = ap.add_subparsers(
@@ -282,9 +306,41 @@ Examples:
     refresh_parser.add_argument("--token", metavar="REFRESH_TOKEN",
                                 help="Provide refresh token directly instead of reading from file")
 
+    # REVOKE subcommand
+    revoke_parser = subparsers.add_parser(
+        "revoke",
+        help="Revoke refresh token",
+        description="Revoke refresh token using a valid access token"
+    )
+    refresh_parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID,
+                                help=f"OIDC client_id (default: {DEFAULT_CLIENT_ID})")
+    refresh_parser.add_argument("--token", metavar="REFRESH_TOKEN",
+                                help="Refresh token to revoke")
+    refresh_parser.add_argument("--access-token", metavar="ACCESS_TOKEN",
+                                help="Valid access token to authenticate the (revoking) request")
+
     args = ap.parse_args()
 
     try:
+        if args.action == 'revoke':
+            if not args.token or not args.access_token:
+                print("Both --token and --access-token are required for revoke action.",
+                      file=sys.stderr)
+                sys.exit(2)
+
+            resp = revoke_token(
+                refresh_token=args.token,
+                access_token=args.access_token,
+                client_id=args.client_id)
+
+            if resp.status_code == 200:
+                print("Refresh token successfully revoked.")
+            else:
+                print(
+                    f"Failed to revoke token ({resp.status_code}): {resp.text}", file=sys.stderr)
+                sys.exit(1)
+            sys.exit(0)
+
         if args.action == 'refresh':
             if args.token:
                 rt = args.token
