@@ -12,9 +12,9 @@ What it does
 
 Usage
 -----
-$ python device_flow_egi.py                       # run full device flow
-$ python device_flow_egi.py --audience interlink  # (optional) include audience param
-$ python device_flow_egi.py --refresh tokens.json # refresh using saved tokens
+$ python checkin_token.py new                        # run full device flow
+$ python checkin_token.py new --audience interlink   # (optional) include audience param
+$ python checkin_token.py refresh --file tokens.json # refresh using saved tokens
 
 Security
 --------
@@ -175,8 +175,10 @@ def refresh_with_rt(refresh_token: str, client_id: str, audience: Optional[str] 
     return resp.json()
 
 
-def run_device_flow(client_id: str, scope: str, audience: Optional[str], out_path: str):
-
+def run_device_flow(client_id: str, scope: str, audience: Optional[str]) -> Dict:
+    """ 
+    Run the full device flow and return obtained tokens.
+    """
     print(
         f"[1/3] Requesting device code from EGI Check-in as client_id='{client_id}' …")
     resp = start_device_flow(
@@ -225,26 +227,60 @@ def run_device_flow(client_id: str, scope: str, audience: Optional[str], out_pat
         print(
             f"  refresh_expires_in: {tokens.get('refresh_expires_in')} seconds")
 
-    save_tokens(tokens, out_path)
-    print(f"\nTokens saved to: {out_path} (permissions 0600)\n")
+    return tokens
 
 
 if __name__ == "__main__":
 
-    ap = argparse.ArgumentParser(description="EGI Check-in Device Flow (public client 'oidc-agent').",
-                                 usage="%(prog)s [options] (new|refresh)")
-    ap.add_argument("--client-id", default=DEFAULT_CLIENT_ID,
-                    help="OIDC client_id (default: oidc-agent)")
-    ap.add_argument("--scope", default=DEFAULT_SCOPE,
-                    help=f"OIDC scopes (default: {DEFAULT_SCOPE!r})")
-    ap.add_argument("--audience", default=None,
-                    help="Optional audience parameter (filters audiences if configured)")
-    ap.add_argument("--file", default=DEFAULT_TOKENS_PATH,
-                    help=f"Where to store/read tokens JSON (default: {DEFAULT_TOKENS_PATH})")
-    ap.add_argument("--token", metavar="REFRESH_TOKEN",
-                    help="Refresh token (instead of reading from file) when using 'refresh' action")
-    ap.add_argument("action", choices=[
-                    "new", "refresh"], help="Action to perform: get 'new' token w/ device flow or 'refresh' tokens using saved JSON")
+    ap = argparse.ArgumentParser(
+        description="EGI Check-in Device Flow (public client 'oidc-agent').",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Get new tokens via device flow
+  %(prog)s new
+  %(prog)s new --audience interlink --file my_tokens.json
+  
+  # Refresh tokens from file
+  %(prog)s refresh
+  %(prog)s refresh --file my_tokens.json
+  
+  # Refresh using explicit refresh token
+  %(prog)s refresh --token eyJhbG...
+""")
+
+    subparsers = ap.add_subparsers(
+        dest="action", required=True, help="Action to perform")
+
+    # NEW subcommand
+    new_parser = subparsers.add_parser(
+        "new",
+        help="Get new tokens via device flow",
+        description="Start a new device authorization flow to obtain tokens"
+    )
+    new_parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID,
+                            help=f"OIDC client_id (default: {DEFAULT_CLIENT_ID})")
+    new_parser.add_argument("--scope", default=DEFAULT_SCOPE,
+                            help=f"OIDC scopes (default: {DEFAULT_SCOPE!r})")
+    new_parser.add_argument("--audience", default=None,
+                            help="Optional audience parameter (filters audiences if configured)")
+    new_parser.add_argument("--file", default=DEFAULT_TOKENS_PATH,
+                            help=f"Where to store tokens JSON (default: {DEFAULT_TOKENS_PATH})")
+
+    # REFRESH subcommand
+    refresh_parser = subparsers.add_parser(
+        "refresh",
+        help="Refresh tokens using saved file or explicit token",
+        description="Refresh access token using a refresh token from file or provided directly"
+    )
+    refresh_parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID,
+                                help=f"OIDC client_id (default: {DEFAULT_CLIENT_ID})")
+    refresh_parser.add_argument("--audience", default=None,
+                                help="Optional audience parameter (filters audiences if configured)")
+    refresh_parser.add_argument("--file", default=DEFAULT_TOKENS_PATH,
+                                help=f"Where to read/store tokens JSON (default: {DEFAULT_TOKENS_PATH})")
+    refresh_parser.add_argument("--token", metavar="REFRESH_TOKEN",
+                                help="Provide refresh token directly instead of reading from file")
 
     args = ap.parse_args()
 
@@ -252,10 +288,10 @@ if __name__ == "__main__":
         if args.action == 'refresh':
             if args.token:
                 rt = args.token
-                new_tokens = refresh_with_rt(
+                tokens = refresh_with_rt(
                     rt, client_id=args.client_id, audience=args.audience)
-                print("Refreshed tokens:")
-                print(json.dumps(new_tokens, indent=2))
+                # print("Refreshed tokens:")
+                # print(json.dumps(tokens, indent=2))
             else:
                 tokens = load_tokens(args.file)
                 rt = tokens.get("refresh_token")
@@ -267,16 +303,20 @@ if __name__ == "__main__":
                     rt, client_id=args.client_id, audience=args.audience)
                 # Keep old refresh token if server rotates differently? We overwrite with response.
                 tokens.update(new_tokens)
-                save_tokens(tokens, args.file)
-                print(
-                    f"Refreshed. New access_token expires in {tokens.get('expires_in')} seconds.")
+            # save_tokens(tokens, args.file)
+            print(
+                f"Refreshed. New access_token expires in {tokens.get('expires_in')} seconds.")
         else:
-            run_device_flow(
+            tokens = run_device_flow(
                 client_id=args.client_id,
                 scope=args.scope,
-                audience=args.audience,
-                out_path=args.file,
+                audience=args.audience
             )
+
+        out_path = args.file
+        save_tokens(tokens, out_path)
+        print(f"\nTokens saved to: {out_path} (permissions 0600)\n")
+
     except KeyboardInterrupt:
         print("\nAborted by user.")
         sys.exit(1)

@@ -417,6 +417,7 @@ show_status() {
     echo
     echo "Logs directory: ${IL_DIR_LOGS}"
     echo "Config directory: ${IL_DIR_CONFIG}"
+    echo
     
     if $all_running; then
         return 0
