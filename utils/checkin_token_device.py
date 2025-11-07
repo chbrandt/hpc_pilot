@@ -312,12 +312,12 @@ Examples:
         help="Revoke refresh token",
         description="Revoke refresh token using a valid access token"
     )
-    refresh_parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID,
-                                help=f"OIDC client_id (default: {DEFAULT_CLIENT_ID})")
-    refresh_parser.add_argument("--token", metavar="REFRESH_TOKEN",
-                                help="Refresh token to revoke")
-    refresh_parser.add_argument("--access-token", metavar="ACCESS_TOKEN",
-                                help="Valid access token to authenticate the (revoking) request")
+    revoke_parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID,
+                               help=f"OIDC client_id (default: {DEFAULT_CLIENT_ID})")
+    revoke_parser.add_argument("--token", metavar="REFRESH_TOKEN",
+                               help="Refresh token to revoke")
+    revoke_parser.add_argument("--access-token", metavar="ACCESS_TOKEN",
+                               help="Valid access token to authenticate the (revoking) request")
 
     args = ap.parse_args()
 
