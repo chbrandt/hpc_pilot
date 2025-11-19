@@ -1,4 +1,4 @@
-## InterLink setup 1/3: HPC
+## InterLink setup 2/3: HPC Edge Node
 
 On the HPC side, in the edge-node, we need to set (i) an OAuth proxy,
 (ii) the interLink API, and (iii) the interLink SLURM plugin.
@@ -13,6 +13,9 @@ Requirements:
   - for simplicity, I'll assume the $HOME directory is being shared.
 - a network port is open for external communication with the Proxy/API
   - e.g., port `33333`
+- [Singularity][] installed in the worker nodes
+
+[Singularity]: https://docs.sylabs.io/guides/4.3/user-guide/quick_start.html
 
 ### OAuth Proxy
 
