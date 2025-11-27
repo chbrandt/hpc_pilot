@@ -1,4 +1,6 @@
-## InterLink setup 2/3: HPC Edge Node
+# InterLink setup 2/3
+
+## HPC Edge Node
 
 On the HPC side, in the edge-node, we need to set (i) an OAuth proxy,
 (ii) the interLink API, and (iii) the interLink SLURM plugin.
