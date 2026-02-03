@@ -1,0 +1,26 @@
+FROM --platform=linux/amd64 almalinux:9
+
+# RUN cd /etc/yum.repos.d && \
+#     curl -O https://repo.data.kit.edu//data-kit-edu-almalinux9.repo && \
+#     yum -y update && \
+#     yum -y install motley-cue && \
+#     yum clean all
+
+ARG MOTLEY_CUE_VENV_PATH=/opt/motley_cue_venv
+
+RUN python3 -m venv ${MOTLEY_CUE_VENV_PATH} && \
+    ${MOTLEY_CUE_VENV_PATH}/bin/pip install --upgrade pip && \
+    ${MOTLEY_CUE_VENV_PATH}/bin/pip install motley-cue
+
+ARG MOTLEY_CUE_CONFIG=${MOTLEY_CUE_VENV_PATH}/motley_cue.conf
+ENV MOTLEY_CUE_CONFIG=${MOTLEY_CUE_CONFIG}
+
+ARG FEUDAL_ADAPTER_CONFIG=${MOTLEY_CUE_VENV_PATH}/feudal_adapter.conf
+ENV FEUDAL_ADAPTER_CONFIG=${FEUDAL_ADAPTER_CONFIG}
+
+COPY motley_cue.conf ${MOTLEY_CUE_CONFIG}
+COPY feudal_adapter.conf ${FEUDAL_ADAPTER_CONFIG}
+
+EXPOSE 8080
+
+ENTRYPOINT [ "${MOTLEY_CUE_VENV_PATH}/bin/motley_cue_uvicorn" ]
