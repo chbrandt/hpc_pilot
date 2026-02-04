@@ -1,22 +1,27 @@
-#FROM --platform=$BUILDPLATFORM almalinux:9
 FROM almalinux:9
 
-ENV MOTLEY_CUE_VENV_PATH=/opt/motley_cue_venv
-# ENV MOTLEY_CUE_VENV_PATH=${MOTLEY_CUE_VENV_PATH}
+ENV VENV_PATH=/opt/venv
 
-RUN python3 -m venv ${MOTLEY_CUE_VENV_PATH} && \
-    ${MOTLEY_CUE_VENV_PATH}/bin/pip install --upgrade pip && \
-    ${MOTLEY_CUE_VENV_PATH}/bin/pip install motley-cue
+RUN yum install -y openssh-server && \
+    yum clean all
 
-ENV MOTLEY_CUE_CONFIG=${MOTLEY_CUE_VENV_PATH}/motley_cue.conf
-# ENV MOTLEY_CUE_CONFIG=${MOTLEY_CUE_CONFIG}
+# Generate SSH host keys
+RUN ssh-keygen -A
 
-ENV FEUDAL_ADAPTER_CONFIG=${MOTLEY_CUE_VENV_PATH}/feudal_adapter.conf
-# ENV FEUDAL_ADAPTER_CONFIG=${FEUDAL_ADAPTER_CONFIG}
+RUN python3 -m venv ${VENV_PATH} && \
+    ${VENV_PATH}/bin/pip install --upgrade pip && \
+    ${VENV_PATH}/bin/pip install motley-cue supervisor
 
+ENV MOTLEY_CUE_CONFIG=${VENV_PATH}/motley_cue.conf
 COPY motley_cue.conf ${MOTLEY_CUE_CONFIG}
+
+ENV FEUDAL_ADAPTER_CONFIG=${VENV_PATH}/feudal_adapter.conf
 COPY feudal_adapter.conf ${FEUDAL_ADAPTER_CONFIG}
 
+# Copy supervisord configuration
+COPY supervisord.conf /etc/supervisord.conf
+
+EXPOSE 22
 EXPOSE 8080
 
-ENTRYPOINT ${MOTLEY_CUE_VENV_PATH}/bin/motley_cue_uvicorn
+ENTRYPOINT ["sh", "-c", "${VENV_PATH}/bin/supervisord -c /etc/supervisord.conf"]
