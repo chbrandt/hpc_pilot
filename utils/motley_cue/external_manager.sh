@@ -30,6 +30,13 @@
 set -e  # Exit on error
 
 #===============================================================================
+# CONNECTION SETTINGS
+#===============================================================================
+
+# SSH port
+SSH_PORT=${SSH_PORT:-22}
+
+#===============================================================================
 # CONFIGURATION
 #===============================================================================
 
@@ -86,7 +93,7 @@ validate_environment() {
     fi
     
     log_info "Environment variables validated"
-    log_info "  EDGE_NODE: $EDGE_NODE"
+    log_info "  EDGE_NODE: $EDGE_NODE (SSH_PORT: $SSH_PORT)"
     log_info "  ACCESS_TOKEN: ${ACCESS_TOKEN:0:20}..."
 }
 
@@ -117,6 +124,11 @@ validate_dependencies() {
     log_info "All dependencies found"
 }
 
+call_mccli() {
+    local cmd="$1"
+    mccli --token "$ACCESS_TOKEN" ssh -p "$SSH_PORT" "$EDGE_NODE" "$cmd" #2>/dev/null
+}
+
 #===============================================================================
 # INTERLINK CHECK FUNCTIONS
 #===============================================================================
@@ -125,7 +137,9 @@ check_interlink_installed() {
     log_step "Checking if interLink is installed on edge node..."
     
     # Check if .interlink directory exists
-    if mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" "[ -d $IL_DIR ]" 2>/dev/null; then
+    res=$(call_mccli "[ -d $IL_DIR ] && echo yes || echo no") 
+
+    if [[ "$res" == *"yes"* ]]; then
         log_info "interLink installation detected at $IL_DIR"
         return 0
     else
@@ -139,10 +153,11 @@ check_interlink_running() {
     
     # Use edgenode_service.sh to check status
     local status_output
-    status_output=$(mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" "$IL_DIR/../edgenode_service.sh status" 2>&1 || true)
+    # status_output=$(mccli --token "$ACCESS_TOKEN" ssh -p "$SSH_PORT" "$EDGE_NODE" "$IL_DIR/../edgenode_service.sh status" 2>&1 || true)
+    status_output=$(call_mccli "$IL_DIR/../edgenode_service.sh status" 2>&1 || true)
     
     # Check if all services are running (return code 0 from status command)
-    if mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" "$IL_DIR/../edgenode_service.sh status" >/dev/null 2>&1; then
+    if call_mccli "$IL_DIR/../edgenode_service.sh status" >/dev/null 2>&1; then
         log_info "All interLink services are running"
         return 0
     else
@@ -160,7 +175,7 @@ ensure_interlink_running() {
     fi
     
     log_info "Starting interLink services..."
-    mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" "$IL_DIR/../edgenode_service.sh start"
+    call_mccli "$IL_DIR/../edgenode_service.sh start"
     
     # Wait a moment and verify
     sleep 2
@@ -183,7 +198,7 @@ get_edge_username() {
     log_step "Getting username on edge node..."
     
     local username
-    username=$(mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" 'whoami' 2>/dev/null)
+    username=$(call_mccli 'whoami' 2>/dev/null)
     
     if [ -z "$username" ]; then
         log_error "Failed to get username from edge node"
@@ -243,20 +258,15 @@ calculate_port() {
 get_edge_public_ip() {
     log_step "Getting edge node public IP..."
     
-    # Try to get public IP from hostname resolution
     local public_ip
-    public_ip=$(mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" "hostname -I | awk '{print \$1}'" 2>/dev/null)
-    
-    if [ -z "$public_ip" ]; then
-        # Fallback: use EDGE_NODE value if it looks like an IP
-        if [[ "$EDGE_NODE" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            public_ip="$EDGE_NODE"
-        else
-            # Try to resolve EDGE_NODE hostname
-            public_ip=$(host "$EDGE_NODE" 2>/dev/null | grep "has address" | awk '{print $4}' | head -1)
-        fi
+
+    if [[ "$EDGE_NODE" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        public_ip="$EDGE_NODE"
+    else
+        # Try to resolve EDGE_NODE hostname
+        public_ip=$(host "$EDGE_NODE" 2>/dev/null | grep "has address" | awk '{print $4}' | head -1)
     fi
-    
+
     if [ -z "$public_ip" ]; then
         log_error "Failed to determine edge node public IP"
         log_error "Please provide it manually or check EDGE_NODE value"
@@ -290,7 +300,10 @@ install_interlink() {
     
     # Check if edgenode_setup.sh exists on edge node
     log_step "Checking for installation script on edge node..."
-    if ! mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" "[ -f ~/edgenode_setup.sh ]" 2>/dev/null; then
+
+    res=$(call_mccli "[ -f ~/edgenode_setup.sh ] && echo yes || echo no" 2>/dev/null)
+
+    if [[ "$res" == *"no"* ]]; then
         log_error "edgenode_setup.sh not found on edge node"
         log_error "Please ensure the script is available at ~/edgenode_setup.sh"
         exit 1
@@ -301,7 +314,7 @@ install_interlink() {
     log_info "This may take a few minutes..."
     echo
     
-    mccli --token "$ACCESS_TOKEN" ssh "$EDGE_NODE" \
+    call_mccli \
         "bash ~/edgenode_setup.sh --public-ip $public_ip --public-port $port --checkin-sub '$user_sub'"
     
     local install_status=$?
