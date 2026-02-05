@@ -13,20 +13,21 @@ RUN python3 -m venv ${VENV_PATH} && \
     ${VENV_PATH}/bin/pip install motley-cue supervisor
 
 ENV MOTLEY_CUE_CONFIG=${VENV_PATH}/motley_cue.conf
-COPY motley_cue.conf ${MOTLEY_CUE_CONFIG}
+COPY etc/motley_cue.conf ${MOTLEY_CUE_CONFIG}
 
 ENV FEUDAL_ADAPTER_CONFIG=${VENV_PATH}/feudal_adapter.conf
-COPY feudal_adapter.conf ${FEUDAL_ADAPTER_CONFIG}
+COPY etc/feudal_adapter.conf ${FEUDAL_ADAPTER_CONFIG}
 
-RUN wget https://repo.data.kit.edu//data-kit-edu-almalinux9.repo -O /etc/yum.repos.d/data-kit-edu-almalinux9.repo
+RUN wget https://repo.data.kit.edu//data-kit-edu-almalinux9.repo \
+    -O /etc/yum.repos.d/data-kit-edu-almalinux9.repo
 RUN yum install -y pam-ssh-oidc-autoconfig
 
 # For some reason the autoconfig does not work.
 # This file needs to be run before 50-redhat.conf:
-COPY ssh-oidc.conf /etc/ssh/sshd_config.d/10-ssh-oidc.conf
+COPY etc/ssh-oidc.conf /etc/ssh/sshd_config.d/10-ssh-oidc.conf
 
 # Copy supervisord configuration
-COPY supervisord.conf /etc/supervisord.conf
+COPY etc/supervisord.conf /etc/supervisord.conf
 
 EXPOSE 22
 EXPOSE 8080
