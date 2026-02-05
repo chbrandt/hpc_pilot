@@ -2,7 +2,7 @@ FROM almalinux:9
 
 ENV VENV_PATH=/opt/venv
 
-RUN yum install -y openssh-server && \
+RUN yum install -y openssh-server wget && \
     yum clean all
 
 # Generate SSH host keys
@@ -17,6 +17,13 @@ COPY motley_cue.conf ${MOTLEY_CUE_CONFIG}
 
 ENV FEUDAL_ADAPTER_CONFIG=${VENV_PATH}/feudal_adapter.conf
 COPY feudal_adapter.conf ${FEUDAL_ADAPTER_CONFIG}
+
+RUN wget https://repo.data.kit.edu//data-kit-edu-almalinux9.repo -O /etc/yum.repos.d/data-kit-edu-almalinux9.repo
+RUN yum install -y pam-ssh-oidc-autoconfig
+
+# For some reason the autoconfig does not work.
+# This file needs to be run before 50-redhat.conf:
+COPY ssh-oidc.conf /etc/ssh/sshd_config.d/10-ssh-oidc.conf
 
 # Copy supervisord configuration
 COPY supervisord.conf /etc/supervisord.conf
