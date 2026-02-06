@@ -88,7 +88,7 @@ check_requirements() {
     # fi
     
     # Check for required commands
-    local required_commands=("curl" "openssl" "sbatch" "scancel" "squeue")
+    local required_commands=("curl" "openssl") # "sbatch" "scancel" "squeue")
     for cmd in "${required_commands[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then
             log_error "Required command not found: $cmd"
