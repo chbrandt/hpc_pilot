@@ -335,15 +335,17 @@ install_interlink() {
     log_info "This may take a few minutes..."
     echo
     
-    call_mccli \
-        "bash ~/hpc_pilot/utils/edgenode_setup.sh --public-ip $_PUBLIC_IP --public-port $_PUBLIC_PORT --checkin-sub '$_CHECKIN_SUB'"
+    res=$(call_mccli \
+            "bash ~/hpc_pilot/utils/edgenode_setup.sh" \
+            "--public-ip $_PUBLIC_IP" \
+            "--public-port $_PUBLIC_PORT" \
+            "--checkin-sub '$_CHECKIN_SUB'" \
+            "&& echo 'success' || echo 'failure'" 2>/dev/null)
     
-    local install_status=$?
-    
-    if [ $install_status -eq 0 ]; then
+    if [[ "$res" == *"success"* ]]; then
         log_info "Installation completed successfully"
     else
-        log_error "Installation failed with status code: $install_status"
+        log_error "Installation failed"
         exit 1
     fi
 }
