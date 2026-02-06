@@ -54,6 +54,13 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 #===============================================================================
+# INTERLINK ATTRIBUTES
+#===============================================================================
+_PUBLIC_IP=""
+_PUBLIC_PORT=""
+_CHECKIN_SUB=""
+
+#===============================================================================
 # HELPER FUNCTIONS
 #===============================================================================
 
@@ -126,7 +133,7 @@ validate_dependencies() {
 
 call_mccli() {
     local cmd="$1"
-    mccli --token "$ACCESS_TOKEN" ssh -p "$SSH_PORT" "$EDGE_NODE" "$cmd" #2>/dev/null
+    mccli --token "$ACCESS_TOKEN" ssh -p "$SSH_PORT" "$EDGE_NODE" "$cmd" 2>/dev/null
 }
 
 #===============================================================================
@@ -206,7 +213,8 @@ get_edge_username() {
     fi
     
     log_info "Edge node username: $username"
-    echo "$username"
+    # echo "$username"
+    _USERNAME="$username"
 }
 
 get_user_sub() {
@@ -222,7 +230,8 @@ get_user_sub() {
     fi
     
     log_info "User sub: $sub"
-    echo "$sub"
+    # echo "$sub"
+    _CHECKIN_SUB="$sub"
 }
 
 calculate_port() {
@@ -252,7 +261,8 @@ calculate_port() {
     local port=$((BASE_PORT + port_offset))
     
     log_info "Calculated port: $port (base: $BASE_PORT + offset: $port_offset)"
-    echo "$port"
+    # echo "$port"
+    _PUBLIC_PORT="$port"
 }
 
 get_edge_public_ip() {
@@ -274,7 +284,8 @@ get_edge_public_ip() {
     fi
     
     log_info "Edge node public IP: $public_ip"
-    echo "$public_ip"
+    # echo "$public_ip"
+    _PUBLIC_IP="$public_ip"
 }
 
 install_interlink() {
@@ -286,27 +297,36 @@ install_interlink() {
     local port
     local public_ip
     
-    username=$(get_edge_username)
-    user_sub=$(get_user_sub)
-    port=$(calculate_port "$username")
-    public_ip=$(get_edge_public_ip)
+    # username=$(get_edge_username)
+    # user_sub=$(get_user_sub)
+    # port=$(calculate_port "$username")
+    # public_ip=$(get_edge_public_ip)
+    get_edge_username
+    get_user_sub
+    calculate_port "$_USERNAME"
+    get_edge_public_ip
     
     log_info "Installation parameters:"
-    log_info "  Username:   $username"
-    log_info "  User Sub:   $user_sub"
-    log_info "  Port:       $port"
-    log_info "  Public IP:  $public_ip"
+    # log_info "  Username:   $username"
+    # log_info "  User Sub:   $user_sub"
+    # log_info "  Port:       $port"
+    # log_info "  Public IP:  $public_ip"
+    log_info "  Username:   $_USERNAME"
+    log_info "  User Sub:   $_CHECKIN_SUB"
+    log_info "  Port:       $_PUBLIC_PORT"
+    log_info "  Public IP:  $_PUBLIC_IP"
     echo
     
     # Check if edgenode_setup.sh exists on edge node
     log_step "Checking for installation script on edge node..."
 
-    res=$(call_mccli "[ -f ~/edgenode_setup.sh ] && echo yes || echo no" 2>/dev/null)
+    res=$(call_mccli "[ -d ~/hpc_pilot ] && echo yes || echo no" 2>/dev/null)
 
     if [[ "$res" == *"no"* ]]; then
-        log_error "edgenode_setup.sh not found on edge node"
-        log_error "Please ensure the script is available at ~/edgenode_setup.sh"
-        exit 1
+        call_mccli "git clone https://github.com/chbrandt/hpc_pilot.git ~/hpc_pilot" 2>/dev/null || true
+        # log_error "edgenode_setup.sh not found on edge node"
+        # log_error "Please ensure the script is available at ~/edgenode_setup.sh"
+        # exit 1
     fi
     
     # Run installation
@@ -314,8 +334,10 @@ install_interlink() {
     log_info "This may take a few minutes..."
     echo
     
+    # call_mccli \
+    #     "bash ~/hpc_pilot/utils/edgenode_setup.sh --public-ip $public_ip --public-port $port --checkin-sub '$user_sub'"
     call_mccli \
-        "bash ~/edgenode_setup.sh --public-ip $public_ip --public-port $port --checkin-sub '$user_sub'"
+        "bash ~/hpc_pilot/utils/edgenode_setup.sh --public-ip $_PUBLIC_IP --public-port $_PUBLIC_PORT --checkin-sub '$_CHECKIN_SUB'"
     
     local install_status=$?
     
