@@ -54,23 +54,30 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 #===============================================================================
+# INTERLINK ATTRIBUTES
+#===============================================================================
+_PUBLIC_IP=""
+_PUBLIC_PORT=""
+_CHECKIN_SUB=""
+
+#===============================================================================
 # HELPER FUNCTIONS
 #===============================================================================
 
 log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    printf "%b\n" "${GREEN}[INFO]${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+    printf "%b\n" "${YELLOW}[WARN]${NC} $1"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    printf "%b\n" "${RED}[ERROR]${NC} $1"
 }
 
 log_step() {
-    echo -e "${BLUE}[STEP]${NC} $1"
+    printf "%b\n" "${BLUE}[STEP]${NC} $1"
 }
 
 #===============================================================================
@@ -124,10 +131,26 @@ validate_dependencies() {
     log_info "All dependencies found"
 }
 
-call_mccli() {
-    local cmd="$1"
-    mccli --token "$ACCESS_TOKEN" ssh -p "$SSH_PORT" "$EDGE_NODE" "$cmd" #2>/dev/null
-}
+# call_mccli() {
+#     local cmd="$1"
+#     local out
+#     local rc=0
+#
+#     out=$(mccli --token "$ACCESS_TOKEN" ssh -p "$SSH_PORT" "$EDGE_NODE" "$cmd" 2>/dev/null) || rc=$?
+#
+#     # Remove carriage returns which may come from remote shells (CRLF)
+#     out="${out//$'\r'/}"
+#
+#     # Print sanitized output without adding extra newlines
+#     printf "%s" "$out"
+#
+#     return $rc
+# }
+
+# Alias for mccli calls
+shopt -s expand_aliases
+
+alias call_mccli='mccli --token "$ACCESS_TOKEN" ssh -p "$SSH_PORT" "$EDGE_NODE"'
 
 #===============================================================================
 # INTERLINK CHECK FUNCTIONS
@@ -199,6 +222,8 @@ get_edge_username() {
     
     local username
     username=$(call_mccli 'whoami' 2>/dev/null)
+    # sanitize output (remove carriage returns)
+    username="${username//$'\r'/}"
     
     if [ -z "$username" ]; then
         log_error "Failed to get username from edge node"
@@ -206,7 +231,8 @@ get_edge_username() {
     fi
     
     log_info "Edge node username: $username"
-    echo "$username"
+
+    _USERNAME="$username"
 }
 
 get_user_sub() {
@@ -222,7 +248,8 @@ get_user_sub() {
     fi
     
     log_info "User sub: $sub"
-    echo "$sub"
+
+    _CHECKIN_SUB="$sub"
 }
 
 calculate_port() {
@@ -252,7 +279,8 @@ calculate_port() {
     local port=$((BASE_PORT + port_offset))
     
     log_info "Calculated port: $port (base: $BASE_PORT + offset: $port_offset)"
-    echo "$port"
+
+    _PUBLIC_PORT="$port"
 }
 
 get_edge_public_ip() {
@@ -274,39 +302,32 @@ get_edge_public_ip() {
     fi
     
     log_info "Edge node public IP: $public_ip"
-    echo "$public_ip"
+
+    _PUBLIC_IP="$public_ip"
 }
 
 install_interlink() {
     log_step "Starting interLink installation..."
     
-    # Gather installation parameters
-    local username
-    local user_sub
-    local port
-    local public_ip
-    
-    username=$(get_edge_username)
-    user_sub=$(get_user_sub)
-    port=$(calculate_port "$username")
-    public_ip=$(get_edge_public_ip)
+    get_edge_username
+    get_user_sub
+    calculate_port "$_USERNAME"
+    get_edge_public_ip
     
     log_info "Installation parameters:"
-    log_info "  Username:   $username"
-    log_info "  User Sub:   $user_sub"
-    log_info "  Port:       $port"
-    log_info "  Public IP:  $public_ip"
+    log_info "  Username:   $_USERNAME"
+    log_info "  User Sub:   $_CHECKIN_SUB"
+    log_info "  Port:       $_PUBLIC_PORT"
+    log_info "  Public IP:  $_PUBLIC_IP"
     echo
     
     # Check if edgenode_setup.sh exists on edge node
     log_step "Checking for installation script on edge node..."
 
-    res=$(call_mccli "[ -f ~/edgenode_setup.sh ] && echo yes || echo no" 2>/dev/null)
+    res=$(call_mccli "[ -d ~/hpc_pilot ] && echo yes || echo no" 2>/dev/null)
 
     if [[ "$res" == *"no"* ]]; then
-        log_error "edgenode_setup.sh not found on edge node"
-        log_error "Please ensure the script is available at ~/edgenode_setup.sh"
-        exit 1
+        call_mccli "git clone https://github.com/chbrandt/hpc_pilot.git ~/hpc_pilot" 2>/dev/null 
     fi
     
     # Run installation
@@ -314,15 +335,17 @@ install_interlink() {
     log_info "This may take a few minutes..."
     echo
     
-    call_mccli \
-        "bash ~/edgenode_setup.sh --public-ip $public_ip --public-port $port --checkin-sub '$user_sub'"
+    res=$(call_mccli \
+            "bash ~/hpc_pilot/utils/edgenode_setup.sh" \
+            "--public-ip $_PUBLIC_IP" \
+            "--public-port $_PUBLIC_PORT" \
+            "--checkin-sub '$_CHECKIN_SUB'" \
+            "&& echo 'success' || echo 'failure'" 2>/dev/null)
     
-    local install_status=$?
-    
-    if [ $install_status -eq 0 ]; then
+    if [[ "$res" == *"success"* ]]; then
         log_info "Installation completed successfully"
     else
-        log_error "Installation failed with status code: $install_status"
+        log_error "Installation failed"
         exit 1
     fi
 }
