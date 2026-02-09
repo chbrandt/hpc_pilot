@@ -78,6 +78,36 @@ NC='\033[0m' # No Color
 # HELPER FUNCTIONS
 #===============================================================================
 
+check_required_commands() {
+    local required_commands=(
+        "ps"
+        "kill"
+        "cat"
+        "grep"
+        "awk"
+        "tail"
+        "head"
+        "sed"
+        "date"
+        "rm"
+        "sleep"
+    )
+    
+    local missing_commands=()
+    
+    for cmd in "${required_commands[@]}"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing_commands+=("$cmd")
+        fi
+    done
+    
+    if [ ${#missing_commands[@]} -gt 0 ]; then
+        echo -e "${RED}[ERROR]${NC} Missing required commands: ${missing_commands[*]}"
+        echo -e "${RED}[ERROR]${NC} Please install the missing tools and try again."
+        exit 1
+    fi
+}
+
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -472,6 +502,9 @@ main() {
     if [ "$action" = "--help" ] || [ "$action" = "-h" ] || [ "$action" = "help" ]; then
         show_help
     fi
+    
+    # Check required commands
+    check_required_commands
     
     # Check installation
     check_installation
