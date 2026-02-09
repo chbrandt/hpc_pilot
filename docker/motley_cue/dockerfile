@@ -2,8 +2,12 @@ FROM almalinux:9
 
 ENV VENV_PATH=/opt/venv
 
-RUN yum install -y openssh-server wget git && \
-    yum clean all
+RUN yum install -y \
+    git \
+    openssh-server \
+    procps \
+    wget \
+    && yum clean all
 
 # Generate SSH host keys
 RUN ssh-keygen -A
