@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Deployment Result — HPC Pilot{% endblock %}
+
+{% block content %}
+<h1>Deployment Result</h1>
+
+{% if result.success %}
+    <div class="status-card status-success">
+        <div class="status-icon">✅</div>
+        <h2>Pod Deployed Successfully!</h2>
+
+        <table class="info-table">
+            <tr>
+                <th>Pod Name</th>
+                <td>{{ result.pod_name }}</td>
+            </tr>
+            <tr>
+                <th>Namespace</th>
+                <td>{{ result.namespace }}</td>
+            </tr>
+            <tr>
+                <th>Image</th>
+                <td>{{ result.image }}</td>
+            </tr>
+            <tr>
+                <th>Status</th>
+                <td>
+                    <span class="badge badge-{{ result.phase | lower }}" id="pod-phase">
+                        {{ result.phase }}
+                    </span>
+                </td>
+            </tr>
+        </table>
+
+        {% if result.service %}
+            <div class="service-info">
+                <h3>🌐 External Access</h3>
+                {% if result.service.success %}
+                    <table class="info-table">
+                        <tr>
+                            <th>Service</th>
+                            <td>{{ result.service.service_name }}</td>
+                        </tr>
+                        <tr>
+                            <th>NodePort</th>
+                            <td>{{ result.service.node_port }}</td>
+                        </tr>
+                        <tr>
+                            <th>Target Port</th>
+                            <td>{{ result.service.target_port }}</td>
+                        </tr>
+                        <tr>
+                            <th>Access URL</th>
+                            <td>
+                                <a href="{{ result.service.external_url }}" target="_blank" class="external-link">
+                                    {{ result.service.external_url }}
+                                </a>
+                            </td>
+                        </tr>
+                    </table>
+                {% else %}
+                    <div class="alert alert-error">
+                        Service creation failed: {{ result.service.error }}
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+{% else %}
+    <div class="status-card status-error">
+        <div class="status-icon">❌</div>
+        <h2>Deployment Failed</h2>
+        <div class="error-detail">
+            <pre>{{ result.error }}</pre>
+        </div>
+    </div>
+{% endif %}
+
+<div class="form-actions">
+    <a href="{{ url_for('index') }}" class="btn btn-secondary">← Deploy Another</a>
+    <a href="{{ url_for('pods') }}" class="btn btn-primary">View All Pods</a>
+</div>
+
+{% if result.success %}
+<!-- Auto-refresh pod status -->
+<script>
+    const podName = "{{ result.pod_name }}";
+    const namespace = "{{ result.namespace }}";
+    const phaseEl = document.getElementById('pod-phase');
+
+    function refreshStatus() {
+        fetch(`/pods/${namespace}/${podName}/status`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.phase) {
+                    phaseEl.textContent = data.state || data.phase;
+                    phaseEl.className = 'badge badge-' + data.phase.toLowerCase();
+                }
+                // Keep refreshing until Running or Failed
+                if (data.phase === 'Pending') {
+                    setTimeout(refreshStatus, 3000);
+                }
+            })
+            .catch(() => {});
+    }
+
+    // Start polling after 2 seconds
+    setTimeout(refreshStatus, 2000);
+</script>
+{% endif %}
+{% endblock %}

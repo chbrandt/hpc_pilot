@@ -1,0 +1,8 @@
+# Flask web framework
+flask>=3.0.0
+
+# Kubernetes client
+kubernetes>=29.0.0
+
+# Utilities
+python-dotenv>=1.0.0

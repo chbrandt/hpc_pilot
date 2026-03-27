@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Deploy Pod — HPC Pilot{% endblock %}
+
+{% block content %}
+<h1>Deploy a Pod</h1>
+
+{% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form action="{{ url_for('deploy') }}" method="post" class="deploy-form">
+
+    <!-- Required Fields -->
+    <fieldset>
+        <legend>Required</legend>
+
+        <div class="form-group">
+            <label for="pod_name">Pod Name <span class="required">*</span></label>
+            <input type="text" id="pod_name" name="pod_name" required
+                   placeholder="my-app"
+                   pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
+                   title="Lowercase alphanumeric and hyphens, max 63 chars">
+        </div>
+
+        <div class="form-group">
+            <label for="image">Container Image <span class="required">*</span></label>
+            <input type="text" id="image" name="image" required
+                   placeholder="nginx:latest">
+        </div>
+    </fieldset>
+
+    <!-- Namespace -->
+    <fieldset>
+        <legend>Namespace</legend>
+
+        <div class="form-group">
+            <label for="namespace">Namespace</label>
+            <select id="namespace" name="namespace" onchange="toggleNewNamespace(this)">
+                {% for ns in namespaces %}
+                    <option value="{{ ns }}" {% if ns == 'default' %}selected{% endif %}>{{ ns }}</option>
+                {% endfor %}
+                <option value="__new__">➕ Create new namespace…</option>
+            </select>
+        </div>
+
+        <div class="form-group" id="new-namespace-group" style="display: none;">
+            <label for="new_namespace">New Namespace Name</label>
+            <input type="text" id="new_namespace" name="new_namespace"
+                   placeholder="my-namespace"
+                   pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
+                   title="Lowercase alphanumeric and hyphens, max 63 chars">
+        </div>
+    </fieldset>
+
+    <!-- Resources -->
+    <fieldset>
+        <legend>Resources <span class="optional">(optional)</span></legend>
+
+        <div class="form-row">
+            <div class="form-group half">
+                <label for="cpu_request">CPU Request</label>
+                <input type="text" id="cpu_request" name="cpu_request"
+                       placeholder="100m">
+            </div>
+            <div class="form-group half">
+                <label for="cpu_limit">CPU Limit</label>
+                <input type="text" id="cpu_limit" name="cpu_limit"
+                       placeholder="500m">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group half">
+                <label for="mem_request">Memory Request</label>
+                <input type="text" id="mem_request" name="mem_request"
+                       placeholder="64Mi">
+            </div>
+            <div class="form-group half">
+                <label for="mem_limit">Memory Limit</label>
+                <input type="text" id="mem_limit" name="mem_limit"
+                       placeholder="256Mi">
+            </div>
+        </div>
+    </fieldset>
+
+    <!-- Environment Variables -->
+    <fieldset>
+        <legend>Environment Variables <span class="optional">(optional)</span></legend>
+
+        <div id="env-vars">
+            <div class="form-row env-row">
+                <div class="form-group" style="flex:1">
+                    <input type="text" name="env_key" placeholder="KEY">
+                </div>
+                <span class="env-eq">=</span>
+                <div class="form-group" style="flex:2">
+                    <input type="text" name="env_value" placeholder="value">
+                </div>
+                <button type="button" class="btn btn-small btn-danger" onclick="removeEnvRow(this)" title="Remove">✕</button>
+            </div>
+        </div>
+        <button type="button" class="btn btn-small btn-secondary" onclick="addEnvRow()">+ Add Variable</button>
+    </fieldset>
+
+    <!-- Networking -->
+    <fieldset>
+        <legend>Networking <span class="optional">(optional)</span></legend>
+
+        <div class="form-group">
+            <label for="port">Container Port</label>
+            <input type="number" id="port" name="port"
+                   placeholder="80" min="1" max="65535">
+            <span class="help-text">If set, a NodePort Service will be created for external access.</span>
+        </div>
+    </fieldset>
+
+    <!-- Advanced -->
+    <fieldset>
+        <legend>Advanced <span class="optional">(optional)</span></legend>
+
+        <div class="form-group">
+            <label for="command">Command Override</label>
+            <input type="text" id="command" name="command"
+                   placeholder="echo hello && sleep 3600">
+            <span class="help-text">Runs as: /bin/sh -c "your command"</span>
+        </div>
+    </fieldset>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">🚀 Deploy Pod</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleNewNamespace(select) {
+        const group = document.getElementById('new-namespace-group');
+        const input = document.getElementById('new_namespace');
+        if (select.value === '__new__') {
+            group.style.display = 'block';
+            input.required = true;
+            input.focus();
+        } else {
+            group.style.display = 'none';
+            input.required = false;
+            input.value = '';
+        }
+    }
+
+    function addEnvRow() {
+        const container = document.getElementById('env-vars');
+        const row = document.createElement('div');
+        row.className = 'form-row env-row';
+        row.innerHTML = `
+            <div class="form-group" style="flex:1">
+                <input type="text" name="env_key" placeholder="KEY">
+            </div>
+            <span class="env-eq">=</span>
+            <div class="form-group" style="flex:2">
+                <input type="text" name="env_value" placeholder="value">
+            </div>
+            <button type="button" class="btn btn-small btn-danger" onclick="removeEnvRow(this)" title="Remove">✕</button>
+        `;
+        container.appendChild(row);
+    }
+
+    function removeEnvRow(btn) {
+        const container = document.getElementById('env-vars');
+        const row = btn.closest('.env-row');
+        // Keep at least one row
+        if (container.children.length > 1) {
+            row.remove();
+        } else {
+            // Clear values instead of removing
+            row.querySelectorAll('input').forEach(i => i.value = '');
+        }
+    }
+</script>
+{% endblock %}

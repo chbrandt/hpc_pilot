@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Pods — HPC Pilot{% endblock %}
+
+{% block content %}
+<h1>Deployed Pods</h1>
+
+{% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="filter-bar">
+    <form method="get" action="{{ url_for('pods') }}" class="filter-form">
+        <label for="namespace">Namespace:</label>
+        <select name="namespace" id="namespace" onchange="this.form.submit()">
+            <option value="__all__" {% if selected_namespace == '__all__' %}selected{% endif %}>All namespaces</option>
+            {% for ns in namespaces %}
+                <option value="{{ ns }}" {% if selected_namespace == ns %}selected{% endif %}>{{ ns }}</option>
+            {% endfor %}
+        </select>
+    </form>
+</div>
+
+{% if pods %}
+    <table class="pods-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Namespace</th>
+                <th>Image</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Access</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pod in pods %}
+            <tr>
+                <td><strong>{{ pod.name }}</strong></td>
+                <td>{{ pod.namespace }}</td>
+                <td class="text-mono">{{ pod.image }}</td>
+                <td>
+                    <span class="badge badge-{{ pod.phase | lower }}">{{ pod.phase }}</span>
+                </td>
+                <td>{{ pod.created }}</td>
+                <td>
+                    {% if pod.external_url %}
+                        <a href="{{ pod.external_url }}" target="_blank" class="external-link">
+                            {{ pod.external_url }}
+                        </a>
+                    {% elif pod.node_port %}
+                        Port: {{ pod.node_port }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" action="{{ url_for('delete_pod', namespace=pod.namespace, name=pod.name) }}"
+                          onsubmit="return confirm('Delete pod {{ pod.name }}?');"
+                          style="display:inline;">
+                        <button type="submit" class="btn btn-small btn-danger" title="Delete pod">🗑️ Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <p>No pods deployed yet.</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary">Deploy a Pod</a>
+    </div>
+{% endif %}
+{% endblock %}
