@@ -28,28 +28,15 @@
             <input type="text" id="image" name="image" required
                    placeholder="nginx:latest">
         </div>
-    </fieldset>
-
-    <!-- Namespace -->
-    <fieldset>
-        <legend>Namespace</legend>
 
         <div class="form-group">
-            <label for="namespace">Namespace</label>
-            <select id="namespace" name="namespace" onchange="toggleNewNamespace(this)">
-                {% for ns in namespaces %}
-                    <option value="{{ ns }}" {% if ns == 'default' %}selected{% endif %}>{{ ns }}</option>
-                {% endfor %}
-                <option value="__new__">➕ Create new namespace…</option>
-            </select>
-        </div>
-
-        <div class="form-group" id="new-namespace-group" style="display: none;">
-            <label for="new_namespace">New Namespace Name</label>
-            <input type="text" id="new_namespace" name="new_namespace"
-                   placeholder="my-namespace"
-                   pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
-                   title="Lowercase alphanumeric and hyphens, max 63 chars">
+            <label>Namespace</label>
+            <div class="namespace-badge">
+                <code>{{ current_user.namespace }}</code>
+            </div>
+            <span class="help-text">
+                Your personal namespace — all deployments are isolated to this namespace.
+            </span>
         </div>
     </fieldset>
 
@@ -63,8 +50,8 @@
                    value="1" min="1" max="100"
                    title="How many pod replicas to keep running">
             <span class="help-text">
-                The Deployment will keep this many pod replicas running at all times,
-                restarting any that crash.
+                The Deployment keeps this many pods running at all times,
+                automatically restarting any that crash.
             </span>
         </div>
     </fieldset>
@@ -203,21 +190,6 @@
 
 {% block scripts %}
 <script>
-    // ── Namespace toggle ──────────────────────────────────────────────
-    function toggleNewNamespace(select) {
-        const group = document.getElementById('new-namespace-group');
-        const input = document.getElementById('new_namespace');
-        if (select.value === '__new__') {
-            group.style.display = 'block';
-            input.required = true;
-            input.focus();
-        } else {
-            group.style.display = 'none';
-            input.required = false;
-            input.value = '';
-        }
-    }
-
     // ── Environment variables ─────────────────────────────────────────
     function addEnvRow() {
         const container = document.getElementById('env-vars');
@@ -277,7 +249,6 @@
     function removePortRow(btn) {
         btn.closest('.port-row').remove();
         syncIngressPorts();
-        // If no ports left and ingress is enabled, uncheck it
         if (document.getElementById('port-rows').children.length === 0) {
             const cb = document.getElementById('ingress_enabled');
             if (cb.checked) {
@@ -300,11 +271,9 @@
         if (checkbox.checked) syncIngressPorts();
     }
 
-    /** Re-populate the "Target Port" select from current port rows. */
     function syncIngressPorts() {
         const select = document.getElementById('ingress_port');
         const prevVal = select.value;
-        // Clear all options except the first default
         while (select.options.length > 1) select.remove(1);
 
         document.querySelectorAll('#port-rows .port-row').forEach(row => {
@@ -317,7 +286,6 @@
             select.add(opt);
         });
 
-        // Restore previous selection if still available
         for (let i = 0; i < select.options.length; i++) {
             if (select.options[i].value === prevVal) {
                 select.selectedIndex = i;

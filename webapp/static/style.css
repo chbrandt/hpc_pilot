@@ -46,10 +46,18 @@ body {
     box-shadow: var(--shadow);
 }
 
-.navbar .container {
+.navbar-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.nav-left {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
 }
 
 .nav-brand {
@@ -57,6 +65,7 @@ body {
     font-weight: 700;
     color: var(--color-primary);
     text-decoration: none;
+    white-space: nowrap;
 }
 
 .nav-links {
@@ -77,6 +86,44 @@ body {
 .nav-links a.active {
     color: var(--color-primary);
     border-bottom-color: var(--color-primary);
+}
+
+/* ── Navbar user section ───────────────────────────────────────────── */
+.nav-user {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.nav-namespace {
+    font-size: 0.82rem;
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.nav-namespace code {
+    font-size: 0.82rem;
+    background: #f1f5f9;
+    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    color: var(--color-text);
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+
+.nav-expiry {
+    font-size: 0.82rem;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 70px;
+    text-align: right;
+}
+
+.nav-expiry-warn {
+    color: var(--color-danger);
+    font-weight: 600;
 }
 
 /* ── Typography ────────────────────────────────────────────────────── */
@@ -616,6 +663,119 @@ footer {
     border-top: 1px solid var(--color-border);
 }
 
+/* ── Namespace badge (deploy form + deployments page) ──────────────── */
+.namespace-badge {
+    display: inline-flex;
+    align-items: center;
+    background: #f1f5f9;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 0.4rem 0.75rem;
+}
+
+.namespace-badge code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.9rem;
+    color: var(--color-text);
+}
+
+.namespace-badge-inline {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88rem;
+    background: #f1f5f9;
+    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    color: var(--color-text);
+}
+
+/* ── Page header (deployments page) ────────────────────────────────── */
+.page-header {
+    margin-bottom: 1.25rem;
+}
+
+.page-header h1 {
+    margin-bottom: 0.25rem;
+}
+
+/* ── Login page ─────────────────────────────────────────────────────── */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 2rem;
+}
+
+.login-card {
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    padding: 2.5rem 2rem;
+    width: 100%;
+    max-width: 480px;
+    text-align: center;
+}
+
+.login-logo {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+    color: var(--color-primary);
+}
+
+.login-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+    color: var(--color-text);
+}
+
+.login-subtitle {
+    color: var(--color-text-muted);
+    font-size: 0.92rem;
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+}
+
+.login-subtitle-warn {
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+    padding: 0.6rem 0.9rem;
+}
+
+.login-form {
+    text-align: left;
+}
+
+.token-textarea {
+    font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    resize: vertical;
+    color: var(--color-text-muted);
+}
+
+.token-textarea:focus {
+    color: var(--color-text);
+}
+
+.btn-full {
+    width: 100%;
+    justify-content: center;
+    margin-top: 1rem;
+    padding: 0.65rem 1.25rem;
+    font-size: 0.95rem;
+}
+
+.login-info {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+}
+
 /* ── Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
     .form-row {
@@ -630,5 +790,17 @@ footer {
 
     .nav-links {
         gap: 1rem;
+    }
+
+    .nav-user {
+        gap: 0.4rem;
+    }
+
+    .nav-namespace {
+        display: none; /* hide on small screens, shown in body */
+    }
+
+    .login-card {
+        padding: 1.5rem 1rem;
     }
 }

@@ -1,8 +1,9 @@
 """
 HPC Pilot - Kubernetes Deployment Web Application
 
-A minimalist Flask web app for deploying workloads to a Kubernetes cluster.
-The app runs outside the cluster and connects via kubeconfig.
+A Flask web app for deploying workloads to a Kubernetes cluster.
+Authenticated via EGI Check-in access tokens (JWT, JWKS signature validated).
+Each user gets a personal, isolated Kubernetes namespace.
 
 Usage:
     export KUBECONFIG=/path/to/kubeconfig   # optional, defaults to ~/.kube/config
@@ -14,7 +15,7 @@ import logging
 import os
 import re
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, session, url_for
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
@@ -25,6 +26,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
 
 
 def get_k8s_client():
@@ -41,33 +45,131 @@ def validate_k8s_name(name: str) -> bool:
     return bool(re.match(pattern, name))
 
 
-# ── Routes ────────────────────────────────────────────────────────────
+# ── Context processor — injects current_user into every template ──────
+
+
+@app.context_processor
+def inject_user():
+    """Make current_user available in all templates automatically."""
+    from token_auth import get_session_user
+
+    return {"current_user": get_session_user()}
+
+
+# ── Auth routes ───────────────────────────────────────────────────────
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Login page: accepts and validates an EGI Check-in access token."""
+    from token_auth import derive_namespace, validate_token
+
+    if request.method == "POST":
+        token = request.form.get("token", "").strip()
+        if not token:
+            flash("Please paste your EGI Check-in access token.", "error")
+            return redirect(url_for("login"))
+
+        # Validate the token (JWKS signature + expiry + trusted issuer)
+        try:
+            claims = validate_token(token)
+        except ValueError as exc:
+            flash(f"Token validation failed: {exc}", "error")
+            return redirect(url_for("login"))
+
+        # Derive the user's personal namespace from the sub claim
+        sub = claims["sub"]
+        namespace = derive_namespace(sub)
+
+        # Store validated credentials in the session
+        session.clear()
+        session["token"] = token
+        session["claims"] = claims
+        session["namespace"] = namespace
+
+        # Auto-create the user's namespace if it doesn't exist yet
+        try:
+            k8s = get_k8s_client()
+            if not k8s.namespace_exists(namespace):
+                result = k8s.create_namespace(namespace)
+                if result["success"]:
+                    logger.info(
+                        f"Auto-created namespace '{namespace}' for {sub[:20]}..."
+                    )
+                else:
+                    logger.warning(
+                        f"Could not auto-create namespace '{namespace}': {result.get('error')}"
+                    )
+        except Exception as exc:
+            # Non-fatal: namespace may be created on first deploy
+            logger.warning(f"Namespace pre-creation skipped: {exc}")
+
+        flash(f"Welcome! Your namespace is {namespace}.", "success")
+        next_url = request.form.get("next") or url_for("index")
+        return redirect(next_url)
+
+    # GET — render the login form
+    reason = request.args.get("reason")  # "expired"
+    refresh = request.args.get("refresh")  # "1"
+    next_url = request.args.get("next", "")
+    return render_template(
+        "login.html", reason=reason, refresh=refresh, next_url=next_url
+    )
+
+
+@app.route("/logout")
+def logout():
+    """Clear the session and redirect to the login page."""
+    reason = request.args.get("reason")
+    session.clear()
+    if reason == "expired":
+        flash(
+            "Your session has expired. Please paste a new token to continue.", "error"
+        )
+    else:
+        flash("You have been logged out.", "success")
+    return redirect(url_for("login"))
+
+
+# ── Main app routes ───────────────────────────────────────────────────
 
 
 @app.route("/")
 def index():
     """Main page with deployment form."""
-    error = None
-    namespaces = ["default"]
+    from token_auth import require_token, get_session_user
 
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    error = None
     try:
-        k8s = get_k8s_client()
-        namespaces = k8s.list_namespaces()
-    except Exception as e:
-        error = f"Cannot connect to Kubernetes cluster: {e}"
+        # Light connectivity check
+        get_k8s_client()
+    except Exception as exc:
+        error = f"Cannot connect to Kubernetes cluster: {exc}"
         logger.error(error)
 
-    return render_template("index.html", namespaces=namespaces, error=error)
+    return render_template("index.html", error=error)
 
 
 @app.route("/deploy", methods=["POST"])
 def deploy():
     """Handle deployment form submission."""
+    from token_auth import get_session_user
+
+    user = get_session_user()
+    if user is None:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    # The namespace is always the user's personal namespace — not from the form
+    namespace = session["namespace"]
+
     # Extract form data
     name = request.form.get("name", "").strip()
     image = request.form.get("image", "").strip()
-    namespace = request.form.get("namespace", "default").strip()
-    new_namespace = request.form.get("new_namespace", "").strip()
     replicas_str = request.form.get("replicas", "1").strip()
     cpu_request = request.form.get("cpu_request", "").strip() or None
     cpu_limit = request.form.get("cpu_limit", "").strip() or None
@@ -130,13 +232,6 @@ def deploy():
             "class": request.form.get("ingress_class", "").strip() or None,
         }
 
-    # Determine effective namespace
-    if namespace == "__new__" and new_namespace:
-        namespace = new_namespace
-    elif namespace == "__new__" and not new_namespace:
-        flash("Please enter a name for the new namespace.", "error")
-        return redirect(url_for("index"))
-
     # Validate required fields
     if not name:
         flash("Deployment name is required.", "error")
@@ -151,18 +246,15 @@ def deploy():
     if not image:
         flash("Container image is required.", "error")
         return redirect(url_for("index"))
-    if not validate_k8s_name(namespace):
-        flash("Invalid namespace name.", "error")
-        return redirect(url_for("index"))
 
     try:
         k8s = get_k8s_client()
 
-        # Create namespace if it doesn't exist
+        # Ensure user's namespace exists (may have been missed at login)
         if not k8s.namespace_exists(namespace):
             ns_result = k8s.create_namespace(namespace)
             if not ns_result["success"]:
-                flash(f"Failed to create namespace: {ns_result['error']}", "error")
+                flash(f"Failed to prepare namespace: {ns_result['error']}", "error")
                 return redirect(url_for("index"))
 
         # Create the deployment
@@ -183,33 +275,36 @@ def deploy():
 
         return render_template("status.html", result=result)
 
-    except Exception as e:
-        logger.error(f"Deployment failed: {e}")
-        flash(f"Deployment failed: {e}", "error")
+    except Exception as exc:
+        logger.error(f"Deployment failed: {exc}")
+        flash(f"Deployment failed: {exc}", "error")
         return redirect(url_for("index"))
 
 
 @app.route("/deployments")
 def deployments():
-    """List deployed workloads."""
-    namespace = request.args.get("namespace", "__all__")
+    """List the user's deployed workloads."""
+    from token_auth import get_session_user
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    namespace = session["namespace"]
     error = None
     deployment_list = []
-    namespaces = ["default"]
 
     try:
         k8s = get_k8s_client()
-        namespaces = k8s.list_namespaces()
         deployment_list = k8s.list_deployments(namespace=namespace)
-    except Exception as e:
-        error = f"Cannot connect to Kubernetes cluster: {e}"
+    except Exception as exc:
+        error = f"Cannot connect to Kubernetes cluster: {exc}"
         logger.error(error)
 
     return render_template(
         "deployments.html",
         deployments=deployment_list,
-        namespaces=namespaces,
-        selected_namespace=namespace,
+        namespace=namespace,
         error=error,
     )
 
@@ -217,6 +312,17 @@ def deployments():
 @app.route("/deployments/<namespace>/<name>/delete", methods=["POST"])
 def delete_deployment(namespace, name):
     """Delete a deployment and its associated service."""
+    from token_auth import get_session_user
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    # Security: users can only delete from their own namespace
+    if namespace != session["namespace"]:
+        flash("You can only delete deployments in your own namespace.", "error")
+        return redirect(url_for("deployments"))
+
     try:
         k8s = get_k8s_client()
         result = k8s.delete_deployment(name=name, namespace=namespace)
@@ -229,8 +335,8 @@ def delete_deployment(namespace, name):
                 else "Unknown error"
             )
             flash(f"Failed to delete deployment: {error}", "error")
-    except Exception as e:
-        flash(f"Error: {e}", "error")
+    except Exception as exc:
+        flash(f"Error: {exc}", "error")
 
     return redirect(url_for("deployments"))
 
@@ -238,26 +344,26 @@ def delete_deployment(namespace, name):
 @app.route("/deployments/<namespace>/<name>/status")
 def deployment_status(namespace, name):
     """Get deployment status as JSON (for AJAX refresh)."""
+    from token_auth import get_session_user
+
+    user = get_session_user()
+    if user is None:
+        return (
+            json.dumps({"error": "Not authenticated"}),
+            401,
+            {"Content-Type": "application/json"},
+        )
+
     try:
         k8s = get_k8s_client()
         status = k8s.get_deployment_status(name=name, namespace=namespace)
         return json.dumps(status), 200, {"Content-Type": "application/json"}
-    except Exception as e:
-        return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
-
-
-# ── API endpoint for namespaces (used by the form's JS) ──────────────
-
-
-@app.route("/api/namespaces")
-def api_namespaces():
-    """Return list of namespaces as JSON."""
-    try:
-        k8s = get_k8s_client()
-        namespaces = k8s.list_namespaces()
-        return json.dumps(namespaces), 200, {"Content-Type": "application/json"}
-    except Exception as e:
-        return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
+    except Exception as exc:
+        return (
+            json.dumps({"error": str(exc)}),
+            500,
+            {"Content-Type": "application/json"},
+        )
 
 
 # ── Main ──────────────────────────────────────────────────────────────

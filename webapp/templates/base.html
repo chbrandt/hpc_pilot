@@ -3,17 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}HPC Pilot - Pod Deployer{% endblock %}</title>
+    <title>{% block title %}HPC Pilot{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <nav class="navbar">
-        <div class="container">
-            <a href="{{ url_for('index') }}" class="nav-brand">⎈ HPC Pilot</a>
-            <div class="nav-links">
-                <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Deploy</a>
-                <a href="{{ url_for('deployments') }}" class="{% if request.endpoint == 'deployments' %}active{% endif %}">Deployments</a>
+        <div class="container navbar-inner">
+            <div class="nav-left">
+                <a href="{{ url_for('index') }}" class="nav-brand">⎈ HPC Pilot</a>
+                {% if current_user %}
+                <div class="nav-links">
+                    <a href="{{ url_for('index') }}"
+                       class="{% if request.endpoint == 'index' %}active{% endif %}">Deploy</a>
+                    <a href="{{ url_for('deployments') }}"
+                       class="{% if request.endpoint == 'deployments' %}active{% endif %}">Deployments</a>
+                </div>
+                {% endif %}
             </div>
+
+            {% if current_user %}
+            <div class="nav-user">
+                <span class="nav-namespace" title="{{ current_user.sub }}">
+                    👤 <code>{{ current_user.namespace }}</code>
+                </span>
+                <span class="nav-expiry">
+                    ⏱ <span id="token-countdown">--</span>
+                </span>
+                <a href="{{ url_for('login') }}?refresh=1"
+                   class="btn btn-small btn-secondary" title="Paste a fresh token">
+                    🔄 Refresh
+                </a>
+                <a href="{{ url_for('logout') }}"
+                   class="btn btn-small btn-danger" title="Log out">
+                    🚪 Logout
+                </a>
+                {# Hidden element carrying the token expiry epoch for JS #}
+                <span id="token-exp" data-exp="{{ current_user.exp }}" style="display:none;"></span>
+            </div>
+            {% endif %}
         </div>
     </nav>
 
@@ -33,9 +60,52 @@
     </main>
 
     <footer class="container">
-        <p class="text-muted">HPC Pilot — Kubernetes Pod Deployer</p>
+        <p class="text-muted">HPC Pilot — Kubernetes Workload Deployer</p>
     </footer>
 
     {% block scripts %}{% endblock %}
+
+    {% if current_user %}
+    <script>
+    /* ── Token expiry countdown + auto-logout ────────────────────── */
+    (function () {
+        const expEl = document.getElementById('token-exp');
+        const countdownEl = document.getElementById('token-countdown');
+        if (!expEl || !countdownEl) return;
+
+        const expMs = parseInt(expEl.dataset.exp, 10) * 1000;
+
+        function update() {
+            const remaining = expMs - Date.now();
+            if (remaining <= 0) {
+                window.location.href = '{{ url_for("logout") }}?reason=expired';
+                return;
+            }
+            const totalSecs = Math.floor(remaining / 1000);
+            const hours = Math.floor(totalSecs / 3600);
+            const mins  = Math.floor((totalSecs % 3600) / 60);
+            const secs  = totalSecs % 60;
+
+            if (hours > 0) {
+                countdownEl.textContent =
+                    `${hours}h ${String(mins).padStart(2,'0')}m`;
+            } else {
+                countdownEl.textContent =
+                    `${mins}m ${String(secs).padStart(2,'0')}s`;
+            }
+
+            // Turn countdown red when < 5 minutes remaining
+            const expiryEl = countdownEl.closest('.nav-expiry');
+            if (expiryEl) {
+                expiryEl.classList.toggle('nav-expiry-warn', remaining < 300_000);
+            }
+
+            setTimeout(update, 1000);
+        }
+
+        update();
+    })();
+    </script>
+    {% endif %}
 </body>
 </html>

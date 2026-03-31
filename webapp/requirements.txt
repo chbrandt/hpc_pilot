@@ -4,5 +4,12 @@ flask>=3.0.0
 # Kubernetes client
 kubernetes>=29.0.0
 
+# JWT validation (includes cryptography for RSA signature verification)
+PyJWT[crypto]>=2.8.0
+cryptography>=42.0.0
+
+# HTTP client (for JWKS / OIDC discovery)
+requests>=2.31.0
+
 # Utilities
 python-dotenv>=1.0.0
