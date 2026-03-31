@@ -1,8 +1,8 @@
 """
-Kubernetes client wrapper for pod deployment.
+Kubernetes client wrapper for Deployment management.
 
 Handles cluster connection via kubeconfig and provides methods
-for namespace management, pod creation, service exposure, and ingress.
+for namespace management, Deployment creation, service exposure, and ingress.
 """
 
 import json
@@ -30,6 +30,7 @@ class K8sClient:
         self.kubeconfig_path = kubeconfig_path or os.environ.get("KUBECONFIG")
         self._load_config()
         self.core_v1 = client.CoreV1Api()
+        self.apps_v1 = client.AppsV1Api()
         self.networking_v1 = client.NetworkingV1Api()
 
     def _load_config(self):
@@ -91,13 +92,14 @@ class K8sClient:
         except ApiException:
             return False
 
-    # ── Pod operations ────────────────────────────────────────────────
+    # ── Deployment operations ─────────────────────────────────────────
 
-    def create_pod(
+    def create_deployment(
         self,
         name: str,
         image: str,
         namespace: str = "default",
+        replicas: int = 1,
         cpu_request: Optional[str] = None,
         cpu_limit: Optional[str] = None,
         mem_request: Optional[str] = None,
@@ -108,12 +110,16 @@ class K8sClient:
         ingress: Optional[dict] = None,
     ) -> dict:
         """
-        Create a pod in the cluster.
+        Create a Deployment in the cluster.
+
+        A Deployment manages a ReplicaSet which keeps the desired number of
+        pod replicas running and handles self-healing and rolling updates.
 
         Args:
-            name: Pod name.
+            name: Deployment (and container) name.
             image: Container image (e.g. "nginx:latest").
             namespace: Target namespace.
+            replicas: Number of pod replicas (default 1).
             cpu_request: CPU request (e.g. "100m").
             cpu_limit: CPU limit (e.g. "500m").
             mem_request: Memory request (e.g. "64Mi").
@@ -128,7 +134,7 @@ class K8sClient:
                      "port" (int or str), "class" (str, optional).
 
         Returns:
-            dict with success status, pod info, service info, and optional ingress info.
+            dict with success status, deployment info, service info, and optional ingress info.
         """
         # Build container spec
         container = client.V1Container(
@@ -175,10 +181,23 @@ class K8sClient:
         if command:
             container.command = ["/bin/sh", "-c", command]
 
-        # Build pod spec
-        pod = client.V1Pod(
-            api_version="v1",
-            kind="Pod",
+        # Pod template used by the Deployment's ReplicaSet
+        pod_template = client.V1PodTemplateSpec(
+            metadata=client.V1ObjectMeta(
+                labels={
+                    "app": name,
+                    "created-by": "hpc-pilot-webapp",
+                },
+            ),
+            spec=client.V1PodSpec(
+                containers=[container],
+            ),
+        )
+
+        # Deployment object
+        deployment = client.V1Deployment(
+            api_version="apps/v1",
+            kind="Deployment",
             metadata=client.V1ObjectMeta(
                 name=name,
                 namespace=namespace,
@@ -187,20 +206,26 @@ class K8sClient:
                     "created-by": "hpc-pilot-webapp",
                 },
             ),
-            spec=client.V1PodSpec(
-                containers=[container],
-                restart_policy="Always",
+            spec=client.V1DeploymentSpec(
+                replicas=replicas,
+                selector=client.V1LabelSelector(
+                    match_labels={"app": name},
+                ),
+                template=pod_template,
             ),
         )
 
         try:
-            created = self.core_v1.create_namespaced_pod(namespace=namespace, body=pod)
+            created = self.apps_v1.create_namespaced_deployment(
+                namespace=namespace, body=deployment
+            )
             result = {
                 "success": True,
-                "pod_name": created.metadata.name,
+                "deployment_name": created.metadata.name,
                 "namespace": namespace,
                 "image": image,
-                "phase": created.status.phase or "Pending",
+                "replicas": replicas,
+                "status": "progressing",
             }
 
             # If ports were specified, create a NodePort service
@@ -226,7 +251,7 @@ class K8sClient:
             return result
 
         except ApiException as e:
-            logger.error(f"Failed to create pod: {e}")
+            logger.error(f"Failed to create deployment: {e}")
             error_msg = e.body if hasattr(e, "body") else str(e)
             try:
                 error_body = json.loads(error_msg)
@@ -245,7 +270,7 @@ class K8sClient:
         Create a NodePort service exposing one or more container ports externally.
 
         Args:
-            name: Pod name (used to derive service name and label selector).
+            name: Deployment name (used to derive service name and label selector).
             namespace: Namespace.
             ports: List of port dicts with "number", "name", "protocol".
 
@@ -331,7 +356,7 @@ class K8sClient:
         Create a Kubernetes Ingress resource to expose the service via HTTP hostname/path.
 
         Args:
-            name: Pod/app name (used for ingress name and labels).
+            name: Deployment/app name (used for ingress name and labels).
             namespace: Namespace.
             service_name: The backing Service name.
             ports: List of port dicts (to resolve the target port).
@@ -451,43 +476,49 @@ class K8sClient:
             pass
         return None
 
-    # ── Pod listing / status ──────────────────────────────────────────
+    # ── Deployment listing / status ───────────────────────────────────
 
-    def list_pods(self, namespace: Optional[str] = None) -> list[dict]:
+    def list_deployments(self, namespace: Optional[str] = None) -> list[dict]:
         """
-        List pods, optionally filtered by namespace.
+        List Deployments, optionally filtered by namespace.
 
         Args:
-            namespace: If set, list pods in this namespace only.
+            namespace: If set, list deployments in this namespace only.
                        Use "__all__" or None to list across all namespaces.
 
         Returns:
-            List of pod info dicts.
+            List of deployment info dicts.
         """
         try:
             if namespace and namespace != "__all__":
-                pods = self.core_v1.list_namespaced_pod(
+                deployments = self.apps_v1.list_namespaced_deployment(
                     namespace=namespace,
                     label_selector="created-by=hpc-pilot-webapp",
                 )
             else:
-                pods = self.core_v1.list_pod_for_all_namespaces(
+                deployments = self.apps_v1.list_deployment_for_all_namespaces(
                     label_selector="created-by=hpc-pilot-webapp",
                 )
 
             result = []
-            for pod in pods.items:
-                pod_info = {
-                    "name": pod.metadata.name,
-                    "namespace": pod.metadata.namespace,
-                    "image": pod.spec.containers[0].image
-                    if pod.spec.containers
+            for dep in deployments.items:
+                desired = dep.spec.replicas or 0
+                ready = dep.status.ready_replicas or 0
+
+                dep_info = {
+                    "name": dep.metadata.name,
+                    "namespace": dep.metadata.namespace,
+                    "image": dep.spec.template.spec.containers[0].image
+                    if dep.spec.template.spec.containers
                     else "?",
-                    "phase": pod.status.phase or "Unknown",
-                    "created": pod.metadata.creation_timestamp.strftime(
+                    "replicas": desired,
+                    "ready_replicas": ready,
+                    "replicas_status": f"{ready}/{desired}",
+                    "status": "available" if ready >= desired > 0 else "progressing",
+                    "created": dep.metadata.creation_timestamp.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
-                    if pod.metadata.creation_timestamp
+                    if dep.metadata.creation_timestamp
                     else "?",
                     "service_ports": [],
                     "ingress_url": None,
@@ -496,8 +527,8 @@ class K8sClient:
                 # Fetch associated NodePort service
                 try:
                     svc = self.core_v1.read_namespaced_service(
-                        name=f"{pod.metadata.name}-svc",
-                        namespace=pod.metadata.namespace,
+                        name=f"{dep.metadata.name}-svc",
+                        namespace=dep.metadata.namespace,
                     )
                     node_ip = self._get_node_ip()
                     for svc_port in svc.spec.ports or []:
@@ -510,15 +541,15 @@ class K8sClient:
                             detail["external_url"] = (
                                 f"http://{node_ip}:{svc_port.node_port}"
                             )
-                        pod_info["service_ports"].append(detail)
+                        dep_info["service_ports"].append(detail)
                 except ApiException:
                     pass
 
                 # Fetch associated Ingress
                 try:
                     ing = self.networking_v1.read_namespaced_ingress(
-                        name=f"{pod.metadata.name}-ingress",
-                        namespace=pod.metadata.namespace,
+                        name=f"{dep.metadata.name}-ingress",
+                        namespace=dep.metadata.namespace,
                     )
                     if ing.spec.rules:
                         rule = ing.spec.rules[0]
@@ -528,60 +559,70 @@ class K8sClient:
                             if rule.http and rule.http.paths
                             else "/"
                         )
-                        pod_info["ingress_url"] = f"http://{host}{path}"
+                        dep_info["ingress_url"] = f"http://{host}{path}"
                 except ApiException:
                     pass
 
-                result.append(pod_info)
+                result.append(dep_info)
 
             return result
 
         except ApiException as e:
-            logger.error(f"Failed to list pods: {e}")
+            logger.error(f"Failed to list deployments: {e}")
             return []
 
-    def get_pod_status(self, name: str, namespace: str = "default") -> dict:
-        """Get detailed status for a single pod."""
+    def get_deployment_status(self, name: str, namespace: str = "default") -> dict:
+        """Get detailed status for a single Deployment."""
         try:
-            pod = self.core_v1.read_namespaced_pod(name=name, namespace=namespace)
-            status = {
-                "name": pod.metadata.name,
-                "namespace": pod.metadata.namespace,
-                "phase": pod.status.phase or "Unknown",
-                "image": pod.spec.containers[0].image if pod.spec.containers else "?",
-                "created": pod.metadata.creation_timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                if pod.metadata.creation_timestamp
+            dep = self.apps_v1.read_namespaced_deployment(
+                name=name, namespace=namespace
+            )
+            desired = dep.spec.replicas or 0
+            ready = dep.status.ready_replicas or 0
+            available = dep.status.available_replicas or 0
+            updated = dep.status.updated_replicas or 0
+
+            # Determine condition from status conditions
+            conditions = dep.status.conditions or []
+            condition_map = {c.type: c.status for c in conditions}
+            if condition_map.get("Available") == "True":
+                condition = "available"
+            elif condition_map.get("Progressing") == "True":
+                condition = "progressing"
+            else:
+                condition = "unknown"
+
+            return {
+                "name": dep.metadata.name,
+                "namespace": dep.metadata.namespace,
+                "replicas": desired,
+                "ready_replicas": ready,
+                "available_replicas": available,
+                "updated_replicas": updated,
+                "replicas_status": f"{ready}/{desired}",
+                "status": condition,
+                "image": dep.spec.template.spec.containers[0].image
+                if dep.spec.template.spec.containers
+                else "?",
+                "created": dep.metadata.creation_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                if dep.metadata.creation_timestamp
                 else "?",
             }
 
-            # Container statuses
-            if pod.status.container_statuses:
-                cs = pod.status.container_statuses[0]
-                status["ready"] = cs.ready
-                status["restart_count"] = cs.restart_count
-                if cs.state.running:
-                    status["state"] = "Running"
-                elif cs.state.waiting:
-                    status["state"] = cs.state.waiting.reason or "Waiting"
-                elif cs.state.terminated:
-                    status["state"] = cs.state.terminated.reason or "Terminated"
-
-            return status
-
         except ApiException as e:
-            logger.error(f"Failed to get pod status: {e}")
+            logger.error(f"Failed to get deployment status: {e}")
             return {"error": str(e)}
 
-    def delete_pod(self, name: str, namespace: str = "default") -> dict:
-        """Delete a pod and its associated service and ingress."""
-        results = {"pod": None, "service": None, "ingress": None}
+    def delete_deployment(self, name: str, namespace: str = "default") -> dict:
+        """Delete a Deployment and its associated service and ingress."""
+        results = {"deployment": None, "service": None, "ingress": None}
 
-        # Delete the pod
+        # Delete the deployment
         try:
-            self.core_v1.delete_namespaced_pod(name=name, namespace=namespace)
-            results["pod"] = {"success": True, "name": name}
+            self.apps_v1.delete_namespaced_deployment(name=name, namespace=namespace)
+            results["deployment"] = {"success": True, "name": name}
         except ApiException as e:
-            results["pod"] = {"success": False, "error": str(e)}
+            results["deployment"] = {"success": False, "error": str(e)}
 
         # Try to delete associated NodePort service
         svc_name = f"{name}-svc"

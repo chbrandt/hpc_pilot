@@ -8,12 +8,12 @@
 {% if result.success %}
     <div class="status-card status-success">
         <div class="status-icon">✅</div>
-        <h2>Pod Deployed Successfully!</h2>
+        <h2>Deployment Created Successfully!</h2>
 
         <table class="info-table">
             <tr>
-                <th>Pod Name</th>
-                <td>{{ result.pod_name }}</td>
+                <th>Name</th>
+                <td>{{ result.deployment_name }}</td>
             </tr>
             <tr>
                 <th>Namespace</th>
@@ -24,10 +24,15 @@
                 <td>{{ result.image }}</td>
             </tr>
             <tr>
-                <th>Status</th>
+                <th>Replicas</th>
+                <td>{{ result.replicas }}</td>
+            </tr>
+            <tr>
+                <th>Ready</th>
                 <td>
-                    <span class="badge badge-{{ result.phase | lower }}" id="pod-phase">
-                        {{ result.phase }}
+                    <span class="badge badge-{{ result.status }}" id="dep-status">
+                        <span id="dep-replicas">0/{{ result.replicas }}</span>
+                        &nbsp;({{ result.status }})
                     </span>
                 </td>
             </tr>
@@ -121,26 +126,34 @@
 
 <div class="form-actions">
     <a href="{{ url_for('index') }}" class="btn btn-secondary">← Deploy Another</a>
-    <a href="{{ url_for('pods') }}" class="btn btn-primary">View All Pods</a>
+    <a href="{{ url_for('deployments') }}" class="btn btn-primary">View All Deployments</a>
 </div>
 
 {% if result.success %}
-<!-- Auto-refresh pod status -->
+<!-- Auto-refresh deployment status until Available -->
 <script>
-    const podName = "{{ result.pod_name }}";
+    const depName = "{{ result.deployment_name }}";
     const namespace = "{{ result.namespace }}";
-    const phaseEl = document.getElementById('pod-phase');
+    const statusEl = document.getElementById('dep-status');
+    const replicasEl = document.getElementById('dep-replicas');
 
     function refreshStatus() {
-        fetch(`/pods/${namespace}/${podName}/status`)
+        fetch(`/deployments/${namespace}/${depName}/status`)
             .then(r => r.json())
             .then(data => {
-                if (data.phase) {
-                    phaseEl.textContent = data.state || data.phase;
-                    phaseEl.className = 'badge badge-' + data.phase.toLowerCase();
+                if (data.replicas_status) {
+                    replicasEl.textContent = data.replicas_status;
                 }
-                // Keep refreshing until Running or Failed
-                if (data.phase === 'Pending') {
+                if (data.status) {
+                    statusEl.className = 'badge badge-' + data.status;
+                    // Update the text node after the replicas span
+                    const textNode = statusEl.lastChild;
+                    if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+                        textNode.textContent = '\u00a0(' + data.status + ')';
+                    }
+                }
+                // Keep polling until Available
+                if (data.status && data.status !== 'available') {
                     setTimeout(refreshStatus, 3000);
                 }
             })

@@ -1,7 +1,7 @@
 """
-HPC Pilot - Kubernetes Pod Deployer Web Application
+HPC Pilot - Kubernetes Deployment Web Application
 
-A minimalist Flask web app for deploying pods to a Kubernetes cluster.
+A minimalist Flask web app for deploying workloads to a Kubernetes cluster.
 The app runs outside the cluster and connects via kubeconfig.
 
 Usage:
@@ -46,7 +46,7 @@ def validate_k8s_name(name: str) -> bool:
 
 @app.route("/")
 def index():
-    """Main page with pod deployment form."""
+    """Main page with deployment form."""
     error = None
     namespaces = ["default"]
 
@@ -62,17 +62,27 @@ def index():
 
 @app.route("/deploy", methods=["POST"])
 def deploy():
-    """Handle pod deployment form submission."""
+    """Handle deployment form submission."""
     # Extract form data
-    pod_name = request.form.get("pod_name", "").strip()
+    name = request.form.get("name", "").strip()
     image = request.form.get("image", "").strip()
     namespace = request.form.get("namespace", "default").strip()
     new_namespace = request.form.get("new_namespace", "").strip()
+    replicas_str = request.form.get("replicas", "1").strip()
     cpu_request = request.form.get("cpu_request", "").strip() or None
     cpu_limit = request.form.get("cpu_limit", "").strip() or None
     mem_request = request.form.get("mem_request", "").strip() or None
     mem_limit = request.form.get("mem_limit", "").strip() or None
     command = request.form.get("command", "").strip() or None
+
+    # Parse replicas
+    try:
+        replicas = int(replicas_str)
+        if replicas < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash("Replicas must be a positive integer.", "error")
+        return redirect(url_for("index"))
 
     # Environment variables (from dynamic form fields)
     env_keys = request.form.getlist("env_key")
@@ -128,12 +138,12 @@ def deploy():
         return redirect(url_for("index"))
 
     # Validate required fields
-    if not pod_name:
-        flash("Pod name is required.", "error")
+    if not name:
+        flash("Deployment name is required.", "error")
         return redirect(url_for("index"))
-    if not validate_k8s_name(pod_name):
+    if not validate_k8s_name(name):
         flash(
-            "Invalid pod name. Must be lowercase alphanumeric and hyphens, "
+            "Invalid deployment name. Must be lowercase alphanumeric and hyphens, "
             "start/end with alphanumeric, max 63 characters.",
             "error",
         )
@@ -155,11 +165,12 @@ def deploy():
                 flash(f"Failed to create namespace: {ns_result['error']}", "error")
                 return redirect(url_for("index"))
 
-        # Create the pod
-        result = k8s.create_pod(
-            name=pod_name,
+        # Create the deployment
+        result = k8s.create_deployment(
+            name=name,
             image=image,
             namespace=namespace,
+            replicas=replicas,
             cpu_request=cpu_request,
             cpu_limit=cpu_limit,
             mem_request=mem_request,
@@ -178,54 +189,58 @@ def deploy():
         return redirect(url_for("index"))
 
 
-@app.route("/pods")
-def pods():
-    """List deployed pods."""
+@app.route("/deployments")
+def deployments():
+    """List deployed workloads."""
     namespace = request.args.get("namespace", "__all__")
     error = None
-    pod_list = []
+    deployment_list = []
     namespaces = ["default"]
 
     try:
         k8s = get_k8s_client()
         namespaces = k8s.list_namespaces()
-        pod_list = k8s.list_pods(namespace=namespace)
+        deployment_list = k8s.list_deployments(namespace=namespace)
     except Exception as e:
         error = f"Cannot connect to Kubernetes cluster: {e}"
         logger.error(error)
 
     return render_template(
-        "pods.html",
-        pods=pod_list,
+        "deployments.html",
+        deployments=deployment_list,
         namespaces=namespaces,
         selected_namespace=namespace,
         error=error,
     )
 
 
-@app.route("/pods/<namespace>/<name>/delete", methods=["POST"])
-def delete_pod(namespace, name):
-    """Delete a pod and its associated service."""
+@app.route("/deployments/<namespace>/<name>/delete", methods=["POST"])
+def delete_deployment(namespace, name):
+    """Delete a deployment and its associated service."""
     try:
         k8s = get_k8s_client()
-        result = k8s.delete_pod(name=name, namespace=namespace)
-        if result["pod"] and result["pod"]["success"]:
-            flash(f"Pod '{name}' deleted successfully.", "success")
+        result = k8s.delete_deployment(name=name, namespace=namespace)
+        if result["deployment"] and result["deployment"]["success"]:
+            flash(f"Deployment '{name}' deleted successfully.", "success")
         else:
-            error = result["pod"]["error"] if result["pod"] else "Unknown error"
-            flash(f"Failed to delete pod: {error}", "error")
+            error = (
+                result["deployment"]["error"]
+                if result["deployment"]
+                else "Unknown error"
+            )
+            flash(f"Failed to delete deployment: {error}", "error")
     except Exception as e:
         flash(f"Error: {e}", "error")
 
-    return redirect(url_for("pods"))
+    return redirect(url_for("deployments"))
 
 
-@app.route("/pods/<namespace>/<name>/status")
-def pod_status(namespace, name):
-    """Get pod status as JSON (for AJAX refresh)."""
+@app.route("/deployments/<namespace>/<name>/status")
+def deployment_status(namespace, name):
+    """Get deployment status as JSON (for AJAX refresh)."""
     try:
         k8s = get_k8s_client()
-        status = k8s.get_pod_status(name=name, namespace=namespace)
+        status = k8s.get_deployment_status(name=name, namespace=namespace)
         return json.dumps(status), 200, {"Content-Type": "application/json"}
     except Exception as e:
         return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}

@@ -414,6 +414,16 @@ legend {
     color: #475569;
 }
 
+.badge-available {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.badge-progressing {
+    background: #fef9c3;
+    color: #854d0e;
+}
+
 /* ── Port form columns ─────────────────────────────────────────────── */
 .port-header {
     font-size: 0.75rem;
