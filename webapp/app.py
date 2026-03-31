@@ -283,27 +283,65 @@ def deploy():
 
 @app.route("/deployments")
 def deployments():
-    """List the user's deployed workloads."""
+    """List all user workloads: container deployments and Helm releases merged."""
     from token_auth import get_session_user
+    from helm_client import helm_list
 
     user = get_session_user()
     if user is None:
         return redirect(url_for("login"))
 
     namespace = session["namespace"]
-    error = None
-    deployment_list = []
+    errors = []
+    workloads = []
 
+    # ── Container deployments (K8s Deployments) ───────────────────────
     try:
         k8s = get_k8s_client()
-        deployment_list = k8s.list_deployments(namespace=namespace)
+        for dep in k8s.list_deployments(namespace=namespace):
+            workloads.append(
+                {
+                    "kind": "container",
+                    "name": dep["name"],
+                    "namespace": dep["namespace"],
+                    "detail": dep.get("image", ""),
+                    "status": dep.get("status", "unknown"),
+                    "status_label": dep.get("replicas_status", ""),
+                    "created": dep.get("created", ""),
+                    "service_ports": dep.get("service_ports"),
+                    "ingress_url": dep.get("ingress_url"),
+                }
+            )
     except Exception as exc:
-        error = f"Cannot connect to Kubernetes cluster: {exc}"
-        logger.error(error)
+        errors.append(f"Deployments: {exc}")
+        logger.error(f"Could not list container deployments: {exc}")
+
+    # ── Helm releases ─────────────────────────────────────────────────
+    try:
+        for rel in helm_list(namespace=namespace):
+            workloads.append(
+                {
+                    "kind": "helm",
+                    "name": rel["name"],
+                    "namespace": rel["namespace"],
+                    "detail": rel.get("chart", ""),
+                    "status": rel.get("status", "unknown"),
+                    "status_label": rel.get("status", ""),
+                    "created": rel.get("updated", ""),
+                    "service_ports": None,
+                    "ingress_url": None,
+                    "app_version": rel.get("app_version", ""),
+                }
+            )
+    except Exception as exc:
+        errors.append(f"Helm releases: {exc}")
+        logger.error(f"Could not list Helm releases: {exc}")
+
+    error = "; ".join(errors) if errors else None
 
     return render_template(
         "deployments.html",
-        deployments=deployment_list,
+        workloads=workloads,
         namespace=namespace,
         error=error,
     )
@@ -364,6 +402,139 @@ def deployment_status(namespace, name):
             500,
             {"Content-Type": "application/json"},
         )
+
+
+# ── Helm routes ──────────────────────────────────────────────────────
+
+
+@app.route("/helm")
+def helm_page():
+    """Helm chart deployment form."""
+    from token_auth import get_session_user
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    return render_template("helm.html")
+
+
+@app.route("/helm/install", methods=["POST"])
+def helm_install_route():
+    """Handle Helm chart installation."""
+    from token_auth import get_session_user
+    from helm_client import helm_install
+
+    user = get_session_user()
+    if user is None:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    namespace = session["namespace"]
+
+    # Extract form data
+    release_name = request.form.get("release_name", "").strip()
+    chart = request.form.get("chart", "").strip()
+    version = request.form.get("version", "").strip() or None
+    values_yaml = request.form.get("values_yaml", "").strip() or None
+
+    # Validate required fields
+    if not release_name:
+        flash("Release name is required.", "error")
+        return redirect(url_for("helm_page"))
+    if not validate_k8s_name(release_name):
+        flash(
+            "Invalid release name. Must be lowercase alphanumeric and hyphens, "
+            "start/end with alphanumeric, max 63 characters.",
+            "error",
+        )
+        return redirect(url_for("helm_page"))
+    if not chart:
+        flash("Chart reference is required.", "error")
+        return redirect(url_for("helm_page"))
+
+    try:
+        k8s = get_k8s_client()
+
+        # Ensure user's namespace exists
+        if not k8s.namespace_exists(namespace):
+            ns_result = k8s.create_namespace(namespace)
+            if not ns_result["success"]:
+                flash(f"Failed to prepare namespace: {ns_result['error']}", "error")
+                return redirect(url_for("helm_page"))
+
+        result = helm_install(
+            release_name=release_name,
+            chart=chart,
+            namespace=namespace,
+            values_yaml=values_yaml,
+            version=version,
+        )
+
+    except Exception as exc:
+        logger.error(f"Helm install failed: {exc}")
+        flash(f"Helm install failed: {exc}", "error")
+        return redirect(url_for("helm_page"))
+
+    return render_template(
+        "helm_result.html",
+        result=result,
+        release_name=release_name,
+        chart=chart,
+        namespace=namespace,
+    )
+
+
+@app.route("/releases")
+def releases():
+    """List Helm releases in the user's namespace."""
+    from token_auth import get_session_user
+    from helm_client import helm_list
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    namespace = session["namespace"]
+    error = None
+    release_list = []
+
+    try:
+        release_list = helm_list(namespace=namespace)
+    except Exception as exc:
+        error = f"Cannot list Helm releases: {exc}"
+        logger.error(error)
+
+    return render_template(
+        "releases.html",
+        releases=release_list,
+        namespace=namespace,
+        error=error,
+    )
+
+
+@app.route("/releases/<name>/delete", methods=["POST"])
+def delete_release(name):
+    """Uninstall a Helm release."""
+    from token_auth import get_session_user
+    from helm_client import helm_uninstall
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    namespace = session["namespace"]
+
+    try:
+        result = helm_uninstall(release_name=name, namespace=namespace)
+        if result["success"]:
+            flash(f"Release '{name}' uninstalled successfully.", "success")
+        else:
+            flash(f"Failed to uninstall release: {result['error']}", "error")
+    except Exception as exc:
+        flash(f"Error: {exc}", "error")
+
+    return redirect(url_for("deployments"))
 
 
 # ── Main ──────────────────────────────────────────────────────────────

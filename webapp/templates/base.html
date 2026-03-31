@@ -15,6 +15,8 @@
                 <div class="nav-links">
                     <a href="{{ url_for('index') }}"
                        class="{% if request.endpoint == 'index' %}active{% endif %}">Deploy</a>
+                    <a href="{{ url_for('helm_page') }}"
+                       class="{% if request.endpoint == 'helm_page' %}active{% endif %}">Deploy Chart</a>
                     <a href="{{ url_for('deployments') }}"
                        class="{% if request.endpoint == 'deployments' %}active{% endif %}">Deployments</a>
                 </div>
