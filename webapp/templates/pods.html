@@ -30,7 +30,8 @@
                 <th>Image</th>
                 <th>Status</th>
                 <th>Created</th>
-                <th>Access</th>
+                <th>NodePorts</th>
+                <th>Ingress</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -45,14 +46,32 @@
                 </td>
                 <td>{{ pod.created }}</td>
                 <td>
-                    {% if pod.external_url %}
-                        <a href="{{ pod.external_url }}" target="_blank" class="external-link">
-                            {{ pod.external_url }}
-                        </a>
-                    {% elif pod.node_port %}
-                        Port: {{ pod.node_port }}
+                    {% if pod.service_ports %}
+                        <ul class="port-list">
+                        {% for p in pod.service_ports %}
+                            <li>
+                                {% if p.name %}<span class="port-name">{{ p.name }}</span>{% endif %}
+                                {% if p.external_url %}
+                                    <a href="{{ p.external_url }}" target="_blank" class="external-link">
+                                        :{{ p.node_port }}
+                                    </a>
+                                {% else %}
+                                    :{{ p.node_port }}
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                        </ul>
                     {% else %}
-                        —
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if pod.ingress_url %}
+                        <a href="{{ pod.ingress_url }}" target="_blank" class="external-link">
+                            {{ pod.ingress_url }}
+                        </a>
+                    {% else %}
+                        <span class="text-muted">—</span>
                     {% endif %}
                 </td>
                 <td>

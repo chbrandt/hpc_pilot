@@ -81,3 +81,60 @@ webapp/
 - Only pods created by this app (labeled `created-by=hpc-pilot-webapp`) appear in the pod list
 - The app requires `kubectl` access via kubeconfig — no in-cluster auth
 - No authentication is built in; this is meant for operators with cluster access
+
+## Kubeconfig
+
+Allow app to perform the following operations:
+
+- Namespaces: list, create
+- Pods: create, list, get status, delete
+- Services: create, list, get, delete (for NodePort exposure)
+- Nodes: list (to retrieve node IPs for external URLs)
+
+The user in the kubeconfig needs a `ClusterRole` or `Role`:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hpc-manager
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "namespaces", "nodes"]
+    verbs: ["get", "list", "create", "delete"]
+```
+
+Place this config in `~/.kube/config` or set `KUBECONFIG` env-var to
+point to it.
+
+Alternatively, you can command the creation of the role:
+
+```bash
+kubectl create clusterrole hpc-manager \
+    --verb=get,list,create,delete \
+    --resource=pods,services,namespaces,nodes
+```
+
+And then bind it to your user:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hpc-manager-binding
+subjects:
+  - kind: User
+    name: minikube
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: hpc-manager
+  apiGroup: rbac.authorization.k8s.io
+```
+
+Or,
+
+```bash
+kubectl create clusterrolbinding hpc-manager-binding \
+    --clusterrole=hpc-manager --user=minikube
+```

@@ -2,9 +2,10 @@
 Kubernetes client wrapper for pod deployment.
 
 Handles cluster connection via kubeconfig and provides methods
-for namespace management, pod creation, and service exposure.
+for namespace management, pod creation, service exposure, and ingress.
 """
 
+import json
 import logging
 import os
 from typing import Optional
@@ -29,6 +30,7 @@ class K8sClient:
         self.kubeconfig_path = kubeconfig_path or os.environ.get("KUBECONFIG")
         self._load_config()
         self.core_v1 = client.CoreV1Api()
+        self.networking_v1 = client.NetworkingV1Api()
 
     def _load_config(self):
         """Load Kubernetes configuration from kubeconfig file."""
@@ -101,8 +103,9 @@ class K8sClient:
         mem_request: Optional[str] = None,
         mem_limit: Optional[str] = None,
         env_vars: Optional[dict[str, str]] = None,
-        port: Optional[int] = None,
+        ports: Optional[list[dict]] = None,
         command: Optional[str] = None,
+        ingress: Optional[dict] = None,
     ) -> dict:
         """
         Create a pod in the cluster.
@@ -116,11 +119,16 @@ class K8sClient:
             mem_request: Memory request (e.g. "64Mi").
             mem_limit: Memory limit (e.g. "256Mi").
             env_vars: Dict of environment variable key-value pairs.
-            port: Container port to expose.
-            command: Override command (shell string, split on spaces).
+            ports: List of port dicts, each with keys:
+                   "number" (int), "name" (str, optional),
+                   "protocol" (str, default "TCP").
+            command: Override command (shell string).
+            ingress: Optional dict with keys:
+                     "host" (str), "path" (str),
+                     "port" (int or str), "class" (str, optional).
 
         Returns:
-            dict with success status, pod info, and optional service info.
+            dict with success status, pod info, service info, and optional ingress info.
         """
         # Build container spec
         container = client.V1Container(
@@ -130,7 +138,6 @@ class K8sClient:
         )
 
         # Resources
-        resources = {}
         requests = {}
         limits = {}
         if cpu_request:
@@ -153,9 +160,16 @@ class K8sClient:
                 client.V1EnvVar(name=k, value=v) for k, v in env_vars.items()
             ]
 
-        # Port
-        if port:
-            container.ports = [client.V1ContainerPort(container_port=port)]
+        # Ports
+        if ports:
+            container.ports = [
+                client.V1ContainerPort(
+                    container_port=p["number"],
+                    name=p.get("name") or None,
+                    protocol=p.get("protocol", "TCP"),
+                )
+                for p in ports
+            ]
 
         # Command override
         if command:
@@ -189,14 +203,25 @@ class K8sClient:
                 "phase": created.status.phase or "Pending",
             }
 
-            # If a port was specified, create a NodePort service
-            if port:
+            # If ports were specified, create a NodePort service
+            if ports:
                 svc_result = self._create_nodeport_service(
                     name=name,
                     namespace=namespace,
-                    target_port=port,
+                    ports=ports,
                 )
                 result["service"] = svc_result
+
+                # If ingress config was provided, create an Ingress resource
+                if ingress and svc_result.get("success"):
+                    ing_result = self._create_ingress(
+                        name=name,
+                        namespace=namespace,
+                        service_name=f"{name}-svc",
+                        ports=ports,
+                        ingress_config=ingress,
+                    )
+                    result["ingress"] = ing_result
 
             return result
 
@@ -204,8 +229,6 @@ class K8sClient:
             logger.error(f"Failed to create pod: {e}")
             error_msg = e.body if hasattr(e, "body") else str(e)
             try:
-                import json
-
                 error_body = json.loads(error_msg)
                 error_msg = error_body.get("message", str(e))
             except (json.JSONDecodeError, TypeError):
@@ -216,20 +239,34 @@ class K8sClient:
         self,
         name: str,
         namespace: str,
-        target_port: int,
+        ports: list[dict],
     ) -> dict:
         """
-        Create a NodePort service to expose a pod's port externally.
+        Create a NodePort service exposing one or more container ports externally.
 
         Args:
-            name: Pod name (used to derive service name and selector).
+            name: Pod name (used to derive service name and label selector).
             namespace: Namespace.
-            target_port: The container port to expose.
+            ports: List of port dicts with "number", "name", "protocol".
 
         Returns:
-            dict with service details including node port.
+            dict with service details, including per-port node ports.
         """
         svc_name = f"{name}-svc"
+
+        svc_ports = []
+        for p in ports:
+            port_num = p["number"]
+            port_name = p.get("name") or f"port-{port_num}"
+            protocol = p.get("protocol", "TCP")
+            svc_ports.append(
+                client.V1ServicePort(
+                    name=port_name,
+                    port=port_num,
+                    target_port=port_num,
+                    protocol=protocol,
+                )
+            )
 
         service = client.V1Service(
             api_version="v1",
@@ -245,13 +282,7 @@ class K8sClient:
             spec=client.V1ServiceSpec(
                 type="NodePort",
                 selector={"app": name},
-                ports=[
-                    client.V1ServicePort(
-                        port=target_port,
-                        target_port=target_port,
-                        protocol="TCP",
-                    )
-                ],
+                ports=svc_ports,
             ),
         )
 
@@ -259,26 +290,143 @@ class K8sClient:
             created = self.core_v1.create_namespaced_service(
                 namespace=namespace, body=service
             )
-            node_port = created.spec.ports[0].node_port
 
-            # Try to get a node IP for the access URL
             node_ip = self._get_node_ip()
 
-            result = {
+            # Build per-port details
+            port_details = []
+            for svc_port in created.spec.ports:
+                detail = {
+                    "name": svc_port.name,
+                    "port": svc_port.port,
+                    "node_port": svc_port.node_port,
+                    "protocol": svc_port.protocol,
+                }
+                if node_ip:
+                    detail["external_url"] = f"http://{node_ip}:{svc_port.node_port}"
+                else:
+                    detail["external_url"] = f"http://<node-ip>:{svc_port.node_port}"
+                port_details.append(detail)
+
+            return {
                 "success": True,
                 "service_name": svc_name,
-                "node_port": node_port,
-                "target_port": target_port,
+                "node_ip": node_ip,
+                "ports": port_details,
             }
-            if node_ip:
-                result["external_url"] = f"http://{node_ip}:{node_port}"
-            else:
-                result["external_url"] = f"http://<node-ip>:{node_port}"
-
-            return result
 
         except ApiException as e:
             logger.error(f"Failed to create service: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _create_ingress(
+        self,
+        name: str,
+        namespace: str,
+        service_name: str,
+        ports: list[dict],
+        ingress_config: dict,
+    ) -> dict:
+        """
+        Create a Kubernetes Ingress resource to expose the service via HTTP hostname/path.
+
+        Args:
+            name: Pod/app name (used for ingress name and labels).
+            namespace: Namespace.
+            service_name: The backing Service name.
+            ports: List of port dicts (to resolve the target port).
+            ingress_config: Dict with optional keys:
+                "host"  – hostname (default: "" → matches all hosts)
+                "path"  – URL path prefix (default: "/")
+                "port"  – target port number or name (default: first port)
+                "class" – IngressClass name (default: None → cluster default)
+
+        Returns:
+            dict with ingress details.
+        """
+        ingress_name = f"{name}-ingress"
+        host = ingress_config.get("host", "")
+        path = ingress_config.get("path", "/") or "/"
+        ingress_class = ingress_config.get("class") or None
+
+        # Resolve target port
+        target_port_raw = ingress_config.get("port")
+        if target_port_raw:
+            try:
+                target_port = client.V1ServiceBackendPort(number=int(target_port_raw))
+            except (ValueError, TypeError):
+                # Treat as named port
+                target_port = client.V1ServiceBackendPort(name=str(target_port_raw))
+        else:
+            # Default: first defined port
+            first_port = ports[0]
+            if first_port.get("name"):
+                target_port = client.V1ServiceBackendPort(name=first_port["name"])
+            else:
+                target_port = client.V1ServiceBackendPort(number=first_port["number"])
+
+        backend = client.V1IngressBackend(
+            service=client.V1IngressServiceBackend(
+                name=service_name,
+                port=target_port,
+            )
+        )
+
+        http_rule = client.V1HTTPIngressRuleValue(
+            paths=[
+                client.V1HTTPIngressPath(
+                    path=path,
+                    path_type="Prefix",
+                    backend=backend,
+                )
+            ]
+        )
+
+        rule = client.V1IngressRule(
+            host=host or None,
+            http=http_rule,
+        )
+
+        metadata = client.V1ObjectMeta(
+            name=ingress_name,
+            namespace=namespace,
+            labels={
+                "app": name,
+                "created-by": "hpc-pilot-webapp",
+            },
+        )
+        if ingress_class:
+            metadata.annotations = {
+                "kubernetes.io/ingress.class": ingress_class,
+            }
+
+        spec = client.V1IngressSpec(
+            rules=[rule],
+        )
+        if ingress_class:
+            spec.ingress_class_name = ingress_class
+
+        ingress_body = client.V1Ingress(
+            api_version="networking.k8s.io/v1",
+            kind="Ingress",
+            metadata=metadata,
+            spec=spec,
+        )
+
+        try:
+            created = self.networking_v1.create_namespaced_ingress(
+                namespace=namespace, body=ingress_body
+            )
+            url = f"http://{host}{path}" if host else f"http://<ingress-ip>{path}"
+            return {
+                "success": True,
+                "ingress_name": ingress_name,
+                "host": host or "*",
+                "path": path,
+                "url": url,
+            }
+        except ApiException as e:
+            logger.error(f"Failed to create ingress: {e}")
             return {"success": False, "error": str(e)}
 
     def _get_node_ip(self) -> Optional[str]:
@@ -306,7 +454,7 @@ class K8sClient:
 
         Args:
             namespace: If set, list pods in this namespace only.
-                Otherwise list pods across all namespaces.
+                       Use "__all__" or None to list across all namespaces.
 
         Returns:
             List of pod info dicts.
@@ -336,20 +484,46 @@ class K8sClient:
                     )
                     if pod.metadata.creation_timestamp
                     else "?",
+                    "service_ports": [],
+                    "ingress_url": None,
                 }
 
-                # Check for associated service
+                # Fetch associated NodePort service
                 try:
                     svc = self.core_v1.read_namespaced_service(
                         name=f"{pod.metadata.name}-svc",
                         namespace=pod.metadata.namespace,
                     )
-                    if svc.spec.ports:
-                        node_port = svc.spec.ports[0].node_port
-                        node_ip = self._get_node_ip()
-                        pod_info["node_port"] = node_port
-                        if node_ip:
-                            pod_info["external_url"] = f"http://{node_ip}:{node_port}"
+                    node_ip = self._get_node_ip()
+                    for svc_port in svc.spec.ports or []:
+                        detail = {
+                            "name": svc_port.name,
+                            "port": svc_port.port,
+                            "node_port": svc_port.node_port,
+                        }
+                        if node_ip and svc_port.node_port:
+                            detail["external_url"] = (
+                                f"http://{node_ip}:{svc_port.node_port}"
+                            )
+                        pod_info["service_ports"].append(detail)
+                except ApiException:
+                    pass
+
+                # Fetch associated Ingress
+                try:
+                    ing = self.networking_v1.read_namespaced_ingress(
+                        name=f"{pod.metadata.name}-ingress",
+                        namespace=pod.metadata.namespace,
+                    )
+                    if ing.spec.rules:
+                        rule = ing.spec.rules[0]
+                        host = rule.host or "<ingress-ip>"
+                        path = (
+                            rule.http.paths[0].path
+                            if rule.http and rule.http.paths
+                            else "/"
+                        )
+                        pod_info["ingress_url"] = f"http://{host}{path}"
                 except ApiException:
                     pass
 
@@ -394,8 +568,8 @@ class K8sClient:
             return {"error": str(e)}
 
     def delete_pod(self, name: str, namespace: str = "default") -> dict:
-        """Delete a pod and its associated service."""
-        results = {"pod": None, "service": None}
+        """Delete a pod and its associated service and ingress."""
+        results = {"pod": None, "service": None, "ingress": None}
 
         # Delete the pod
         try:
@@ -404,13 +578,22 @@ class K8sClient:
         except ApiException as e:
             results["pod"] = {"success": False, "error": str(e)}
 
-        # Try to delete associated service
+        # Try to delete associated NodePort service
         svc_name = f"{name}-svc"
         try:
             self.core_v1.delete_namespaced_service(name=svc_name, namespace=namespace)
             results["service"] = {"success": True, "name": svc_name}
         except ApiException:
-            # Service may not exist — that's fine
-            pass
+            pass  # Service may not exist — that's fine
+
+        # Try to delete associated Ingress
+        ingress_name = f"{name}-ingress"
+        try:
+            self.networking_v1.delete_namespaced_ingress(
+                name=ingress_name, namespace=namespace
+            )
+            results["ingress"] = {"success": True, "name": ingress_name}
+        except ApiException:
+            pass  # Ingress may not exist — that's fine
 
         return results

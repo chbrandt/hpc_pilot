@@ -414,6 +414,102 @@ legend {
     color: #475569;
 }
 
+/* ── Port form columns ─────────────────────────────────────────────── */
+.port-header {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.25rem;
+    align-items: center;
+}
+
+.port-row {
+    align-items: center;
+    margin-bottom: 0.4rem;
+}
+
+.port-row .form-group {
+    margin-bottom: 0;
+}
+
+.port-col-num  { flex: 0 0 100px; }
+.port-col-name { flex: 1; }
+.port-col-proto { flex: 0 0 90px; }
+.port-col-action { flex: 0 0 36px; text-align: right; }
+
+/* ── Ingress toggle ─────────────────────────────────────────────────── */
+.toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-left: 0.75rem;
+    font-weight: 500;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
+}
+
+/* ── Ports table (status page) ──────────────────────────────────────── */
+.ports-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem auto 0;
+    font-size: 0.875rem;
+}
+
+.ports-table th {
+    padding: 0.4rem 0.75rem;
+    text-align: left;
+    color: var(--color-text-muted);
+    font-weight: 500;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.ports-table td {
+    padding: 0.4rem 0.75rem;
+}
+
+.ports-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.service-name {
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+}
+
+/* ── Port list (pods listing page) ─────────────────────────────────── */
+.port-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.82rem;
+}
+
+.port-list li {
+    display: flex;
+    gap: 0.3rem;
+    align-items: center;
+    margin-bottom: 0.15rem;
+}
+
+.port-name {
+    background: #f1f5f9;
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+
 /* ── Pods Table ────────────────────────────────────────────────────── */
 .filter-bar {
     margin-bottom: 1.25rem;

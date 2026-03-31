@@ -33,31 +33,37 @@
             </tr>
         </table>
 
+        {# ── NodePort Service ── #}
         {% if result.service %}
             <div class="service-info">
-                <h3>🌐 External Access</h3>
+                <h3>🔌 NodePort Service</h3>
                 {% if result.service.success %}
-                    <table class="info-table">
-                        <tr>
-                            <th>Service</th>
-                            <td>{{ result.service.service_name }}</td>
-                        </tr>
-                        <tr>
-                            <th>NodePort</th>
-                            <td>{{ result.service.node_port }}</td>
-                        </tr>
-                        <tr>
-                            <th>Target Port</th>
-                            <td>{{ result.service.target_port }}</td>
-                        </tr>
-                        <tr>
-                            <th>Access URL</th>
-                            <td>
-                                <a href="{{ result.service.external_url }}" target="_blank" class="external-link">
-                                    {{ result.service.external_url }}
-                                </a>
-                            </td>
-                        </tr>
+                    <p class="service-name text-muted">Service: <strong>{{ result.service.service_name }}</strong></p>
+                    <table class="ports-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Container Port</th>
+                                <th>NodePort</th>
+                                <th>Protocol</th>
+                                <th>External URL</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in result.service.ports %}
+                            <tr>
+                                <td>{{ p.name }}</td>
+                                <td>{{ p.port }}</td>
+                                <td><strong>{{ p.node_port }}</strong></td>
+                                <td>{{ p.protocol }}</td>
+                                <td>
+                                    <a href="{{ p.external_url }}" target="_blank" class="external-link">
+                                        {{ p.external_url }}
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
                     </table>
                 {% else %}
                     <div class="alert alert-error">
@@ -66,6 +72,42 @@
                 {% endif %}
             </div>
         {% endif %}
+
+        {# ── Ingress ── #}
+        {% if result.ingress %}
+            <div class="service-info">
+                <h3>🌐 Ingress</h3>
+                {% if result.ingress.success %}
+                    <table class="info-table">
+                        <tr>
+                            <th>Ingress Name</th>
+                            <td>{{ result.ingress.ingress_name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Host</th>
+                            <td>{{ result.ingress.host }}</td>
+                        </tr>
+                        <tr>
+                            <th>Path</th>
+                            <td>{{ result.ingress.path }}</td>
+                        </tr>
+                        <tr>
+                            <th>URL</th>
+                            <td>
+                                <a href="{{ result.ingress.url }}" target="_blank" class="external-link">
+                                    {{ result.ingress.url }}
+                                </a>
+                            </td>
+                        </tr>
+                    </table>
+                {% else %}
+                    <div class="alert alert-error">
+                        Ingress creation failed: {{ result.ingress.error }}
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+
     </div>
 {% else %}
     <div class="status-card status-error">

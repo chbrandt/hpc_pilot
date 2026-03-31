@@ -72,7 +72,6 @@ def deploy():
     cpu_limit = request.form.get("cpu_limit", "").strip() or None
     mem_request = request.form.get("mem_request", "").strip() or None
     mem_limit = request.form.get("mem_limit", "").strip() or None
-    port = request.form.get("port", "").strip()
     command = request.form.get("command", "").strip() or None
 
     # Environment variables (from dynamic form fields)
@@ -85,17 +84,41 @@ def deploy():
             env_vars[k] = v.strip()
     env_vars = env_vars or None
 
-    # Parse port
-    port_int = None
-    if port:
+    # Parse ports (multi-port support)
+    port_numbers = request.form.getlist("port_number")
+    port_names = request.form.getlist("port_name")
+    port_protocols = request.form.getlist("port_protocol")
+    ports = []
+    for num_str, pname, proto in zip(port_numbers, port_names, port_protocols):
+        num_str = num_str.strip()
+        if not num_str:
+            continue
         try:
-            port_int = int(port)
-            if not (1 <= port_int <= 65535):
-                flash("Port must be between 1 and 65535.", "error")
+            num = int(num_str)
+            if not (1 <= num <= 65535):
+                flash(f"Port {num_str} must be between 1 and 65535.", "error")
                 return redirect(url_for("index"))
         except ValueError:
-            flash("Port must be a valid number.", "error")
+            flash(f"Port '{num_str}' is not a valid number.", "error")
             return redirect(url_for("index"))
+        ports.append(
+            {
+                "number": num,
+                "name": pname.strip() or None,
+                "protocol": proto.strip() or "TCP",
+            }
+        )
+    ports = ports or None
+
+    # Parse ingress config (only valid when ports are defined)
+    ingress = None
+    if ports and request.form.get("ingress_enabled"):
+        ingress = {
+            "host": request.form.get("ingress_host", "").strip(),
+            "path": request.form.get("ingress_path", "/").strip() or "/",
+            "port": request.form.get("ingress_port", "").strip() or None,
+            "class": request.form.get("ingress_class", "").strip() or None,
+        }
 
     # Determine effective namespace
     if namespace == "__new__" and new_namespace:
@@ -142,8 +165,9 @@ def deploy():
             mem_request=mem_request,
             mem_limit=mem_limit,
             env_vars=env_vars,
-            port=port_int,
+            ports=ports,
             command=command,
+            ingress=ingress,
         )
 
         return render_template("status.html", result=result)

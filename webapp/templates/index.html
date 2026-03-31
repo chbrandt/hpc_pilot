@@ -103,15 +103,67 @@
         <button type="button" class="btn btn-small btn-secondary" onclick="addEnvRow()">+ Add Variable</button>
     </fieldset>
 
-    <!-- Networking -->
+    <!-- Networking: Ports -->
     <fieldset>
-        <legend>Networking <span class="optional">(optional)</span></legend>
+        <legend>Ports <span class="optional">(optional)</span></legend>
 
-        <div class="form-group">
-            <label for="port">Container Port</label>
-            <input type="number" id="port" name="port"
-                   placeholder="80" min="1" max="65535">
-            <span class="help-text">If set, a NodePort Service will be created for external access.</span>
+        <div class="port-header form-row">
+            <span class="port-col-num">Number</span>
+            <span class="port-col-name">Name</span>
+            <span class="port-col-proto">Protocol</span>
+            <span class="port-col-action"></span>
+        </div>
+
+        <div id="port-rows">
+            <!-- Rows added by JS -->
+        </div>
+
+        <button type="button" class="btn btn-small btn-secondary" onclick="addPortRow()">+ Add Port</button>
+        <span class="help-text" style="margin-left:0.5rem;">A NodePort Service will be created for each port defined.</span>
+    </fieldset>
+
+    <!-- Networking: Ingress -->
+    <fieldset id="ingress-fieldset">
+        <legend>
+            Ingress
+            <label class="toggle-label">
+                <input type="checkbox" id="ingress_enabled" name="ingress_enabled"
+                       value="1" onchange="toggleIngress(this)">
+                Enable
+            </label>
+            <span class="optional" id="ingress-note">(requires at least one port)</span>
+        </legend>
+
+        <div id="ingress-fields" style="display:none;">
+            <div class="form-row">
+                <div class="form-group" style="flex:2">
+                    <label for="ingress_host">Host</label>
+                    <input type="text" id="ingress_host" name="ingress_host"
+                           placeholder="myapp.example.com">
+                    <span class="help-text">Leave empty to match all hosts.</span>
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label for="ingress_path">Path</label>
+                    <input type="text" id="ingress_path" name="ingress_path"
+                           value="/" placeholder="/">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex:1">
+                    <label for="ingress_port">Target Port</label>
+                    <select id="ingress_port" name="ingress_port">
+                        <option value="">— first port —</option>
+                    </select>
+                    <span class="help-text">Which port to route traffic to.</span>
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label for="ingress_class">Ingress Class</label>
+                    <input type="text" id="ingress_class" name="ingress_class"
+                           placeholder="nginx">
+                    <span class="help-text">Leave empty for cluster default.</span>
+                </div>
+            </div>
         </div>
     </fieldset>
 
@@ -135,6 +187,7 @@
 
 {% block scripts %}
 <script>
+    // ── Namespace toggle ──────────────────────────────────────────────
     function toggleNewNamespace(select) {
         const group = document.getElementById('new-namespace-group');
         const input = document.getElementById('new_namespace');
@@ -149,6 +202,7 @@
         }
     }
 
+    // ── Environment variables ─────────────────────────────────────────
     function addEnvRow() {
         const container = document.getElementById('env-vars');
         const row = document.createElement('div');
@@ -169,12 +223,90 @@
     function removeEnvRow(btn) {
         const container = document.getElementById('env-vars');
         const row = btn.closest('.env-row');
-        // Keep at least one row
         if (container.children.length > 1) {
             row.remove();
         } else {
-            // Clear values instead of removing
             row.querySelectorAll('input').forEach(i => i.value = '');
+        }
+    }
+
+    // ── Ports ─────────────────────────────────────────────────────────
+    function addPortRow(num = '', name = '', proto = 'TCP') {
+        const container = document.getElementById('port-rows');
+        const row = document.createElement('div');
+        row.className = 'form-row port-row';
+        row.innerHTML = `
+            <div class="form-group port-col-num">
+                <input type="number" name="port_number" placeholder="80"
+                       min="1" max="65535" value="${num}"
+                       oninput="syncIngressPorts()">
+            </div>
+            <div class="form-group port-col-name">
+                <input type="text" name="port_name" placeholder="http"
+                       oninput="syncIngressPorts()">
+            </div>
+            <div class="form-group port-col-proto">
+                <select name="port_protocol">
+                    <option value="TCP" ${proto === 'TCP' ? 'selected' : ''}>TCP</option>
+                    <option value="UDP" ${proto === 'UDP' ? 'selected' : ''}>UDP</option>
+                </select>
+            </div>
+            <button type="button" class="btn btn-small btn-danger port-col-action"
+                    onclick="removePortRow(this)" title="Remove">✕</button>
+        `;
+        container.appendChild(row);
+        syncIngressPorts();
+    }
+
+    function removePortRow(btn) {
+        btn.closest('.port-row').remove();
+        syncIngressPorts();
+        // If no ports left and ingress is enabled, uncheck it
+        if (document.getElementById('port-rows').children.length === 0) {
+            const cb = document.getElementById('ingress_enabled');
+            if (cb.checked) {
+                cb.checked = false;
+                toggleIngress(cb);
+            }
+        }
+    }
+
+    // ── Ingress ───────────────────────────────────────────────────────
+    function toggleIngress(checkbox) {
+        const fields = document.getElementById('ingress-fields');
+        const hasPort = document.getElementById('port-rows').children.length > 0;
+        if (checkbox.checked && !hasPort) {
+            alert('Please add at least one port before enabling Ingress.');
+            checkbox.checked = false;
+            return;
+        }
+        fields.style.display = checkbox.checked ? 'block' : 'none';
+        if (checkbox.checked) syncIngressPorts();
+    }
+
+    /** Re-populate the "Target Port" select from current port rows. */
+    function syncIngressPorts() {
+        const select = document.getElementById('ingress_port');
+        const prevVal = select.value;
+        // Clear all options except the first default
+        while (select.options.length > 1) select.remove(1);
+
+        document.querySelectorAll('#port-rows .port-row').forEach(row => {
+            const num = row.querySelector('[name="port_number"]').value.trim();
+            const name = row.querySelector('[name="port_name"]').value.trim();
+            if (!num) return;
+            const label = name ? `${name} (${num})` : num;
+            const val = name || num;
+            const opt = new Option(label, val);
+            select.add(opt);
+        });
+
+        // Restore previous selection if still available
+        for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].value === prevVal) {
+                select.selectedIndex = i;
+                break;
+            }
         }
     }
 </script>
