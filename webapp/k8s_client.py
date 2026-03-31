@@ -396,9 +396,14 @@ class K8sClient:
             },
         )
         if ingress_class:
-            metadata.annotations = {
+            annotations = {
                 "kubernetes.io/ingress.class": ingress_class,
             }
+            # nginx ingress controller requires rewrite-target annotation
+            # when routing to a backend that serves on "/"
+            if ingress_class.lower() == "nginx":
+                annotations["nginx.ingress.kubernetes.io/rewrite-target"] = "/"
+            metadata.annotations = annotations
 
         spec = client.V1IngressSpec(
             rules=[rule],
