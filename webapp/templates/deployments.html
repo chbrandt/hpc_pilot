@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Workloads — HPC Pilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Workloads</h1>
+    <p class="text-muted">
+        Namespace: <code class="namespace-badge-inline">{{ namespace }}</code>
+    </p>
+</div>
+
+{% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if workloads %}
+    <table class="pods-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Details</th>
+                <th>Status</th>
+                <th>Created / Updated</th>
+                <th>NodePorts</th>
+                <th>Ingress</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in workloads %}
+            <tr>
+                <td><strong>{{ w.name }}</strong></td>
+
+                {# ── Type badge ── #}
+                <td>
+                    {% if w.kind == 'helm' %}
+                        <span class="workload-type workload-type-helm">⎈ Chart</span>
+                    {% else %}
+                        <span class="workload-type workload-type-container">🐳 Container</span>
+                    {% endif %}
+                </td>
+
+                {# ── Detail (image / chart) ── #}
+                <td class="text-mono">{{ w.detail }}</td>
+
+                {# ── Status badge ── #}
+                <td>
+                    <span class="badge badge-{{ w.status }}">
+                        {{ w.status_label or w.status }}
+                    </span>
+                </td>
+
+                {# ── Created / Updated timestamp ── #}
+                <td>{{ w.created }}</td>
+
+                {# ── NodePorts (containers only) ── #}
+                <td>
+                    {% if w.service_ports %}
+                        <ul class="port-list">
+                        {% for p in w.service_ports %}
+                            <li>
+                                {% if p.name %}<span class="port-name">{{ p.name }}</span>{% endif %}
+                                {% if p.external_url %}
+                                    <a href="{{ p.external_url }}" target="_blank" class="external-link">
+                                        :{{ p.node_port }}
+                                    </a>
+                                {% else %}
+                                    :{{ p.node_port }}
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                        </ul>
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+
+                {# ── Ingress URL (containers only) ── #}
+                <td>
+                    {% if w.ingress_url %}
+                        <a href="{{ w.ingress_url }}" target="_blank" class="external-link">
+                            {{ w.ingress_url }}
+                        </a>
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+
+                {# ── Actions ── #}
+                <td>
+                    {% if w.kind == 'helm' %}
+                        <form method="post"
+                              action="{{ url_for('delete_release', name=w.name) }}"
+                              onsubmit="return confirm('Uninstall Helm release {{ w.name }}? This will delete all resources it manages.');"
+                              style="display:inline;">
+                            <button type="submit" class="btn btn-small btn-danger"
+                                    title="Uninstall release">🗑️ Uninstall</button>
+                        </form>
+                    {% else %}
+                        <form method="post"
+                              action="{{ url_for('delete_deployment', namespace=w.namespace, name=w.name) }}"
+                              onsubmit="return confirm('Delete deployment {{ w.name }}?');"
+                              style="display:inline;">
+                            <button type="submit" class="btn btn-small btn-danger"
+                                    title="Delete deployment">🗑️ Delete</button>
+                        </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <p>No workloads in your namespace yet.</p>
+        <div style="display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap;">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">🐳 Deploy a Container</a>
+            <a href="{{ url_for('helm_page') }}" class="btn btn-secondary">⎈ Deploy a Chart</a>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

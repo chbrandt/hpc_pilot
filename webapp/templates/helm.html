@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Deploy a Chart — HPC Pilot{% endblock %}
+
+{% block content %}
+<h1>Deploy a Helm Chart</h1>
+
+{% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<p class="text-muted">
+    Deploy any multi-container workload packaged as a Helm chart.
+    For single-container workloads, use the
+    <a href="{{ url_for('index') }}">Deploy Container</a> page instead.
+</p>
+
+<form action="{{ url_for('helm_install_route') }}" method="post"
+      class="deploy-form" id="helm-form">
+
+    <!-- Required Fields -->
+    <fieldset>
+        <legend>Required</legend>
+
+        <div class="form-group">
+            <label for="release_name">Release Name <span class="required">*</span></label>
+            <input type="text" id="release_name" name="release_name" required
+                   placeholder="my-release"
+                   pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
+                   title="Lowercase alphanumeric and hyphens, max 63 chars">
+            <span class="help-text">Unique name for this Helm release in your namespace.</span>
+        </div>
+
+        <div class="form-group">
+            <label for="chart">Chart Reference <span class="required">*</span></label>
+            <input type="text" id="chart" name="chart" required
+                   placeholder="oci://registry-1.docker.io/bitnamicharts/nginx">
+            <span class="help-text">
+                Any reference accepted by <code>helm install</code>:
+                <code>oci://…</code> (OCI registry), a chart from an already-added
+                repo (<code>repo/chart</code>), or a direct
+                <code>https://…tgz</code> URL.
+            </span>
+        </div>
+
+        <div class="form-group">
+            <label>Namespace</label>
+            <div class="namespace-badge">
+                <code>{{ current_user.namespace }}</code>
+            </div>
+            <span class="help-text">
+                Your personal namespace — all releases are isolated to this namespace.
+            </span>
+        </div>
+    </fieldset>
+
+    <!-- Chart Version -->
+    <fieldset>
+        <legend>Version <span class="optional">(optional)</span></legend>
+
+        <div class="form-group" style="max-width: 240px;">
+            <label for="version">Chart Version</label>
+            <input type="text" id="version" name="version"
+                   placeholder="e.g. 18.2.3">
+            <span class="help-text">Leave blank to use the latest version.</span>
+        </div>
+    </fieldset>
+
+    <!-- Values Override -->
+    <fieldset>
+        <legend>Values Override <span class="optional">(optional)</span></legend>
+
+        <div class="form-group">
+            <label for="values_yaml">Custom Values (YAML)</label>
+            <textarea id="values_yaml" name="values_yaml"
+                      class="values-textarea"
+                      placeholder="# Paste your values.yaml overrides here&#10;# Example:&#10;# replicaCount: 2&#10;# service:&#10;#   type: NodePort"></textarea>
+            <span class="help-text">
+                Equivalent to <code>helm install --values -</code>.
+                Only the fields you specify here will override chart defaults.
+            </span>
+        </div>
+    </fieldset>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary" id="helm-submit-btn">
+            ⎈ Install Chart
+        </button>
+        <span id="helm-installing-msg" class="installing-msg" style="display:none;">
+            ⏳ Installing… this may take a few minutes.
+        </span>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    /* Disable button + show spinner on form submit */
+    document.getElementById('helm-form').addEventListener('submit', function () {
+        const btn = document.getElementById('helm-submit-btn');
+        const msg = document.getElementById('helm-installing-msg');
+        btn.disabled = true;
+        btn.textContent = '⏳ Installing…';
+        msg.style.display = 'inline';
+    });
+</script>
+{% endblock %}

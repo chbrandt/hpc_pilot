@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Login — HPC Pilot{% endblock %}
+
+{% block content %}
+<div class="login-container">
+
+    <div class="login-card">
+        <div class="login-logo">⎈</div>
+        <h1 class="login-title">HPC Pilot</h1>
+
+        {% if reason == 'expired' %}
+            <p class="login-subtitle login-subtitle-warn">
+                ⚠️ Your session has expired. Please paste a new access token to continue.
+            </p>
+        {% elif refresh %}
+            <p class="login-subtitle">
+                🔄 Paste a fresh EGI Check-in access token to update your session.
+            </p>
+        {% else %}
+            <p class="login-subtitle">
+                Paste your <strong>EGI Check-in</strong> access token to log in.
+                Your personal Kubernetes namespace will be set up automatically.
+            </p>
+        {% endif %}
+
+        <form action="{{ url_for('login') }}" method="post" class="login-form">
+            {% if next_url %}
+                <input type="hidden" name="next" value="{{ next_url }}">
+            {% endif %}
+
+            <div class="form-group">
+                <label for="token">Access Token</label>
+                <textarea id="token" name="token" rows="6" required
+                          placeholder="eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIi..."
+                          class="token-textarea"
+                          autocomplete="off" spellcheck="false"></textarea>
+                <span class="help-text">
+                    Obtain your token with <code>oidc-token &lt;provider&gt;</code>
+                    or from the EGI Check-in portal.
+                </span>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full">
+                {% if refresh %}🔄 Update Token{% else %}🔑 Log In{% endif %}
+            </button>
+        </form>
+
+        <div class="login-info">
+            <p>
+                Tokens are validated against the EGI Check-in JWKS endpoint.
+                Your token is never stored beyond your browser session.
+            </p>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

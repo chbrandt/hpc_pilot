@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Install Result — HPC Pilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{% if result.success %}✅ Chart Installed{% else %}❌ Installation Failed{% endif %}</h1>
+    <p class="text-muted">
+        Release <strong>{{ release_name }}</strong> &mdash;
+        Chart <code class="text-mono">{{ chart }}</code> &mdash;
+        Namespace <code class="namespace-badge-inline">{{ namespace }}</code>
+    </p>
+</div>
+
+{% if result.success %}
+    <div class="alert alert-success">
+        Release <strong>{{ release_name }}</strong> installed successfully and all pods are ready.
+    </div>
+
+    {% if result.output %}
+    <div class="helm-output">
+        <h3>Helm Output</h3>
+        <pre class="output-block">{{ result.output }}</pre>
+    </div>
+    {% endif %}
+
+    <div class="form-actions">
+        <a href="{{ url_for('releases') }}" class="btn btn-primary">📋 View Releases</a>
+        <a href="{{ url_for('helm_page') }}" class="btn btn-secondary">⎈ Install Another Chart</a>
+    </div>
+
+{% else %}
+    <div class="alert alert-error">
+        Installation failed. See the error details below.
+    </div>
+
+    {% if result.error %}
+    <div class="helm-output">
+        <h3>Error Details</h3>
+        <pre class="output-block output-error">{{ result.error }}</pre>
+    </div>
+    {% endif %}
+
+    {% if result.output %}
+    <div class="helm-output">
+        <h3>Helm Output</h3>
+        <pre class="output-block">{{ result.output }}</pre>
+    </div>
+    {% endif %}
+
+    <div class="form-actions">
+        <a href="{{ url_for('helm_page') }}" class="btn btn-primary">⬅ Try Again</a>
+        <a href="{{ url_for('releases') }}" class="btn btn-secondary">📋 View Releases</a>
+    </div>
+{% endif %}
+{% endblock %}

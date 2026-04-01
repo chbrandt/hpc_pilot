@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}Deploy — HPC Pilot{% endblock %}
+
+{% block content %}
+<h1>Deploy a Workload</h1>
+
+{% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form action="{{ url_for('deploy') }}" method="post" class="deploy-form">
+
+    <!-- Required Fields -->
+    <fieldset>
+        <legend>Required</legend>
+
+        <div class="form-group">
+            <label for="name">Deployment Name <span class="required">*</span></label>
+            <input type="text" id="name" name="name" required
+                   placeholder="my-app"
+                   pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
+                   title="Lowercase alphanumeric and hyphens, max 63 chars">
+        </div>
+
+        <div class="form-group">
+            <label for="image">Container Image <span class="required">*</span></label>
+            <input type="text" id="image" name="image" required
+                   placeholder="nginx:latest">
+        </div>
+
+        <div class="form-group">
+            <label>Namespace</label>
+            <div class="namespace-badge">
+                <code>{{ current_user.namespace }}</code>
+            </div>
+            <span class="help-text">
+                Your personal namespace — all deployments are isolated to this namespace.
+            </span>
+        </div>
+    </fieldset>
+
+    <!-- Replicas -->
+    <fieldset>
+        <legend>Replicas</legend>
+
+        <div class="form-group" style="max-width: 180px;">
+            <label for="replicas">Number of Replicas</label>
+            <input type="number" id="replicas" name="replicas"
+                   value="1" min="1" max="100"
+                   title="How many pod replicas to keep running">
+            <span class="help-text">
+                The Deployment keeps this many pods running at all times,
+                automatically restarting any that crash.
+            </span>
+        </div>
+    </fieldset>
+
+    <!-- Resources -->
+    <fieldset>
+        <legend>Resources <span class="optional">(optional)</span></legend>
+
+        <div class="form-row">
+            <div class="form-group half">
+                <label for="cpu_request">CPU Request</label>
+                <input type="text" id="cpu_request" name="cpu_request"
+                       placeholder="100m">
+            </div>
+            <div class="form-group half">
+                <label for="cpu_limit">CPU Limit</label>
+                <input type="text" id="cpu_limit" name="cpu_limit"
+                       placeholder="500m">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group half">
+                <label for="mem_request">Memory Request</label>
+                <input type="text" id="mem_request" name="mem_request"
+                       placeholder="64Mi">
+            </div>
+            <div class="form-group half">
+                <label for="mem_limit">Memory Limit</label>
+                <input type="text" id="mem_limit" name="mem_limit"
+                       placeholder="256Mi">
+            </div>
+        </div>
+    </fieldset>
+
+    <!-- Environment Variables -->
+    <fieldset>
+        <legend>Environment Variables <span class="optional">(optional)</span></legend>
+
+        <div id="env-vars">
+            <div class="form-row env-row">
+                <div class="form-group" style="flex:1">
+                    <input type="text" name="env_key" placeholder="KEY">
+                </div>
+                <span class="env-eq">=</span>
+                <div class="form-group" style="flex:2">
+                    <input type="text" name="env_value" placeholder="value">
+                </div>
+                <button type="button" class="btn btn-small btn-danger" onclick="removeEnvRow(this)" title="Remove">✕</button>
+            </div>
+        </div>
+        <button type="button" class="btn btn-small btn-secondary" onclick="addEnvRow()">+ Add Variable</button>
+    </fieldset>
+
+    <!-- Networking: Ports -->
+    <fieldset>
+        <legend>Ports <span class="optional">(optional)</span></legend>
+
+        <div class="port-header form-row">
+            <span class="port-col-num">Number</span>
+            <span class="port-col-name">Name</span>
+            <span class="port-col-proto">Protocol</span>
+            <span class="port-col-action"></span>
+        </div>
+
+        <div id="port-rows">
+            <!-- Rows added by JS -->
+        </div>
+
+        <button type="button" class="btn btn-small btn-secondary" onclick="addPortRow()">+ Add Port</button>
+        <span class="help-text" style="margin-left:0.5rem;">A NodePort Service will be created for each port defined.</span>
+    </fieldset>
+
+    <!-- Networking: Ingress -->
+    <fieldset id="ingress-fieldset">
+        <legend>
+            Ingress
+            <label class="toggle-label">
+                <input type="checkbox" id="ingress_enabled" name="ingress_enabled"
+                       value="1" onchange="toggleIngress(this)">
+                Enable
+            </label>
+            <span class="optional" id="ingress-note">(requires at least one port)</span>
+        </legend>
+
+        <div id="ingress-fields" style="display:none;">
+            <div class="form-row">
+                <div class="form-group" style="flex:2">
+                    <label for="ingress_host">Host</label>
+                    <input type="text" id="ingress_host" name="ingress_host"
+                           placeholder="myapp.example.com">
+                    <span class="help-text">Leave empty to match all hosts.</span>
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label for="ingress_path">Path</label>
+                    <input type="text" id="ingress_path" name="ingress_path"
+                           value="/" placeholder="/">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex:1">
+                    <label for="ingress_port">Target Port</label>
+                    <select id="ingress_port" name="ingress_port">
+                        <option value="">— first port —</option>
+                    </select>
+                    <span class="help-text">Which port to route traffic to.</span>
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label for="ingress_class">Ingress Class</label>
+                    <input type="text" id="ingress_class" name="ingress_class"
+                           placeholder="nginx">
+                    <span class="help-text">Leave empty for cluster default.</span>
+                </div>
+            </div>
+        </div>
+    </fieldset>
+
+    <!-- Advanced -->
+    <fieldset>
+        <legend>Advanced <span class="optional">(optional)</span></legend>
+
+        <div class="form-group">
+            <label for="command">Command Override</label>
+            <input type="text" id="command" name="command"
+                   placeholder="echo hello && sleep 3600">
+            <span class="help-text">Runs as: /bin/sh -c "your command"</span>
+        </div>
+    </fieldset>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">🚀 Deploy</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // ── Environment variables ─────────────────────────────────────────
+    function addEnvRow() {
+        const container = document.getElementById('env-vars');
+        const row = document.createElement('div');
+        row.className = 'form-row env-row';
+        row.innerHTML = `
+            <div class="form-group" style="flex:1">
+                <input type="text" name="env_key" placeholder="KEY">
+            </div>
+            <span class="env-eq">=</span>
+            <div class="form-group" style="flex:2">
+                <input type="text" name="env_value" placeholder="value">
+            </div>
+            <button type="button" class="btn btn-small btn-danger" onclick="removeEnvRow(this)" title="Remove">✕</button>
+        `;
+        container.appendChild(row);
+    }
+
+    function removeEnvRow(btn) {
+        const container = document.getElementById('env-vars');
+        const row = btn.closest('.env-row');
+        if (container.children.length > 1) {
+            row.remove();
+        } else {
+            row.querySelectorAll('input').forEach(i => i.value = '');
+        }
+    }
+
+    // ── Ports ─────────────────────────────────────────────────────────
+    function addPortRow(num = '', name = '', proto = 'TCP') {
+        const container = document.getElementById('port-rows');
+        const row = document.createElement('div');
+        row.className = 'form-row port-row';
+        row.innerHTML = `
+            <div class="form-group port-col-num">
+                <input type="number" name="port_number" placeholder="80"
+                       min="1" max="65535" value="${num}"
+                       oninput="syncIngressPorts()">
+            </div>
+            <div class="form-group port-col-name">
+                <input type="text" name="port_name" placeholder="http"
+                       oninput="syncIngressPorts()">
+            </div>
+            <div class="form-group port-col-proto">
+                <select name="port_protocol">
+                    <option value="TCP" ${proto === 'TCP' ? 'selected' : ''}>TCP</option>
+                    <option value="UDP" ${proto === 'UDP' ? 'selected' : ''}>UDP</option>
+                </select>
+            </div>
+            <button type="button" class="btn btn-small btn-danger port-col-action"
+                    onclick="removePortRow(this)" title="Remove">✕</button>
+        `;
+        container.appendChild(row);
+        syncIngressPorts();
+    }
+
+    function removePortRow(btn) {
+        btn.closest('.port-row').remove();
+        syncIngressPorts();
+        if (document.getElementById('port-rows').children.length === 0) {
+            const cb = document.getElementById('ingress_enabled');
+            if (cb.checked) {
+                cb.checked = false;
+                toggleIngress(cb);
+            }
+        }
+    }
+
+    // ── Ingress ───────────────────────────────────────────────────────
+    function toggleIngress(checkbox) {
+        const fields = document.getElementById('ingress-fields');
+        const hasPort = document.getElementById('port-rows').children.length > 0;
+        if (checkbox.checked && !hasPort) {
+            alert('Please add at least one port before enabling Ingress.');
+            checkbox.checked = false;
+            return;
+        }
+        fields.style.display = checkbox.checked ? 'block' : 'none';
+        if (checkbox.checked) syncIngressPorts();
+    }
+
+    function syncIngressPorts() {
+        const select = document.getElementById('ingress_port');
+        const prevVal = select.value;
+        while (select.options.length > 1) select.remove(1);
+
+        document.querySelectorAll('#port-rows .port-row').forEach(row => {
+            const num = row.querySelector('[name="port_number"]').value.trim();
+            const name = row.querySelector('[name="port_name"]').value.trim();
+            if (!num) return;
+            const label = name ? `${name} (${num})` : num;
+            const val = name || num;
+            const opt = new Option(label, val);
+            select.add(opt);
+        });
+
+        for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].value === prevVal) {
+                select.selectedIndex = i;
+                break;
+            }
+        }
+    }
+</script>
+{% endblock %}

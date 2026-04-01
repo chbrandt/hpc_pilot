@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Releases — HPC Pilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Helm Releases</h1>
+    <p class="text-muted">
+        Namespace: <code class="namespace-badge-inline">{{ namespace }}</code>
+    </p>
+</div>
+
+{% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if releases %}
+    <table class="pods-table">
+        <thead>
+            <tr>
+                <th>Release</th>
+                <th>Chart</th>
+                <th>App Version</th>
+                <th>Status</th>
+                <th>Last Deployed</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rel in releases %}
+            <tr>
+                <td><strong>{{ rel.name }}</strong></td>
+                <td class="text-mono">{{ rel.chart }}</td>
+                <td class="text-mono">{{ rel.app_version or '—' }}</td>
+                <td>
+                    <span class="badge badge-{{ rel.status }}">{{ rel.status }}</span>
+                </td>
+                <td>{{ rel.updated }}</td>
+                <td>
+                    <form method="post"
+                          action="{{ url_for('delete_release', name=rel.name) }}"
+                          onsubmit="return confirm('Uninstall release {{ rel.name }}? This will delete all resources it manages.');"
+                          style="display:inline;">
+                        <button type="submit" class="btn btn-small btn-danger"
+                                title="Uninstall release">🗑️ Uninstall</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <p>No Helm releases in your namespace yet.</p>
+        <a href="{{ url_for('helm_page') }}" class="btn btn-primary">Deploy a Chart</a>
+    </div>
+{% endif %}
+{% endblock %}
