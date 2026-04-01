@@ -137,7 +137,8 @@ def logout():
 @app.route("/")
 def index():
     """Main page with deployment form."""
-    from token_auth import require_token, get_session_user
+    from token_auth import get_session_user
+    from saved_deployments import list_configs
 
     user = get_session_user()
     if user is None:
@@ -151,7 +152,10 @@ def index():
         error = f"Cannot connect to Kubernetes cluster: {exc}"
         logger.error(error)
 
-    return render_template("index.html", error=error)
+    namespace = session.get("namespace", "")
+    saved = list_configs(namespace, kind="container") if namespace else []
+
+    return render_template("index.html", error=error, saved_configs=saved)
 
 
 @app.route("/deploy", methods=["POST"])
@@ -411,12 +415,16 @@ def deployment_status(namespace, name):
 def helm_page():
     """Helm chart deployment form."""
     from token_auth import get_session_user
+    from saved_deployments import list_configs
 
     user = get_session_user()
     if user is None:
         return redirect(url_for("login"))
 
-    return render_template("helm.html")
+    namespace = session.get("namespace", "")
+    saved = list_configs(namespace, kind="helm") if namespace else []
+
+    return render_template("helm.html", saved_configs=saved)
 
 
 @app.route("/helm/install", methods=["POST"])
@@ -535,6 +543,117 @@ def delete_release(name):
         flash(f"Error: {exc}", "error")
 
     return redirect(url_for("deployments"))
+
+
+# ── Save / delete saved config routes ────────────────────────────────
+
+
+@app.route("/deployments/<namespace>/<name>/save", methods=["POST"])
+def save_deployment(namespace, name):
+    """Read the full deployment spec from the cluster and save it."""
+    from token_auth import get_session_user
+    from saved_deployments import save_config
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    # Security: only allow saving from the user's own namespace
+    if namespace != session["namespace"]:
+        flash("You can only save deployments from your own namespace.", "error")
+        return redirect(url_for("deployments"))
+
+    try:
+        k8s = get_k8s_client()
+        spec = k8s.get_deployment_spec(name=name, namespace=namespace)
+        if "error" in spec:
+            flash(f"Could not read deployment spec: {spec['error']}", "error")
+            return redirect(url_for("deployments"))
+
+        save_config(namespace=namespace, kind="container", config=spec)
+        flash(
+            f"Configuration for '{name}' saved. Load it from the Deploy page.",
+            "success",
+        )
+    except Exception as exc:
+        logger.error(f"Save deployment failed: {exc}")
+        flash(f"Failed to save configuration: {exc}", "error")
+
+    return redirect(url_for("deployments"))
+
+
+@app.route("/releases/<name>/save", methods=["POST"])
+def save_release(name):
+    """Read the Helm release values from the cluster and save it."""
+    from token_auth import get_session_user
+    from helm_client import helm_list, helm_get_values
+    from saved_deployments import save_config
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    namespace = session["namespace"]
+
+    try:
+        # Get chart reference from the release list
+        releases_list = helm_list(namespace=namespace)
+        release_info = next((r for r in releases_list if r["name"] == name), None)
+        if release_info is None:
+            flash(f"Release '{name}' not found.", "error")
+            return redirect(url_for("deployments"))
+
+        # Get user-supplied values
+        values_result = helm_get_values(release_name=name, namespace=namespace)
+        values_yaml = (
+            values_result.get("values_yaml") if values_result.get("success") else None
+        )
+
+        # Extract chart name without the version suffix (e.g. "nginx-18.2.3" → "nginx")
+        chart_field = release_info.get("chart", "")
+
+        config = {
+            "release_name": name,
+            "chart": chart_field,
+            "version": None,  # version is embedded in the chart field; user can adjust
+            "values_yaml": values_yaml,
+        }
+        save_config(namespace=namespace, kind="helm", config=config)
+        flash(
+            f"Configuration for release '{name}' saved. Load it from the Deploy Chart page.",
+            "success",
+        )
+    except Exception as exc:
+        logger.error(f"Save release failed: {exc}")
+        flash(f"Failed to save release configuration: {exc}", "error")
+
+    return redirect(url_for("deployments"))
+
+
+@app.route("/saved/<config_id>/delete", methods=["POST"])
+def delete_saved_config(config_id):
+    """Remove a saved deployment configuration."""
+    from token_auth import get_session_user
+    from saved_deployments import delete_config, get_config
+
+    user = get_session_user()
+    if user is None:
+        return redirect(url_for("login"))
+
+    namespace = session["namespace"]
+    entry = get_config(namespace, config_id)
+    if entry is None:
+        flash("Saved configuration not found.", "error")
+    else:
+        delete_config(namespace, config_id)
+        label = entry.get("name") or entry.get("release_name") or config_id
+        flash(f"Saved configuration '{label}' removed.", "success")
+
+    # Redirect back to the appropriate deploy form
+    kind = entry.get("kind") if entry else None
+    if kind == "helm":
+        return redirect(url_for("helm_page"))
+    return redirect(url_for("index"))
 
 
 # ── Main ──────────────────────────────────────────────────────────────

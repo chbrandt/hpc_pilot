@@ -89,8 +89,14 @@
                 </td>
 
                 {# ── Actions ── #}
-                <td>
+                <td style="white-space:nowrap;">
                     {% if w.kind == 'helm' %}
+                        <form method="post"
+                              action="{{ url_for('save_release', name=w.name) }}"
+                              style="display:inline;">
+                            <button type="submit" class="btn btn-small btn-secondary"
+                                    title="Save chart config for re-deployment">💾 Save</button>
+                        </form>
                         <form method="post"
                               action="{{ url_for('delete_release', name=w.name) }}"
                               onsubmit="return confirm('Uninstall Helm release {{ w.name }}? This will delete all resources it manages.');"
@@ -99,6 +105,12 @@
                                     title="Uninstall release">🗑️ Uninstall</button>
                         </form>
                     {% else %}
+                        <form method="post"
+                              action="{{ url_for('save_deployment', namespace=w.namespace, name=w.name) }}"
+                              style="display:inline;">
+                            <button type="submit" class="btn btn-small btn-secondary"
+                                    title="Save deployment config for re-deployment">💾 Save</button>
+                        </form>
                         <form method="post"
                               action="{{ url_for('delete_deployment', namespace=w.namespace, name=w.name) }}"
                               onsubmit="return confirm('Delete deployment {{ w.name }}?');"

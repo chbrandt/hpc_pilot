@@ -9,6 +9,45 @@
     <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
+{# ── Saved configurations panel ── #}
+{% if saved_configs %}
+<div class="saved-configs-panel">
+    <div class="saved-configs-header">
+        <span class="saved-configs-title">💾 Saved Configurations</span>
+        <span class="text-muted" style="font-size:0.85rem;">Select one to pre-fill the form below.</span>
+    </div>
+    <div class="saved-configs-body">
+        <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+            <select id="saved-config-select" class="saved-config-select"
+                    onchange="loadSavedConfig(this.value)">
+                <option value="">— choose a saved config —</option>
+                {% for cfg in saved_configs %}
+                <option value="{{ cfg.id }}">
+                    {{ cfg.name }} — {{ cfg.image }}
+                    (saved {{ cfg.saved_at[:10] }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <ul class="saved-config-list">
+            {% for cfg in saved_configs %}
+            <li class="saved-config-item">
+                <span class="saved-config-name">{{ cfg.name }}</span>
+                <span class="text-muted text-mono" style="font-size:0.8rem;">{{ cfg.image }}</span>
+                <form method="post"
+                      action="{{ url_for('delete_saved_config', config_id=cfg.id) }}"
+                      onsubmit="return confirm('Remove saved config \'{{ cfg.name }}\'?');"
+                      style="display:inline; margin-left:auto;">
+                    <button type="submit" class="btn btn-tiny btn-danger"
+                            title="Remove saved config">✕</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+
 <form action="{{ url_for('deploy') }}" method="post" class="deploy-form">
 
     <!-- Required Fields -->
@@ -190,18 +229,63 @@
 
 {% block scripts %}
 <script>
+    // ── Saved config data ─────────────────────────────────────────────
+    const SAVED_CONFIGS = {{ saved_configs | tojson }};
+
+    function loadSavedConfig(configId) {
+        if (!configId) return;
+        const cfg = SAVED_CONFIGS.find(c => c.id === configId);
+        if (!cfg) return;
+
+        // Required fields
+        document.getElementById('name').value = cfg.name || '';
+        document.getElementById('image').value = cfg.image || '';
+        document.getElementById('replicas').value = cfg.replicas || 1;
+
+        // Resources
+        document.getElementById('cpu_request').value = cfg.cpu_request || '';
+        document.getElementById('cpu_limit').value = cfg.cpu_limit || '';
+        document.getElementById('mem_request').value = cfg.mem_request || '';
+        document.getElementById('mem_limit').value = cfg.mem_limit || '';
+
+        // Command
+        document.getElementById('command').value = cfg.command || '';
+
+        // Environment variables — clear existing rows, add one per saved var
+        const envContainer = document.getElementById('env-vars');
+        envContainer.innerHTML = '';
+        const envVars = cfg.env_vars || {};
+        const envKeys = Object.keys(envVars);
+        if (envKeys.length === 0) {
+            // Keep at least one blank row
+            addEnvRow();
+        } else {
+            envKeys.forEach(k => addEnvRow(k, envVars[k]));
+        }
+
+        // Ports — clear existing rows, add one per saved port
+        const portContainer = document.getElementById('port-rows');
+        portContainer.innerHTML = '';
+        const ports = cfg.ports || [];
+        ports.forEach(p => addPortRow(p.number || '', p.name || '', p.protocol || 'TCP'));
+        syncIngressPorts();
+
+        // Scroll to form top
+        document.querySelector('.deploy-form').scrollIntoView({behavior: 'smooth'});
+    }
+
     // ── Environment variables ─────────────────────────────────────────
-    function addEnvRow() {
+    function addEnvRow(key = '', value = '') {
         const container = document.getElementById('env-vars');
         const row = document.createElement('div');
         row.className = 'form-row env-row';
         row.innerHTML = `
             <div class="form-group" style="flex:1">
-                <input type="text" name="env_key" placeholder="KEY">
+                <input type="text" name="env_key" placeholder="KEY" value="${key.replace(/"/g, '&quot;')}">
             </div>
             <span class="env-eq">=</span>
             <div class="form-group" style="flex:2">
-                <input type="text" name="env_value" placeholder="value">
+                <input type="text" name="env_value" placeholder="value" value="${value.replace(/"/g, '&quot;')}">
             </div>
             <button type="button" class="btn btn-small btn-danger" onclick="removeEnvRow(this)" title="Remove">✕</button>
         `;
@@ -231,7 +315,7 @@
             </div>
             <div class="form-group port-col-name">
                 <input type="text" name="port_name" placeholder="http"
-                       oninput="syncIngressPorts()">
+                       value="${name}" oninput="syncIngressPorts()">
             </div>
             <div class="form-group port-col-proto">
                 <select name="port_protocol">

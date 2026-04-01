@@ -9,6 +9,45 @@
     <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
+{# ── Saved configurations panel ── #}
+{% if saved_configs %}
+<div class="saved-configs-panel">
+    <div class="saved-configs-header">
+        <span class="saved-configs-title">💾 Saved Configurations</span>
+        <span class="text-muted" style="font-size:0.85rem;">Select one to pre-fill the form below.</span>
+    </div>
+    <div class="saved-configs-body">
+        <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+            <select id="saved-config-select" class="saved-config-select"
+                    onchange="loadSavedConfig(this.value)">
+                <option value="">— choose a saved config —</option>
+                {% for cfg in saved_configs %}
+                <option value="{{ cfg.id }}">
+                    {{ cfg.release_name }} — {{ cfg.chart }}
+                    (saved {{ cfg.saved_at[:10] }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <ul class="saved-config-list">
+            {% for cfg in saved_configs %}
+            <li class="saved-config-item">
+                <span class="saved-config-name">{{ cfg.release_name }}</span>
+                <span class="text-muted text-mono" style="font-size:0.8rem;">{{ cfg.chart }}</span>
+                <form method="post"
+                      action="{{ url_for('delete_saved_config', config_id=cfg.id) }}"
+                      onsubmit="return confirm('Remove saved config \'{{ cfg.release_name }}\'?');"
+                      style="display:inline; margin-left:auto;">
+                    <button type="submit" class="btn btn-tiny btn-danger"
+                            title="Remove saved config">✕</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+
 <p class="text-muted">
     Deploy any multi-container workload packaged as a Helm chart.
     For single-container workloads, use the
@@ -95,6 +134,23 @@
 
 {% block scripts %}
 <script>
+    // ── Saved config data ─────────────────────────────────────────────
+    const SAVED_CONFIGS = {{ saved_configs | tojson }};
+
+    function loadSavedConfig(configId) {
+        if (!configId) return;
+        const cfg = SAVED_CONFIGS.find(c => c.id === configId);
+        if (!cfg) return;
+
+        document.getElementById('release_name').value = cfg.release_name || '';
+        document.getElementById('chart').value = cfg.chart || '';
+        document.getElementById('version').value = cfg.version || '';
+        document.getElementById('values_yaml').value = cfg.values_yaml || '';
+
+        // Scroll to form top
+        document.querySelector('.deploy-form').scrollIntoView({behavior: 'smooth'});
+    }
+
     /* Disable button + show spinner on form submit */
     document.getElementById('helm-form').addEventListener('submit', function () {
         const btn = document.getElementById('helm-submit-btn');

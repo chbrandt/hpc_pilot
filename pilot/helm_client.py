@@ -145,6 +145,47 @@ def helm_list(namespace: str) -> list[dict]:
     return normalised
 
 
+def helm_get_values(release_name: str, namespace: str) -> dict:
+    """
+    Retrieve the user-supplied values for an installed Helm release.
+
+    Runs ``helm get values <release> --namespace <ns> --output yaml`` and
+    returns the raw YAML string so it can be saved and later passed back
+    to ``helm install --values -``.
+
+    Returns
+    -------
+    dict
+        ``{success: bool, values_yaml: str | None, error: str | None}``
+    """
+    cmd = [
+        "helm",
+        "get",
+        "values",
+        release_name,
+        "--namespace",
+        namespace,
+        "--output",
+        "yaml",
+    ]
+    logger.info("Running: %s", " ".join(cmd))
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        stdout = result.stdout.decode(errors="replace").strip()
+        stderr = result.stderr.decode(errors="replace")
+        if result.returncode != 0:
+            return {"success": False, "values_yaml": None, "error": stderr}
+        # helm returns "null\n" when no user-supplied values exist
+        values_yaml = None if stdout in ("null", "") else stdout
+        return {"success": True, "values_yaml": values_yaml, "error": None}
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "values_yaml": None,
+            "error": "helm CLI not found.",
+        }
+
+
 def helm_uninstall(release_name: str, namespace: str) -> dict:
     """
     Uninstall a Helm release.

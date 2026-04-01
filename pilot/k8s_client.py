@@ -571,6 +571,91 @@ class K8sClient:
             logger.error(f"Failed to list deployments: {e}")
             return []
 
+    def get_deployment_spec(self, name: str, namespace: str = "default") -> dict:
+        """
+        Read back the full deployment spec from the cluster, suitable for saving
+        as a reusable configuration template.
+
+        Returns
+        -------
+        dict
+            A dict mirroring the parameters accepted by :meth:`create_deployment`:
+            ``name``, ``image``, ``replicas``, ``cpu_request``, ``cpu_limit``,
+            ``mem_request``, ``mem_limit``, ``env_vars``, ``ports``, ``command``.
+            Returns ``{"error": "..."}`` on failure.
+        """
+        try:
+            dep = self.apps_v1.read_namespaced_deployment(
+                name=name, namespace=namespace
+            )
+            container = (
+                dep.spec.template.spec.containers[0]
+                if dep.spec.template.spec.containers
+                else None
+            )
+            if not container:
+                return {"error": "No containers found in deployment spec"}
+
+            # ── Resources ────────────────────────────────────────────
+            cpu_request = cpu_limit = mem_request = mem_limit = None
+            if container.resources:
+                req = container.resources.requests or {}
+                lim = container.resources.limits or {}
+                cpu_request = req.get("cpu")
+                mem_request = req.get("memory")
+                cpu_limit = lim.get("cpu")
+                mem_limit = lim.get("memory")
+
+            # ── Environment variables ─────────────────────────────────
+            env_vars = {}
+            if container.env:
+                for ev in container.env:
+                    # Only capture plain key=value pairs (skip valueFrom refs)
+                    if ev.value is not None:
+                        env_vars[ev.name] = ev.value
+
+            # ── Ports ─────────────────────────────────────────────────
+            ports = []
+            if container.ports:
+                for p in container.ports:
+                    ports.append(
+                        {
+                            "number": p.container_port,
+                            "name": p.name or "",
+                            "protocol": p.protocol or "TCP",
+                        }
+                    )
+
+            # ── Command ───────────────────────────────────────────────
+            command = None
+            if container.command:
+                # We store as a shell command string (/bin/sh -c "…")
+                if (
+                    len(container.command) == 3
+                    and container.command[0] == "/bin/sh"
+                    and container.command[1] == "-c"
+                ):
+                    command = container.command[2]
+                else:
+                    command = " ".join(container.command)
+
+            return {
+                "name": dep.metadata.name,
+                "image": container.image,
+                "replicas": dep.spec.replicas or 1,
+                "cpu_request": cpu_request,
+                "cpu_limit": cpu_limit,
+                "mem_request": mem_request,
+                "mem_limit": mem_limit,
+                "env_vars": env_vars,
+                "ports": ports,
+                "command": command,
+            }
+
+        except ApiException as e:
+            logger.error(f"Failed to get deployment spec: {e}")
+            return {"error": str(e)}
+
     def get_deployment_status(self, name: str, namespace: str = "default") -> dict:
         """Get detailed status for a single Deployment."""
         try:

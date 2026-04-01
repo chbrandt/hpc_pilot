@@ -877,6 +877,87 @@ footer {
     color: #475569;
 }
 
+/* ── Saved Configurations Panel ────────────────────────────────────── */
+.saved-configs-panel {
+    background: #f8f5ff;
+    border: 1px solid #e9d5ff;
+    border-radius: var(--radius);
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+}
+
+.saved-configs-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    background: #ede9fe;
+    border-bottom: 1px solid #e9d5ff;
+}
+
+.saved-configs-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #5b21b6;
+}
+
+.saved-configs-body {
+    padding: 0.75rem 1rem;
+}
+
+.saved-config-select {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #d8b4fe;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    background: #fff;
+    color: var(--color-text);
+    min-width: 260px;
+    max-width: 100%;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.saved-config-select:focus {
+    outline: none;
+    border-color: #7c3aed;
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+}
+
+.saved-config-list {
+    list-style: none;
+    margin: 0.6rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.saved-config-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    background: #fff;
+    border: 1px solid #e9d5ff;
+    font-size: 0.85rem;
+}
+
+.saved-config-name {
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+}
+
+/* Extra-small button (used for remove/delete in compact lists) */
+.btn-tiny {
+    padding: 0.15rem 0.45rem;
+    font-size: 0.72rem;
+    border-radius: 4px;
+    line-height: 1.4;
+}
+
 /* ── Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
     .form-row {
