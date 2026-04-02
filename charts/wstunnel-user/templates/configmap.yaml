@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-html
+  namespace: {{ .Values.user.name }}
+data:
+  index.html: |
+    <html>
+      <head>
+        <title>nginx test page</title>
+      </head>
+      <body>
+        <h1>Welcome to user {{ .Values.user.name }} namespace!</h1>
+        <p>This is a test page served by nginx.</p>
+      </body>
+    </html>

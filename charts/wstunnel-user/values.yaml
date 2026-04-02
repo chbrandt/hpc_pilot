@@ -1,0 +1,6 @@
+user:
+  name: user9
+
+ingress:
+  enabled: true
+  host: user9.dev.local
