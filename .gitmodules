@@ -1,0 +1,3 @@
+[submodule "charts/interlink-helm-chart"]
+	path = charts/interlink-helm-chart
+	url = https://github.com/chbrandt/interlink-helm-chart.git
