@@ -1,6 +1,10 @@
 user:
-  name: user9
+  name: ""
 
 ingress:
   enabled: true
-  host: user9.dev.local
+
+wstunnel:
+ # 'connectionSecret' is used in wstunnel-client to connect to the server
+ # e.g. wstunnel client --restrict-http-upgrade-path-prefix <a-random-string> ws://...
+  connectionSecret: "<a-random-string>" 

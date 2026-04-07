@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wstunnel-server
+  namespace: {{ .Values.user.name }}
+  labels:
+    app: wstunnel-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wstunnel-server
+  template:
+    metadata:
+      labels:
+        app: wstunnel-server
+    spec:
+      containers:
+      - name: wstunnel-server
+        image: ghcr.io/erebe/wstunnel:latest
+        args:
+        - "./wstunnel"
+        - "server"
+        - "--restrict-http-upgrade-path-prefix" 
+        - {{ .Values.wstunnel.connectionSecret }}
+        - "ws://0.0.0.0:8080"
+        ports:
+        - containerPort: 8080

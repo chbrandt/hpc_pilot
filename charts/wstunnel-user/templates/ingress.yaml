@@ -1,20 +1,44 @@
+#apiVersion: networking.k8s.io/v1
+#kind: Ingress
+#metadata:
+#  name: nginx-ingress
+#  namespace: {{ .Values.user.name }}
+#  annotations:
+#    nginx.ingress.kubernetes.io/rewrite-target: /
+#spec:
+#  ingressClassName: nginx
+#  rules:
+#    - host: {{ .Values.ingress.host }}
+#      http:
+#        paths:
+#          - path: /nginx
+#            pathType: Prefix
+#            backend:
+#              service:
+#                name: nginx
+#                port:
+#                  number: 80
+#
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: nginx-ingress
+  name: wstunnel-ingress
   namespace: {{ .Values.user.name }}
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "wstunnel-service"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
 spec:
   ingressClassName: nginx
   rules:
-    - host: {{ .Values.ingress.host }}
-      http:
-        paths:
-          - path: /nginx
-            pathType: Prefix
-            backend:
-              service:
-                name: nginx
-                port:
-                  number: 80
+  - host: "{{ .Values.user.name }}.dev.local"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: wstunnel-service
+            port:
+              number: 8080
