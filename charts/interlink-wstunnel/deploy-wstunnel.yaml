@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wstunnel-server
+  namespace: interlink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wstunnel-server
+  template:
+    metadata:
+      labels:
+        app: wstunnel-server
+    spec:
+      containers:
+      - name: wstunnel
+        image: ghcr.io/erebe/wstunnel:latest
+        args:
+        - "./wstunnel"
+        - "server"
+        - "--restrict-http-upgrade-path-prefix" 
+        - "h3GywpDrP6gJEdZ6xbJbZZVFmvFZDCa4KcRd"
+        - "ws://0.0.0.0:8080"
+        ports:
+        - name: websocket
+          containerPort: 8080
+          protocol: TCP
+        - name: plugin
+          containerPort: 3000
+          protocol: TCP
+          
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wstunnel-service
+  namespace: interlink
+spec:
+  selector:
+    app: wstunnel-server
+  ports:
+  - name: websocket
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: plugin
+    port: 3000
+    targetPort: 3000
+    protocol: TCP

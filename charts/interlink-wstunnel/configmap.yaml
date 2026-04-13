@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: interlink-config
+  namespace: interlink
+data:
+  InterLinkConfig.yaml: |
+    InterlinkAddress: "http://0.0.0.0"
+    InterlinkPort: "4000"
+    SidecarURL: "http://wstunnel-service.interlink.svc.cluster.local"
+    SidecarPort: "3000"
+    DataRootFolder: "/data/interlink"
+    VerboseLogging: true
+    ErrorsOnlyLogging: false
