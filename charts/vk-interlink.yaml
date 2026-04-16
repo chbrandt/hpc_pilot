@@ -1,0 +1,21 @@
+# To deploy with interlink-helm-chart:
+#
+# > helm upgrade --install -n interlink interlink-node ./interlink-helm-chart --values interlink-values.yaml
+#
+# Or:
+#
+# >  helm upgrade --install --create-namespace -n interlink interlink-node oci://ghcr.io/interlink-hq/interlink-helm-chart/interlink --version $INTERLINK_CHART_VERSION --values interlink-values.yaml
+
+nodeName: vk-interlink
+
+interlink:
+  enabled: true
+  address: http://localhost
+  port: 4000
+
+plugin:
+  address: http://wstunnel.interlink.svc.cluster.local
+  port: 3000
+
+# wstunnel:
+#   enabled: true

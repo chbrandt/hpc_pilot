@@ -34,7 +34,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: wstunnel-service
+  name: wstunnel
   namespace: interlink
 spec:
   selector:
