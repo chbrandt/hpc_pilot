@@ -53,9 +53,9 @@ kubectl get -n test pod/wstunnel-server-6595db5b8f-wr7zm -o jsonpath='{.spec.con
 # wstunnel curl nginx
 ```
 
-Add `userx.dev.local` to your `/etc/hosts` file:
+Add `dev.local` to your `/etc/hosts` file:
 ```
-127.0.0.1 localhost userx.dev.local
+127.0.0.1 localhost dev.local
 ```
 
 ### Test wstunnel local-to-remote
@@ -66,7 +66,7 @@ Start wstunnel client in your machine (localhost):
 wstunnel client \
     --http-upgrade-path-prefix 'h3GywpDrP6gJEdZ6xbJbZZVFmvFZDCa4KcRd' \
     -L 'tcp://3000:localhost:80' \
-    ws://userx.dev.local:80
+    ws://dev.local:80
 ```
 
 This will start a local server listening on port 3000, which will forward traffic to the remote server running on (pod's) port 80 (where nginx is running).
@@ -87,7 +87,7 @@ Start wstunnel server in your machine (localhost):
 wstunnel client \
     --http-upgrade-path-prefix 'h3GywpDrP6gJEdZ6xbJbZZVFmvFZDCa4KcRd' \
     -R 'tcp://3000:localhost:3000' \
-    ws://userx.dev.local:80
+    ws://dev.local:80
 ```
 
 This will forward traffic from the remote to the localhost at port 3000.
@@ -100,7 +100,8 @@ python -m http.server 3000
 
 From the `curl` container in the pod, check access to the local server:
 ```
-kubectl exec -n test pod/wstunnel-server-6595db5b8f-wr7zm -c curl -- curl -s http://localhost:3000/index.html
+kubectl exec -n test deploy/wstunnel-server -c curl -- \
+  curl -s http://localhost:3000/index.html
 ```
 
 Which should return:

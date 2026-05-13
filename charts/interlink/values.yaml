@@ -1,0 +1,216 @@
+# Default values for interlink.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+nodeName: virtual-node
+
+wsBastion:
+  enabled: false
+  hostname: interlink.dev.local
+
+interlink:
+  enabled: true
+  image: ghcr.io/interlink-hq/interlink/interlink:latest
+  exportPodData: false
+  skipDownwardAPIResolution: false
+  dataRootVolume: ""
+  # unix socket in /var/run
+  socket: ""
+  # if socket is specified, the address/port are ignored
+  address: http://0.0.0.0
+  port: 3000
+  # If true, do nothing about projected volumes (flag useful in test environment)
+  disableProjectedVolumes: false
+  # TLS configuration for secure communication
+  tls:
+    enabled: false
+    certFile: ""
+    keyFile: ""
+    caCertFile: ""
+  # Logging configuration
+  logging:
+    verboseLogging: false
+    errorsOnlyLogging: false
+  # Tracing configuration
+  tracing:
+    enabled: false
+  # Plugin endpoint configuration for VPN/networking
+  pluginEndpoint:
+    url: ""
+    port: ""
+  # Resource requests and limits for the interlink container
+  resources:
+    CPU:
+      request: "100m"
+      limit: "500m"
+    memory:
+      request: "128Mi"
+      limit: "512Mi"
+  # Extra volume mounts for the interlink container
+  extraVolumeMounts: []
+    # - name: data-root
+    #   mountPath: /data
+    #   readOnly: false
+  # # Enable job script translation from outside service
+  # jobScript:
+  #   JobScriptBuildConfig:
+  #     singularity_hub: {}
+  #     apptainer_options: {}
+  #     volume_options: {}
+
+virtualNode:
+  # image: ghcr.io/interlink-hq/interlink/virtual-kubelet-inttw:latest
+  resources:
+    CPUs: 8
+    memGiB: 48
+    pods: 100
+    # add accelerators to the virtual node
+    # accelerators:
+    # fpga example
+    # - resourceType: xilinx.com/fpga
+    #  model: u55c
+    #  available: 1
+    # gpu example
+    # - resourceType: nvidia.com/gpu
+    #  model: a100
+    #  available: 1
+
+    # Tracing configuration
+  tracing:
+    enabled: false
+  # uncomment to enable custom nodeSelector and nodeTaints
+  # nodeLabels:
+  #  - "accelerator=a100"
+  # nodeTaints:
+  #  - key: "accelerator"
+  #    value: "a100"
+  #    effect: "NoSchedule"
+  # Resource requests and limits for the virtual kubelet container
+  containerResources:
+    CPU:
+      request: "100m"
+      limit: "500m"
+    memory:
+      request: "128Mi"
+      limit: "512Mi"
+  # Extra volume mounts for the virtual kubelet container
+  extraVolumeMounts: []
+    # - name: data-root
+    #   mountPath: /data
+    #   readOnly: false
+
+  # # Indicate endpoint for JobScript translator
+  # JobScriptBuilderURL: "https://test.translator.com/podtranslate"
+
+  disableCSR: false
+
+plugin:
+  enabled: true
+  wstunnel:
+    port: 8420
+    host: interlink.dev.local
+  # if socket is specified, the address/port are ignored
+  socket: null
+  address: http://0.0.0.0
+  port: 4000
+  image: ghcr.io/erebe/wstunnel:latest
+  # command: []
+  args:
+    - "./wstunnel"
+    - "server"
+    - "--log-lvl=debug"
+    - "--dns-resolver-prefer-ipv4"
+    - "--restrict-http-upgrade-path-prefix"
+    - "h3GywpDrP6gJEdZ6xbJbZZVFmvFZDCa4KcRd"
+    - "ws://0.0.0.0:8420"
+    # content of the "config" will be mounted as /etc/interlink/plugin.yaml
+  config: ""
+  envs: []
+    # - name: SLURMCONFIGPATH
+    #   value: /etc/interlink/plugin.yaml
+  # Run plugin container with privileged permissions
+  privileged: false
+  # Resource requests and limits for the plugin container
+  resources:
+    CPU:
+      request: "500m"
+      limit: "2"
+    memory:
+      request: "500Mi"
+      limit: "2Gi"
+  # Extra volume mounts for the plugin container
+  extraVolumeMounts: []
+    # - name: data-root
+    #   mountPath: /data
+    #   readOnly: false
+
+# sshBastion:
+#   enabled: false
+#   image: lscr.io/linuxserver/openssh-server:latest
+#   clientKeys:
+#     authorizedKeys: ""
+#     keysURL: ""
+#   hostKeys:
+#     priv: ""
+#     pub: ""
+#   port: 31022
+#   # Resource requests and limits for the SSH bastion container
+#   resources:
+#     CPU:
+#       request: "50m"
+#       limit: "100m"
+#     memory:
+#       request: "64Mi"
+#       limit: "128Mi"
+#   # Extra volume mounts for the SSH bastion container
+#   extraVolumeMounts: []
+#     # - name: data-root
+#     #   mountPath: /data
+#     #   readOnly: false
+# # disable OAUTH when using sockets for communication in the in-cluster mode
+# OAUTH:
+#   enabled: false
+#   image: ghcr.io/interlink-hq/interlink/virtual-kubelet-inttw-refresh:latest
+#   TokenURL: DUMMY
+#   ClientID: DUMMY
+#   ClientSecret: DUMMY
+#   RefreshToken: DUMMY
+#   GrantType: authorization_code
+#   Audience: DUMMY
+#   # Resource requests and limits for the OAuth refresh token container
+#   resources:
+#     CPU:
+#       request: "100m"
+#       limit: "200m"
+#     memory:
+#       request: "300Mi"
+#       limit: "500Mi"
+#   # Extra volume mounts for the OAuth refresh token container
+#   extraVolumeMounts: []
+#     # - name: data-root
+#     #   mountPath: /data
+#     #   readOnly: false
+
+# define extra volumes (e.g. for DataRootVolume)
+extraVolumes: []
+  # - name: data-root
+  #   hostPath:
+  #     path: /scratch/interlink/
+  #     type: DirectoryOrCreate
+
+# Pod scheduling configuration
+podScheduling:
+  # Node selector for the interlink pod
+  nodeSelector: {}
+    # kubernetes.io/hostname: specific-node
+    # node-type: worker
+
+  # Tolerations for the interlink pod
+  tolerations: []
+    # - key: "node-type"
+    #   operator: "Equal"
+    #   value: "gpu"
+    #   effect: "NoSchedule"
+    # - key: "dedicated"
+    #   operator: "Exists"
+    #   effect: "NoSchedule"
