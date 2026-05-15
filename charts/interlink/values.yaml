@@ -2,7 +2,7 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-nodeName: virtual-node
+nodeName: vk-node
 
 interlink:
   enabled: true
@@ -17,7 +17,7 @@ plugin:
 wstunnel:
   enabled: true
   port: 8420
-  host: interlink.dev.local
+  host: dev.local
   logLevel: debug
   secret: "h3GywpDrP6gJEdZ6xbJbZZVFmvFZDCa4KcRd"
 
