@@ -37,10 +37,52 @@ wstunnel:
   # Enable deployment of wstunnel server container in the interLink pod.
   enabled: true
   # Hostname for wstunnel server (for wstunnel client to connect to).
-  host: some.example.net
+  host: interlink.dev.local
   # Secret value for wstunnel authentication, must match the secret used 
   # by wstunnel client (--http-upgrade-path-prefix "<secret>").
   secret: "secret-string-for-wstunnel"
 ```
 
-The interLink pod can be installed using the following command:
+Deploy it with Helm:
+
+```bash
+helm install interlink \
+    ../interlink-helm-chart/interlink \
+    -n interlink --create-namespace \
+    -f values.yaml 
+```
+
+This will create the interLink pod in the `interlink` namespace.
+You can check the status of the deployment with:
+
+```bash
+kubectl get all -n interlink
+```
+
+Should see something like:
+
+```
+NAME                               READY   STATUS    RESTARTS   AGE
+pod/vk-node-node-98fbc58d4-94ksp   4/4     Running   0          19m
+
+NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+service/wstunnel   ClusterIP   10.104.239.69   <none>        8420/TCP   19m
+
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/vk-node-node   1/1     1            1           19m
+
+NAME                                     DESIRED   CURRENT   READY   AGE
+replicaset.apps/vk-node-node-98fbc58d4   1         1         1       19m
+```
+
+And an ingress resource exposing wstunnel server
+(`kubectl get ingress -n interlink`):
+
+```
+NAME       CLASS   HOSTS                 ADDRESS        PORTS   AGE
+wstunnel   nginx   interlink.dev.local   192.168.49.2   80      21m
+```
+
+Which will be the address for wstunnel client to connect to (see
+[../../README.md#wstunnel-client](../../README.md#wstunnel-client)
+for details).

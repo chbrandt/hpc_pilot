@@ -17,30 +17,7 @@ plugin:
 wstunnel:
   enabled: true
   port: 8420
-  host: dev.local
+  host: interlink.dev.local
   logLevel: debug
   secret: "h3GywpDrP6gJEdZ6xbJbZZVFmvFZDCa4KcRd"
 
-# define extra volumes (e.g. for DataRootVolume)
-extraVolumes: []
-  # - name: data-root
-  #   hostPath:
-  #     path: /scratch/interlink/
-  #     type: DirectoryOrCreate
-
-# Pod scheduling configuration
-podScheduling:
-  # Node selector for the interlink pod
-  nodeSelector: {}
-    # kubernetes.io/hostname: specific-node
-    # node-type: worker
-
-  # Tolerations for the interlink pod
-  tolerations: []
-    # - key: "node-type"
-    #   operator: "Equal"
-    #   value: "gpu"
-    #   effect: "NoSchedule"
-    # - key: "dedicated"
-    #   operator: "Exists"
-    #   effect: "NoSchedule"

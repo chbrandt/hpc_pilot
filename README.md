@@ -9,7 +9,7 @@ to manage cloud-native jobs in HPC appliances for EGI communities through
 ## Components
 
 - Cloud
-  - manager app: manages interLink pod, jobs, HPC client, Check-in integration.
+  - manager app:
   - interLink pod
     - interLink API server: provides REST API for HPC job management.
     - wstunnel server: provides secure tunneling for HPC client connections.
@@ -20,35 +20,33 @@ to manage cloud-native jobs in HPC appliances for EGI communities through
 
 - Check-in: manages user authentication and authorization for HPC access
 
-## CLoud
+## Cloud
 
 ### Manager/Pilot app
 
-The manager is a cloud application responsible for orchestrating the deployment
-and management of the interLink pod, as well as handling HPC job submissions
+The manager is responsible for orchestrating the deployment
+of the interLink pod, as well as handling HPC job submissions
 and interactions with Check-in.
-It provides a user interface for users to submit HPC jobs, monitor their status,
-and retrieve results. The manager also manages the lifecycle of the interLink pod,
-ensuring it is running and accessible for HPC clients. Additionally, the manager
-integrates with Check-in to authenticate users and manage their access to
-HPC resources.
-The manager can be deployed on any cloud platform that supports
-Kubernetes, and it interacts with the interLink pod through Kubernetes
-APIs to manage resources and facilitate communication between the HPC
-clients and the cloud environment.
 
-- Go to [pilot/README.md](./pilot/README.md) for details.
+It provides a user interface for users to submit HPC jobs, monitor their status,
+and retrieve results.
+The manager also manages the lifecycle of the interLink pod,
+ensuring it is running and accessible for HPC clients.
+
+- Go to [pilot/README.md](pilot/README.md) for details.
 
 ### interLink pod
 
-The interLink pod is deployed in the cloud and consists of the following components:
+The interLink pod is deployed in the cloud and provides the API and
+tunnel components needed to connect HPC clients with the manager.
 
-- [interLink API server](#interlink-api-server):
-  A REST API server that provides endpoints for managing HPC jobs, including
-  job submission, status monitoring, and result retrieval.
-- [wstunnel server](#wstunnel-server):
-  A secure tunneling server that allows the HPC client (e.g., interLink plugin)
-  to connect to the interLink pod.
+All components are deployed as containers within the interLink pod.
+That allows them to talk to each other over localhost (or socket) and
+simplifies deployment and management.
+The ports each component listens on are defined in the interLink pod's
+`values.yaml` file, they can be customized as needed.
+
+- Go to [charts/interLink/README.md](charts/interLink/README.md) for details.
 
 #### interLink API server
 
@@ -70,7 +68,7 @@ It listens/sends for in/out connections from the wsTunnel client (on the HPC's
 edge-node) and establishes a secure tunnel to facilitate communication
 between the HPC client and the interLink pod.
 The wstunnel server is configured to listen on a specific  port (e.g., 8080)
-and can be accessed through the hostname `interlink.dev.local` .
+and address (e.g., "interlink.dev.local").
 
 ## HPC
 
@@ -84,6 +82,25 @@ communicating with the interLink API server.
 The wsTunnel client is a component that runs on the HPC's edge-node and
 connects to the wstunnel server in the interLink pod to create a secure tunnel.
 This allows the interlink plugin to communicate with the interLink API server.
+
+Once the tunnel is established, the interLink API/plugin can communicate
+through "localhost", since the wstunnel and interLink servers share the same IP.
+
+Consider the following wstunnel client command template::
+
+```
+wstunnel client \
+    --http-upgrade-path-prefix '<unique-secret>' \
+    -R 'tcp://<plugin-port>:localhost:<plugin-port>' \
+    ws://<wstunnel-host>:80
+```
+
+Where:
+
+- `<unique-secret>`: a secret string used for authentication with the
+  wstunnel server, it must match the "secret" defined in the pod configuration.
+- `<plugin-port>`: the port on which the interLink plugin listens (e.g., 4000).
+- `<wstunnel-host>`: the hostname of the wstunnel server (e.g., "interlink.dev.local").
 
 ## Check-in
 
