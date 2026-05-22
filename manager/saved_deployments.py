@@ -137,6 +137,41 @@ def get_config(namespace: str, config_id: str) -> Optional[dict]:
 # ── Default charts helpers ────────────────────────────────────────────
 
 
+def _load_charts_config() -> dict:
+    """
+    Parse *charts_config.yaml* and return the raw top-level dict.
+
+    Returns an empty dict if the file is missing or malformed.
+    """
+    if not os.path.exists(_CHARTS_CONFIG):
+        logger.warning("charts_config.yaml not found at %s", _CHARTS_CONFIG)
+        return {}
+    try:
+        with open(_CHARTS_CONFIG, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("Could not parse charts_config.yaml: %s", exc)
+        return {}
+
+
+def load_app_config() -> dict:
+    """
+    Return the ``app_config`` section from *charts_config.yaml*.
+
+    Currently defined keys:
+
+    * ``cluster_domain`` (str) — wildcard base domain of the Kubernetes cluster
+      (e.g. ``"dev.local"``).  Each user's interlink deployment will be reachable
+      at ``<namespace>.<cluster_domain>``.
+
+    Returns an empty dict if the section is absent or the file cannot be read.
+    """
+    data = _load_charts_config()
+    cfg = data.get("app_config", {})
+    return cfg if isinstance(cfg, dict) else {}
+
+
 def load_default_charts() -> list[dict]:
     """
     Load and return the list of default chart configs from *charts_config.yaml*.
@@ -146,17 +181,37 @@ def load_default_charts() -> list[dict]:
 
     Returns an empty list if the file is missing or malformed.
     """
-    if not os.path.exists(_CHARTS_CONFIG):
-        logger.warning("charts_config.yaml not found at %s", _CHARTS_CONFIG)
-        return []
-    try:
-        with open(_CHARTS_CONFIG, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        charts = data.get("default_charts", []) if isinstance(data, dict) else []
-        return charts if isinstance(charts, list) else []
-    except Exception as exc:
-        logger.warning("Could not parse charts_config.yaml: %s", exc)
-        return []
+    data = _load_charts_config()
+    charts = data.get("default_charts", []) if data else []
+    return charts if isinstance(charts, list) else []
+
+
+def _resolve_placeholders(text: str, namespace: str, app_config: dict) -> str:
+    """
+    Substitute per-user placeholder tokens in *text*.
+
+    Tokens
+    ------
+    __NAMESPACE__
+        The user's Kubernetes namespace (e.g. ``user-a3f1b2c4d5e6f7a8``).
+    __CLUSTER_DOMAIN__
+        The wildcard base domain from ``app_config.cluster_domain``
+        (e.g. ``dev.local``).
+    __NAMESPACE_HASH__
+        The hex-digest portion of the namespace, i.e. everything after the
+        leading ``"user-"`` prefix (e.g. ``a3f1b2c4d5e6f7a8``).
+    """
+    cluster_domain = app_config.get("cluster_domain", "dev.local")
+    # Strip the "user-" prefix to get just the hash; fall back to the full
+    # namespace string if the expected prefix is absent.
+    namespace_hash = namespace.removeprefix("user-")
+
+    return (
+        text
+        .replace("__NAMESPACE__", namespace)
+        .replace("__CLUSTER_DOMAIN__", cluster_domain)
+        .replace("__NAMESPACE_HASH__", namespace_hash)
+    )
 
 
 def seed_defaults(namespace: str) -> None:
@@ -167,11 +222,16 @@ def seed_defaults(namespace: str) -> None:
     Each default chart gets a stable, deterministic ID
     (``"default-<release_name>"``) so it is only inserted once regardless of
     how many times this function is called (e.g. on every login).
+
+    Dynamic placeholder tokens in ``values_yaml`` (``__NAMESPACE__``,
+    ``__CLUSTER_DOMAIN__``, ``__NAMESPACE_HASH__``) are resolved against the
+    user's namespace and the global ``app_config`` before the entry is stored.
     """
     defaults = load_default_charts()
     if not defaults:
         return
 
+    app_config = load_app_config()
     configs = _load(namespace)
     existing_ids = {c.get("id") for c in configs}
 
@@ -184,6 +244,10 @@ def seed_defaults(namespace: str) -> None:
         if stable_id in existing_ids:
             continue  # already seeded
 
+        # Resolve per-user placeholders in values_yaml
+        raw_values = chart.get("values_yaml") or ""
+        resolved_values = _resolve_placeholders(raw_values, namespace, app_config) or None
+
         entry = {
             "id": stable_id,
             "kind": chart.get("kind", "helm"),
@@ -194,7 +258,7 @@ def seed_defaults(namespace: str) -> None:
             "version": chart.get("version"),
             "singleton": chart.get("singleton", False),
             "description": chart.get("description", ""),
-            "values_yaml": chart.get("values_yaml"),
+            "values_yaml": resolved_values,
         }
         configs.append(entry)
         added.append(release_name)
