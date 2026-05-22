@@ -1,4 +1,4 @@
 tmp/
-pilot/data/
+manager/data/
 __pycache__/
 charts/interlink-helm-chart

@@ -1,0 +1,41 @@
+# charts_config.yaml — Global default chart settings for HPC Pilot Manager
+#
+# default_charts:
+#   A list of Helm chart configurations that are automatically pre-saved for
+#   every user on first login.
+#
+#   Fields:
+#     kind        : "helm" (only helm charts are supported here)
+#     release_name: Default Helm release name proposed to the user.
+#     chart       : Chart reference accepted by `helm install` (OCI, repo/name, URL).
+#     version     : Pin a specific chart version, or null for latest.
+#     singleton   : If true, a user may not deploy more than one instance of this chart.
+#     description : Human-readable description shown in the UI.
+#     values_yaml : Default values passed to `helm install --values -` (raw YAML string).
+
+default_charts:
+  - kind: helm
+    release_name: interlink
+    chart: oci://ghcr.io/chbrandt/interlink
+    version: null
+    singleton: true
+    description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
+    values_yaml: |
+      nodeName: vk-node
+
+      interlink:
+        enabled: true
+        address: http://0.0.0.0
+        port: 3000
+
+      plugin:
+        enabled: false
+        address: http://0.0.0.0
+        port: 4000
+
+      wstunnel:
+        enabled: true
+        port: 8420
+        host: interlink.dev.local
+        logLevel: debug
+        secret: "h3GywpDrP6gJEdZ6xbJbZZVFmvFZDCa4KcRd"

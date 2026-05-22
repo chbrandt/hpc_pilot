@@ -104,6 +104,13 @@ def login():
             # Non-fatal: namespace may be created on first deploy
             logger.warning(f"Namespace pre-creation skipped: {exc}")
 
+        # Seed global default chart configs (e.g. interlink) for this user
+        try:
+            from saved_deployments import seed_defaults
+            seed_defaults(namespace)
+        except Exception as exc:
+            logger.warning(f"Could not seed default chart configs: {exc}")
+
         flash(f"Welcome! Your namespace is {namespace}.", "success")
         next_url = request.form.get("next") or url_for("index")
         return redirect(next_url)
@@ -460,6 +467,39 @@ def helm_install_route():
     if not chart:
         flash("Chart reference is required.", "error")
         return redirect(url_for("helm_page"))
+
+    # ── Singleton guard ───────────────────────────────────────────────
+    # If the requested chart is flagged as singleton in charts_config.yaml,
+    # block the install when an existing release for that chart already exists.
+    try:
+        from saved_deployments import def_chart_is_singleton
+        from helm_client import helm_list
+
+        if def_chart_is_singleton(chart):
+            existing = helm_list(namespace=namespace)
+            # Match any release whose chart field starts with the last path
+            # component of the OCI reference (e.g. "interlink" from
+            # "oci://ghcr.io/chbrandt/interlink") or whose name matches.
+            chart_basename = chart.rstrip("/").split("/")[-1].lower()
+            conflict = next(
+                (
+                    r for r in existing
+                    if r["chart"].lower().startswith(chart_basename)
+                    or r["name"].lower() == release_name.lower()
+                ),
+                None,
+            )
+            if conflict:
+                flash(
+                    f"You already have an '{chart_basename}' deployment "
+                    f"(release '{conflict['name']}'). "
+                    f"Only one '{chart_basename}' deployment is allowed per user. "
+                    f"Delete the existing release first.",
+                    "error",
+                )
+                return redirect(url_for("helm_page"))
+    except Exception as exc:
+        logger.warning(f"Singleton check failed (non-fatal): {exc}")
 
     try:
         k8s = get_k8s_client()
