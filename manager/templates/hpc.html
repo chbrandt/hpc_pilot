@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Deploy HPC — HPC Pilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🖥 Deploy to HPC</h1>
+  <p class="text-muted">
+    Connect to a remote HPC node via
+    <a href="https://github.com/dciangot/mccli" target="_blank" rel="noreferrer">mccli</a>
+    (motley-cue / EGI Check-in) and install
+    <strong>wstunnel</strong> + <strong>supervisord</strong>.
+  </p>
+</div>
+
+{# ── Saved configs ──────────────────────────────────────────────────── #}
+{% if saved_configs %}
+<section class="saved-configs">
+  <h2>Saved HPC Configs</h2>
+  <div class="saved-list">
+    {% for cfg in saved_configs %}
+    <div class="saved-item">
+      <div class="saved-item-header">
+        <strong>{{ cfg.label or cfg.hpc_host or "(unnamed)" }}</strong>
+        <span class="text-muted saved-item-date">{{ cfg.saved_at[:10] }}</span>
+      </div>
+      <div class="saved-item-meta text-mono">
+        {{ cfg.hpc_host }}:{{ cfg.ssh_port }}
+        → wss://{{ cfg.wstunnel_server }}:{{ cfg.wstunnel_port }}
+      </div>
+      <div class="saved-item-actions">
+        {# Load button — pre-fills the form via JS #}
+        <button type="button" class="btn btn-small btn-secondary" onclick="loadHpcConfig({{ cfg | tojson }})">
+          📋 Load
+        </button>
+        {# Delete saved config #}
+        <form method="post" action="{{ url_for('delete_saved_config', config_id=cfg.id) }}" style="display:inline;"
+          onsubmit="return confirm('Remove saved config \'{{ cfg.label or cfg.hpc_host }}\'?');">
+          <button type="submit" class="btn btn-small btn-danger">🗑 Delete</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+<hr>
+{% endif %}
+
+{# ── Deployment form ────────────────────────────────────────────────── #}
+<form method="post" action="{{ url_for('hpc.hpc_deploy') }}" id="hpc-form">
+
+  {# ── Section: HPC connection ─────────────────────────────────── #}
+  <fieldset>
+    <legend>HPC Connection</legend>
+
+    <div class="form-row">
+      <div class="form-group" style="flex:3;">
+        <label for="hpc_host">HPC Hostname / IP <span class="required">*</span></label>
+        <input type="text" id="hpc_host" name="hpc_host" placeholder="login.myhpc.example.org" required>
+        <small class="form-hint">
+          The HPC login node reachable via mccli (motley-cue SSH).
+        </small>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label for="ssh_port">SSH Port</label>
+        <input type="number" id="ssh_port" name="ssh_port" value="22" min="1" max="65535">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="label">Config Label</label>
+      <input type="text" id="label" name="label" placeholder="e.g. My HPC Cluster">
+      <small class="form-hint">
+        Human-friendly name stored with saved configs.
+      </small>
+    </div>
+  </fieldset>
+
+  {# ── Section: wstunnel ──────────────────────────────────────── #}
+  <fieldset>
+    <legend>wstunnel Configuration</legend>
+    <p class="text-muted" style="margin-bottom:0.75rem;">
+      These values must match the wstunnel server deployed in your
+      Kubernetes namespace (via the <em>interlink</em> Helm chart).
+    </p>
+
+    <div class="form-row">
+      <div class="form-group" style="flex:3;">
+        <label for="wstunnel_server">wstunnel Server Hostname <span class="required">*</span></label>
+        <input type="text" id="wstunnel_server" name="wstunnel_server" value="{{ defaults.wstunnel_server }}"
+          placeholder="{{ defaults.wstunnel_server }}" required>
+        <small class="form-hint">
+          The public hostname of the K8s-side wstunnel server
+          (e.g. <code>{{ defaults.wstunnel_server }}</code>).
+        </small>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label for="wstunnel_port">Server Port</label>
+        <input type="number" id="wstunnel_port" name="wstunnel_port" value="{{ defaults.wstunnel_port }}" min="1"
+          max="65535" oninput="syncLocalPort(this.value)">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group" style="flex:3;">
+        <label for="wstunnel_secret">Tunnel Secret / Bearer Token <span class="required">*</span></label>
+        <input type="text" id="wstunnel_secret" name="wstunnel_secret" value="{{ defaults.wstunnel_secret }}"
+          placeholder="{{ defaults.wstunnel_secret }}" required>
+        <small class="form-hint">
+          Must match <code>wstunnel.secret</code> in the Helm chart values.
+        </small>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label for="wstunnel_local_port">Local Port (HPC)</label>
+        <input type="number" id="wstunnel_local_port" name="wstunnel_local_port"
+          value="{{ defaults.wstunnel_local_port }}" min="1" max="65535">
+        <small class="form-hint">TCP port exposed on the HPC node.</small>
+      </div>
+    </div>
+  </fieldset>
+
+  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
+    <button type="submit" class="btn btn-primary">
+      🚀 Deploy to HPC
+    </button>
+    <a href="{{ url_for('deployments') }}" class="btn btn-secondary">
+      📋 View Deployments
+    </a>
+  </div>
+</form>
+
+{# ── Info box ────────────────────────────────────────────────────────── #}
+<details style="margin-top:2rem;">
+  <summary class="text-muted" style="cursor:pointer;">
+    ℹ What does this deploy?
+  </summary>
+  <div style="margin-top:0.75rem; padding:1rem; background:var(--bg-secondary, #f8f9fa); border-radius:6px;">
+    <p>
+      Clicking <strong>Deploy to HPC</strong> runs a setup script on the
+      remote HPC node via <code>mccli</code> (using your EGI Check-in token
+      stored in this session). The script:
+    </p>
+    <ol>
+      <li>Downloads the <strong>wstunnel</strong> binary into
+        <code>~/.hpc-pilot/bin/</code>
+      </li>
+      <li>Installs <strong>supervisord</strong>
+        (<code>pip install --user supervisor</code>) if not already present</li>
+      <li>Writes a <code>supervisord.conf</code> that manages wstunnel as a
+        supervised process</li>
+      <li>Starts supervisord, which in turn starts wstunnel and keeps it
+        running</li>
+    </ol>
+    <p>
+      wstunnel connects to the server in your Kubernetes namespace,
+      creating a WebSocket tunnel so that <em>interLink</em> can
+      communicate with your HPC node.
+    </p>
+    <p>
+      The script is <strong>idempotent</strong>: re-running it will
+      regenerate the config and restart services without breaking existing
+      installations.
+    </p>
+  </div>
+</details>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* ── Sync local port with server port by default ────────────────── */
+  function syncLocalPort(value) {
+    const lp = document.getElementById('wstunnel_local_port');
+    if (lp && lp.dataset.userModified !== '1') {
+      lp.value = value;
+    }
+  }
+
+  document.getElementById('wstunnel_local_port').addEventListener('input', function () {
+    this.dataset.userModified = '1';
+  });
+
+  /* ── Load a saved config into the form ──────────────────────────── */
+  function loadHpcConfig(cfg) {
+    const set = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && val !== undefined && val !== null) el.value = val;
+    };
+    set('hpc_host', cfg.hpc_host);
+    set('ssh_port', cfg.ssh_port);
+    set('label', cfg.label || '');
+    set('wstunnel_server', cfg.wstunnel_server);
+    set('wstunnel_port', cfg.wstunnel_port);
+    set('wstunnel_secret', cfg.wstunnel_secret);
+    set('wstunnel_local_port', cfg.wstunnel_local_port);
+    // Scroll to form
+    document.getElementById('hpc-form').scrollIntoView({ behavior: 'smooth' });
+  }
+</script>
+{% endblock %}

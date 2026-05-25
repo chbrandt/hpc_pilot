@@ -20,6 +20,14 @@ from flask import Flask, flash, redirect, render_template, request, session, url
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
 
+# ── HPC Blueprint ─────────────────────────────────────────────────────
+# Registers /hpc/* routes for deploying wstunnel+supervisord on HPC nodes
+# via mccli (motley-cue / EGI Check-in token authentication).
+# app.py lives in manager/, which Python already puts on sys.path, so
+# "hpc" is importable as the manager/hpc/ package with no manipulation needed.
+from hpc import hpc_bp  # noqa: E402
+app.register_blueprint(hpc_bp)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -693,6 +701,8 @@ def delete_saved_config(config_id):
     kind = entry.get("kind") if entry else None
     if kind == "helm":
         return redirect(url_for("helm_page"))
+    if kind == "hpc":
+        return redirect(url_for("hpc.hpc_page"))
     return redirect(url_for("index"))
 
 
