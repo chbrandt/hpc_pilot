@@ -1,9 +1,6 @@
-FROM almalinux:10
-
-ENV VENV_PATH=/opt/venv
+FROM almalinux:9
 
 RUN yum install -y \
-    git \
     openssh-server \
     procps \
     wget \
@@ -12,7 +9,18 @@ RUN yum install -y \
 # Generate SSH host keys
 RUN ssh-keygen -A
 
-RUN python3 -m venv ${VENV_PATH} && \
+# For bonsai (dependency of motley-cue)
+RUN yum install -y \
+    gcc \
+    python3.12 \
+    python3.12-devel \
+    openldap-devel \
+    cyrus-sasl-devel \
+    && yum clean all
+
+ENV VENV_PATH=/opt/venv
+
+RUN python3.12 -m venv ${VENV_PATH} && \
     ${VENV_PATH}/bin/pip install --upgrade pip && \
     ${VENV_PATH}/bin/pip install motley-cue supervisor
 
