@@ -93,22 +93,22 @@
       {# ── Actions ── #}
       <td style="white-space:nowrap;">
         {% if w.kind == 'helm' %}
-        <form method="post" action="{{ url_for('save_release', name=w.name) }}" style="display:inline;">
+        <form method="post" action="{{ url_for('app_helm.save_release', name=w.name) }}" style="display:inline;">
           <button type="submit" class="btn btn-small btn-secondary" title="Save chart config for re-deployment">💾
             Save</button>
         </form>
-        <form method="post" action="{{ url_for('delete_release', name=w.name) }}"
+        <form method="post" action="{{ url_for('app_helm.delete_release', name=w.name) }}"
           onsubmit="return confirm('Uninstall Helm release {{ w.name }}? This will delete all resources it manages.');"
           style="display:inline;">
           <button type="submit" class="btn btn-small btn-danger" title="Uninstall release">🗑️ Uninstall</button>
         </form>
         {% else %}
-        <form method="post" action="{{ url_for('save_deployment', namespace=w.namespace, name=w.name) }}"
+        <form method="post" action="{{ url_for('app_k8s.save_deployment', namespace=w.namespace, name=w.name) }}"
           style="display:inline;">
           <button type="submit" class="btn btn-small btn-secondary" title="Save deployment config for re-deployment">💾
             Save</button>
         </form>
-        <form method="post" action="{{ url_for('delete_deployment', namespace=w.namespace, name=w.name) }}"
+        <form method="post" action="{{ url_for('app_k8s.delete_deployment', namespace=w.namespace, name=w.name) }}"
           onsubmit="return confirm('Delete deployment {{ w.name }}?');" style="display:inline;">
           <button type="submit" class="btn btn-small btn-danger" title="Delete deployment">🗑️ Delete</button>
         </form>
@@ -122,8 +122,8 @@
 <div class="empty-state">
   <p>No workloads in your namespace yet.</p>
   <div style="display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap;">
-    <a href="{{ url_for('index') }}" class="btn btn-primary">🐳 Deploy a Container</a>
-    <a href="{{ url_for('helm_page') }}" class="btn btn-secondary">⎈ Deploy a Chart</a>
+    <a href="{{ url_for('app_k8s.index') }}" class="btn btn-primary">🐳 Deploy a Container</a>
+    <a href="{{ url_for('app_helm.helm_page') }}" class="btn btn-secondary">⎈ Deploy a Chart</a>
   </div>
 </div>
 {% endif %}

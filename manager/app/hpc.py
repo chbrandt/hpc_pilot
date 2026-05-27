@@ -1,66 +1,42 @@
 """
-manager/hpc/routes.py — Flask Blueprint for HPC deployments.
+app/hpc.py — Web GUI routes for HPC node deployments.
 
-Registers the following URL rules (all prefixed with /hpc):
-
-  GET  /hpc              – deployment form (with saved-config loader)
-  POST /hpc/deploy       – run setup.sh on the remote HPC node via mccli
-  POST /hpc/status       – query supervisorctl status on the remote node
-  POST /hpc/start        – start managed services (supervisorctl start all)
-  POST /hpc/stop         – stop managed services (supervisorctl stop all)
-  POST /hpc/<id>/save    – persist the HPC config to saved_deployments
+Routes (all under /hpc prefix)
+------
+GET  /hpc                   HPC deployment form
+POST /hpc/deploy            Run setup.sh on remote HPC node via mccli
+POST /hpc/status            Query supervisorctl status on remote node
+POST /hpc/start             Start managed services (supervisorctl start all)
+POST /hpc/stop              Stop managed services (supervisorctl stop all)
+POST /hpc/<id>/save         Persist HPC config to saved_deployments
 """
 
 import logging
-import sys
 import os
 
-from flask import (
-    Blueprint,
-    flash,
-    redirect,
-    render_template,
-    request,
-    session,
-    url_for,
-)
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
-# Make sure the manager/ directory is importable when this Blueprint is used
-_manager_dir = os.path.dirname(os.path.dirname(__file__))
-if _manager_dir not in sys.path:
-    sys.path.insert(0, _manager_dir)
+from app.auth import require_login
+from lib import hpc_client
+from lib.saved_deployments import list_configs, load_app_config, save_config
 
 logger = logging.getLogger(__name__)
 
-hpc_bp = Blueprint(
-    "hpc",
-    __name__,
-    url_prefix="/hpc",
-    # Re-use the manager app's templates/ folder — no Blueprint-local templates
-    template_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates"),
-)
+hpc_bp = Blueprint("app_hpc", __name__, url_prefix="/hpc")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
-def _require_login():
-    """Return the current user or None if not authenticated."""
-    from token_auth import get_session_user
-    return get_session_user()
-
-
 def _get_token() -> str:
-    """Return the raw EGI Check-in token from the session."""
     return session.get("token", "")
 
 
 def _default_wstunnel_config(namespace: str) -> dict:
     """
     Build sensible wstunnel defaults from the user's namespace and the
-    global app_config (cluster_domain).  Mirrors the Helm chart defaults.
+    global app_config (cluster_domain).
     """
-    from saved_deployments import load_app_config
     app_cfg = load_app_config()
     cluster_domain = app_cfg.get("cluster_domain", "dev.local")
     namespace_hash = namespace.removeprefix("user-")
@@ -76,56 +52,22 @@ def _default_wstunnel_config(namespace: str) -> dict:
 
 
 @hpc_bp.route("/", methods=["GET"])
+@require_login
 def hpc_page():
-    """
-    Render the HPC deployment form.
-
-    Loads saved HPC configs for the current user so they can be
-    re-deployed with one click, following the same pattern as
-    index.html (container) and helm.html (Helm chart).
-    """
-    user = _require_login()
-    if user is None:
-        flash("Please log in with your EGI Check-in access token.", "error")
-        return redirect(url_for("login"))
-
-    from saved_deployments import list_configs
+    """Render the HPC deployment form."""
     namespace = session.get("namespace", "")
     saved = list_configs(namespace, kind="hpc") if namespace else []
-
     defaults = _default_wstunnel_config(namespace)
-
-    return render_template(
-        "hpc.html",
-        saved_configs=saved,
-        defaults=defaults,
-    )
+    return render_template("hpc.html", saved_configs=saved, defaults=defaults)
 
 
 @hpc_bp.route("/deploy", methods=["POST"])
+@require_login
 def hpc_deploy():
-    """
-    Run setup.sh on the remote HPC node via mccli.
-
-    Form fields
-    -----------
-    hpc_host          (required) – HPC login node hostname or IP
-    ssh_port          (default 22)
-    wstunnel_server   (required) – K8s-side wstunnel server hostname
-    wstunnel_port     (default 8420)
-    wstunnel_secret   (required) – shared tunnel secret
-    wstunnel_local_port (default = wstunnel_port)
-    label             (optional) – human-friendly label for saved configs
-    """
-    user = _require_login()
-    if user is None:
-        flash("Please log in first.", "error")
-        return redirect(url_for("login"))
-
+    """Run setup.sh on the remote HPC node via mccli."""
     token = _get_token()
     namespace = session["namespace"]
 
-    # ── Parse form ──────────────────────────────────────────────────
     hpc_host          = request.form.get("hpc_host", "").strip()
     ssh_port_str      = request.form.get("ssh_port", "22").strip()
     wstunnel_server   = request.form.get("wstunnel_server", "").strip()
@@ -136,16 +78,15 @@ def hpc_deploy():
     ).strip()
     label = request.form.get("label", "").strip() or hpc_host
 
-    # ── Validate ────────────────────────────────────────────────────
     if not hpc_host:
         flash("HPC hostname is required.", "error")
-        return redirect(url_for("hpc.hpc_page"))
+        return redirect(url_for("app_hpc.hpc_page"))
     if not wstunnel_server:
         flash("wstunnel server hostname is required.", "error")
-        return redirect(url_for("hpc.hpc_page"))
+        return redirect(url_for("app_hpc.hpc_page"))
     if not wstunnel_secret:
         flash("wstunnel secret is required.", "error")
-        return redirect(url_for("hpc.hpc_page"))
+        return redirect(url_for("app_hpc.hpc_page"))
 
     try:
         ssh_port = int(ssh_port_str)
@@ -153,17 +94,14 @@ def hpc_deploy():
         wstunnel_local_port = int(wstunnel_local_port_str)
     except ValueError:
         flash("SSH port and wstunnel ports must be integers.", "error")
-        return redirect(url_for("hpc.hpc_page"))
-
-    # ── Deploy ──────────────────────────────────────────────────────
-    from .hpc_client import deploy
+        return redirect(url_for("app_hpc.hpc_page"))
 
     logger.info(
         "HPC deploy: user=%s host=%s wstunnel_server=%s port=%s",
         namespace, hpc_host, wstunnel_server, wstunnel_port,
     )
 
-    result = deploy(
+    result = hpc_client.deploy(
         token=token,
         hpc_host=hpc_host,
         ssh_port=ssh_port,
@@ -173,10 +111,9 @@ def hpc_deploy():
         wstunnel_local_port=wstunnel_local_port,
     )
 
-    # ── Auto-save config on success ─────────────────────────────────
+    # Auto-save config on success
     if result["success"]:
         try:
-            from saved_deployments import save_config
             save_config(
                 namespace=namespace,
                 kind="hpc",
@@ -204,113 +141,82 @@ def hpc_deploy():
 
 
 @hpc_bp.route("/status", methods=["POST"])
+@require_login
 def hpc_status():
     """Query supervisorctl status on the remote HPC node."""
-    user = _require_login()
-    if user is None:
-        flash("Please log in first.", "error")
-        return redirect(url_for("login"))
-
     token = _get_token()
-
     hpc_host     = request.form.get("hpc_host", "").strip()
     ssh_port_str = request.form.get("ssh_port", "22").strip()
 
     if not hpc_host:
         flash("HPC hostname is required.", "error")
-        return redirect(url_for("hpc.hpc_page"))
+        return redirect(url_for("app_hpc.hpc_page"))
 
     try:
         ssh_port = int(ssh_port_str)
     except ValueError:
         ssh_port = 22
 
-    from .hpc_client import get_status
-    result = get_status(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
-
+    result = hpc_client.get_status(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
     return render_template(
-        "hpc_result.html",
-        result=result,
-        action="status",
-        hpc_host=hpc_host,
+        "hpc_result.html", result=result, action="status", hpc_host=hpc_host
     )
 
 
 @hpc_bp.route("/start", methods=["POST"])
+@require_login
 def hpc_start():
     """Start all supervisord-managed services on the remote HPC node."""
-    user = _require_login()
-    if user is None:
-        flash("Please log in first.", "error")
-        return redirect(url_for("login"))
-
     token = _get_token()
     hpc_host     = request.form.get("hpc_host", "").strip()
     ssh_port_str = request.form.get("ssh_port", "22").strip()
 
     if not hpc_host:
         flash("HPC hostname is required.", "error")
-        return redirect(url_for("hpc.hpc_page"))
+        return redirect(url_for("app_hpc.hpc_page"))
 
     try:
         ssh_port = int(ssh_port_str)
     except ValueError:
         ssh_port = 22
 
-    from .hpc_client import start_services
-    result = start_services(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
-
+    result = hpc_client.start_services(
+        token=token, hpc_host=hpc_host, ssh_port=ssh_port
+    )
     return render_template(
-        "hpc_result.html",
-        result=result,
-        action="start",
-        hpc_host=hpc_host,
+        "hpc_result.html", result=result, action="start", hpc_host=hpc_host
     )
 
 
 @hpc_bp.route("/stop", methods=["POST"])
+@require_login
 def hpc_stop():
     """Stop all supervisord-managed services on the remote HPC node."""
-    user = _require_login()
-    if user is None:
-        flash("Please log in first.", "error")
-        return redirect(url_for("login"))
-
     token = _get_token()
     hpc_host     = request.form.get("hpc_host", "").strip()
     ssh_port_str = request.form.get("ssh_port", "22").strip()
 
     if not hpc_host:
         flash("HPC hostname is required.", "error")
-        return redirect(url_for("hpc.hpc_page"))
+        return redirect(url_for("app_hpc.hpc_page"))
 
     try:
         ssh_port = int(ssh_port_str)
     except ValueError:
         ssh_port = 22
 
-    from .hpc_client import stop_services
-    result = stop_services(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
-
+    result = hpc_client.stop_services(
+        token=token, hpc_host=hpc_host, ssh_port=ssh_port
+    )
     return render_template(
-        "hpc_result.html",
-        result=result,
-        action="stop",
-        hpc_host=hpc_host,
+        "hpc_result.html", result=result, action="stop", hpc_host=hpc_host
     )
 
 
 @hpc_bp.route("/<config_id>/save", methods=["POST"])
+@require_login
 def hpc_save(config_id: str):
-    """
-    Persist (or re-persist) an HPC config to the saved_deployments store.
-
-    Called from the deployments page or hpc_result page.
-    """
-    user = _require_login()
-    if user is None:
-        return redirect(url_for("login"))
-
+    """Persist (or re-persist) an HPC config to the saved_deployments store."""
     namespace = session["namespace"]
 
     hpc_host          = request.form.get("hpc_host", "").strip()
@@ -324,7 +230,6 @@ def hpc_save(config_id: str):
     label = request.form.get("label", "").strip() or hpc_host
 
     try:
-        from saved_deployments import save_config
         save_config(
             namespace=namespace,
             kind="hpc",
@@ -342,4 +247,4 @@ def hpc_save(config_id: str):
     except Exception as exc:
         flash(f"Failed to save HPC config: {exc}", "error")
 
-    return redirect(url_for("hpc.hpc_page"))
+    return redirect(url_for("app_hpc.hpc_page"))

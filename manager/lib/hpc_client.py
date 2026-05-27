@@ -2,8 +2,8 @@
 hpc_client.py — mccli / SSH wrapper for HPC deployments.
 
 Analogous to helm_client.py for Helm charts, this module wraps the
-``mccli`` CLI (motley-cue client) via subprocess so the Flask app never
-has to call subprocess directly.
+``mccli`` CLI (motley-cue client) via subprocess so callers never
+have to call subprocess directly.
 
 Every public function accepts the EGI Check-in *access token* that is
 already stored in the Flask session, together with the HPC host details,
@@ -21,7 +21,6 @@ downloaded and run via mccli takes care of wstunnel + supervisord.
 import logging
 import os
 import subprocess
-import tempfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -32,6 +31,10 @@ _LONG_TIMEOUT  = 300  # seconds – setup script (pip install, curl download)
 
 # Remote installation base directory
 _REMOTE_BASE_DIR = "~/.hpc-pilot"
+
+# Location of the setup.sh script relative to this file's package directory.
+# The script lives in manager/hpc/ alongside the supervisord template.
+_SETUP_SH = os.path.join(os.path.dirname(__file__), "..", "hpc", "setup.sh")
 
 
 # ── Internal helper ────────────────────────────────────────────────────
@@ -184,8 +187,8 @@ def deploy(
     """
     Install wstunnel + supervisord on the remote HPC node and start them.
 
-    The ``setup.sh`` script (located next to this module) is read from disk,
-    rendered with the provided parameters, and piped into ``bash -s`` via
+    The ``setup.sh`` script (located at ``manager/hpc/setup.sh``) is read from
+    disk, rendered with the provided parameters, and piped into ``bash -s`` via
     ``mccli`` so the HPC node does not need to have the repository cloned.
 
     Parameters
@@ -207,8 +210,7 @@ def deploy(
     if wstunnel_local_port is None:
         wstunnel_local_port = wstunnel_port
 
-    # Locate setup.sh next to this file
-    setup_sh_path = os.path.join(os.path.dirname(__file__), "setup.sh")
+    setup_sh_path = os.path.normpath(_SETUP_SH)
     try:
         with open(setup_sh_path, "rb") as fh:
             setup_script = fh.read()

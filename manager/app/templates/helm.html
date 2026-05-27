@@ -35,7 +35,7 @@
                 <span class="saved-config-name">{{ cfg.release_name }}</span>
                 <span class="text-muted text-mono" style="font-size:0.8rem;">{{ cfg.chart }}</span>
                 <form method="post"
-                      action="{{ url_for('delete_saved_config', config_id=cfg.id) }}"
+                      action="{{ url_for('app_saved.delete_saved_config', config_id=cfg.id) }}"
                       onsubmit="return confirm('Remove saved config \'{{ cfg.release_name }}\'?');"
                       style="display:inline; margin-left:auto;">
                     <button type="submit" class="btn btn-tiny btn-danger"
@@ -51,10 +51,10 @@
 <p class="text-muted">
     Deploy any multi-container workload packaged as a Helm chart.
     For single-container workloads, use the
-    <a href="{{ url_for('index') }}">Deploy Container</a> page instead.
+    <a href="{{ url_for('app_k8s.index') }}">Deploy Container</a> page instead.
 </p>
 
-<form action="{{ url_for('helm_install_route') }}" method="post"
+<form action="{{ url_for('app_helm.helm_install_route') }}" method="post"
       class="deploy-form" id="helm-form">
 
     <!-- Required Fields -->

@@ -2,7 +2,7 @@
 helm_client.py — Thin wrapper around the Helm CLI for HPC Pilot.
 
 All functions call the `helm` binary via subprocess and return plain dicts so
-the Flask app never needs to import subprocess directly.
+callers never need to import subprocess directly.
 """
 
 import json

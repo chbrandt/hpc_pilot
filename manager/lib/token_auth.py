@@ -1,21 +1,24 @@
 """
-EGI Check-in JWT access token validation and user identity utilities.
+token_auth.py — EGI Check-in JWT access token validation and namespace derivation.
+
+Pure Python module: no web-framework dependency.
 
 Validates tokens using JWKS signature verification against the issuer's
 public keys, and provides namespace derivation helpers for Kubernetes.
+
+Flask session helpers (get_session_user, require_login) live in the
+respective web layers: app/auth.py (GUI) and api/auth.py (REST API).
 """
 
 import hashlib
 import json
 import logging
 import time
-from functools import wraps
 from typing import Optional
 
 import jwt as pyjwt
 import requests
 from jwt.algorithms import RSAAlgorithm
-from flask import flash, redirect, request, session, url_for
 
 logger = logging.getLogger(__name__)
 
@@ -201,62 +204,3 @@ def derive_namespace(sub: str) -> str:
     """
     digest = hashlib.sha256(sub.encode()).hexdigest()[:16]
     return f"user-{digest}"
-
-
-# ── Session helpers ───────────────────────────────────────────────────
-
-
-def get_session_user() -> Optional[dict]:
-    """
-    Return current authenticated user info from the Flask session.
-
-    Returns None if:
-    - No token is stored in the session, or
-    - The stored token's 'exp' claim is in the past.
-    """
-    claims = session.get("claims")
-    if not claims:
-        return None
-    exp = claims.get("exp", 0)
-    if time.time() > exp:
-        return None
-    return {
-        "sub": claims.get("sub", ""),
-        "namespace": session.get("namespace", ""),
-        "exp": exp,
-        "iss": claims.get("iss", ""),
-    }
-
-
-# ── Route decorator ───────────────────────────────────────────────────
-
-
-def require_token(f):
-    """
-    Flask route decorator that enforces authentication.
-
-    Checks the Flask session for a valid, non-expired token.
-
-    - HTML requests: redirects to /login with a flash message.
-    - JSON / AJAX requests: returns HTTP 401 with a JSON error body.
-    """
-
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        user = get_session_user()
-        if user is None:
-            is_json = (
-                "application/json" in request.headers.get("Accept", "")
-                or request.headers.get("X-Requested-With") == "XMLHttpRequest"
-            )
-            if is_json:
-                return (
-                    json.dumps({"error": "Authentication required", "code": 401}),
-                    401,
-                    {"Content-Type": "application/json"},
-                )
-            flash("Please log in with your EGI Check-in access token.", "error")
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-
-    return decorated

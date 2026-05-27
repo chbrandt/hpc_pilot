@@ -2,10 +2,11 @@
 saved_deployments.py — Per-user saved deployment configuration store.
 
 Configs are persisted as a JSON file per namespace under the ``data/``
-directory that sits alongside this module.  No database dependency.
+directory that sits at the manager root (one level above this module).
+No database dependency.
 
-Global default chart presets are read from ``charts_config.yaml`` (next to
-this module) and automatically seeded into each user's store on first login.
+Global default chart presets are read from ``charts_config.yaml`` (at the
+manager root) and automatically seeded into each user's store on first login.
 """
 
 import json
@@ -19,11 +20,14 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# manager/ root — one level above this lib/ directory
+_MANAGER_DIR = os.path.dirname(os.path.dirname(__file__))
+
 # Directory where JSON store files live; created on first write.
-_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+_DATA_DIR = os.path.join(_MANAGER_DIR, "data")
 
 # Path to the global chart defaults configuration file.
-_CHARTS_CONFIG = os.path.join(os.path.dirname(__file__), "charts_config.yaml")
+_CHARTS_CONFIG = os.path.join(_MANAGER_DIR, "charts_config.yaml")
 
 # Stable ID prefix used for auto-seeded default configs.
 _DEFAULT_ID_PREFIX = "default-"

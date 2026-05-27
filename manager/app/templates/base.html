@@ -12,16 +12,16 @@
   <nav class="navbar">
     <div class="container navbar-inner">
       <div class="nav-left">
-        <a href="{{ url_for('index') }}" class="nav-brand">⎈ HPC Pilot</a>
+        <a href="{{ url_for('app_k8s.index') }}" class="nav-brand">⎈ HPC Pilot</a>
         {% if current_user %}
         <div class="nav-links">
-          <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Deploy</a>
-          <a href="{{ url_for('helm_page') }}" class="{% if request.endpoint == 'helm_page' %}active{% endif %}">Deploy
+          <a href="{{ url_for('app_k8s.index') }}" class="{% if request.endpoint == 'app_k8s.index' %}active{% endif %}">Deploy</a>
+          <a href="{{ url_for('app_helm.helm_page') }}" class="{% if request.endpoint == 'app_helm.helm_page' %}active{% endif %}">Deploy
             Chart</a>
-          <a href="{{ url_for('hpc.hpc_page') }}"
+          <a href="{{ url_for('app_hpc.hpc_page') }}"
             class="{% if request.endpoint and request.endpoint.startswith('hpc.') %}active{% endif %}">🖥 Deploy HPC</a>
-          <a href="{{ url_for('deployments') }}"
-            class="{% if request.endpoint == 'deployments' %}active{% endif %}">Deployments</a>
+          <a href="{{ url_for('app_k8s.deployments') }}"
+            class="{% if request.endpoint == 'app_k8s.deployments' %}active{% endif %}">Deployments</a>
         </div>
         {% endif %}
       </div>
@@ -34,10 +34,10 @@
         <span class="nav-expiry">
           ⏱ <span id="token-countdown">--</span>
         </span>
-        <a href="{{ url_for('login') }}?refresh=1" class="btn btn-small btn-secondary" title="Paste a fresh token">
+        <a href="{{ url_for('auth.login') }}?refresh=1" class="btn btn-small btn-secondary" title="Paste a fresh token">
           🔄 Refresh
         </a>
-        <a href="{{ url_for('logout') }}" class="btn btn-small btn-danger" title="Log out">
+        <a href="{{ url_for('auth.logout') }}" class="btn btn-small btn-danger" title="Log out">
           🚪 Logout
         </a>
         {# Hidden element carrying the token expiry epoch for JS #}
@@ -81,7 +81,7 @@
       function update() {
         const remaining = expMs - Date.now();
         if (remaining <= 0) {
-          window.location.href = '{{ url_for("logout") }}?reason=expired';
+          window.location.href = '{{ url_for("auth.logout") }}?reason=expired';
           return;
         }
         const totalSecs = Math.floor(remaining / 1000);

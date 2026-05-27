@@ -125,8 +125,8 @@
 {% endif %}
 
 <div class="form-actions">
-    <a href="{{ url_for('index') }}" class="btn btn-secondary">← Deploy Another</a>
-    <a href="{{ url_for('deployments') }}" class="btn btn-primary">View All Deployments</a>
+    <a href="{{ url_for('app_k8s.index') }}" class="btn btn-secondary">← Deploy Another</a>
+    <a href="{{ url_for('app_k8s.deployments') }}" class="btn btn-primary">View All Deployments</a>
 </div>
 
 {% if result.success %}
