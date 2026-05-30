@@ -2,3 +2,6 @@ tmp/
 manager/data/
 __pycache__/
 charts/interlink-helm-chart
+.cline/
+.DS_Store
+
