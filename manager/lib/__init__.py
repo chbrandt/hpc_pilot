@@ -12,4 +12,5 @@ helm_client       Helm CLI wrapper (install, list, uninstall, get-values)
 hpc_client        mccli / SSH wrapper for HPC node deployments
 saved_deployments Per-user saved deployment configuration store (JSON files)
 token_auth        EGI Check-in JWT validation and namespace derivation
+token_checkin     EGI Check-in OAuth 2.0 Device Flow (obtain / refresh / revoke tokens)
 """

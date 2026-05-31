@@ -24,10 +24,10 @@ serverurl=unix://%(here)s/supervisor.sock
 ; exposes a local TCP port on this HPC node that interLink can reach.
 
 [program:wstunnel]
-command=${_WSTUNNEL_BIN} client
-    --http-upgrade-path-prefix '${_WSTUNNEL_SECRET}'
-    -R tcp://${_WSTUNNEL_LOCAL_PORT}:localhost:${_WSTUNNEL_LOCAL_PORT}
-    ws://${_WSTUNNEL_SERVER_ADDR}:${_WSTUNNEL_SERVER_PORT}
+command={{wstunnel_bin}} client
+    --http-upgrade-path-prefix '{{wstunnel_secret}}'
+    -R tcp://{{wstunnel_local_port}}:localhost:{{wstunnel_local_port}}
+    ws://{{wstunnel_server_addr}}:80
 priority=1
 autostart=true
 autorestart=true

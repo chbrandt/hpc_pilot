@@ -90,7 +90,8 @@ def _copy_mccli(
 
     logger.info("mccli -> %s: %s", hpc_host, f"scp {local_path} {remote_path}")
 
-    print("Running mccli command:", " ".join(cmd))
+    print("Running mccli command:", " ".join(
+        [s for i,s in enumerate(cmd) if i != cmd.index("--token") + 1]))
 
     try:
         result = subprocess.run(
@@ -334,10 +335,10 @@ def deploy(
     )
 
     steps = [
+        ("install_supervisord",    lambda: install_supervisord(runner)),
         ("setup_directories",      lambda: setup_directories(runner)),
         ("install_wstunnel",       lambda: install_wstunnel(runner, cfg, force=False)),
-        ("install_supervisord",    lambda: install_supervisord(runner)),
-        ("copy_supervisord_conf", lambda: copy_supervisord_conf(copier)),
+        ("copy_supervisord_conf", lambda: copy_supervisord_conf(copier, cfg)),
         ("start_supervisord",      lambda: start_supervisord(runner)),
         ("check_status",           lambda: check_status(runner)),
     ]
@@ -348,7 +349,9 @@ def deploy(
         logger.info("Deploy step: %s", step_name)
         result = step_fn()
         if result.get("output"):
-            all_output.append(f"[{step_name}] {result['output']}")
+            step_output = f"[{step_name}] {result['output']}"
+            print(step_output)
+            all_output.append(step_output)
         if not result["success"]:
             return {
                 "success": False,
@@ -363,8 +366,34 @@ def deploy(
     }
 
 
-# ── Utilities ──────────────────────────────────────────────────────────
+#############################################################################
+# --- Utilities --- 
+import tempfile
+import os
 
+def write_to_tempfile(text: str) -> tempfile.NamedTemporaryFile:
+    """"
+    Return name of the temporary file after writing the given text to it.
+    """
+    # Define your custom directory
+    temp_dir = "/tmp/pilot_temp"
+    
+    # Ensure the custom directory exists (optional, but good practice)
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Use dir, prefix, and suffix to control the file's location and name
+    try:
+        with tempfile.NamedTemporaryFile(
+          dir=temp_dir, 
+          mode='w+', 
+          delete=False
+        ) as temp_file:
+            temp_file.write(text)
+            temp_file.flush()
+            return temp_file
+    except Exception as e:
+        raise RuntimeError(f"Failed to write to temporary file: {e}")
+    
 
 def _sh_quote(value: str) -> str:
     """
@@ -375,33 +404,42 @@ def _sh_quote(value: str) -> str:
     """
     return "'" + value.replace("'", "'\\''") + "'"
 
-"""
-hpc_setup.py — Remote HPC node setup step functions.
 
-Each public function accepts a *runner* callable that executes a shell command
-on the remote HPC node (via mccli / SSH) and returns the standard
-``{success, output, error}`` dict used throughout hpc_client.py:
 
-    runner(command: str, stdin_data: bytes | None = None, timeout: int = …) -> dict
 
-The functions translate the logic from manager/hpc/setup.sh into Python but
-the actual execution always happens **remotely** through the runner —
-no local subprocess calls are made here.
 
-Usage (orchestrated by hpc_client.deploy):
-    def runner(cmd, stdin_data=None, timeout=_SHORT_TIMEOUT):
-        return _run_mccli(token, hpc_host, ssh_port, cmd, stdin_data, timeout)
 
-    cfg = SetupConfig(wstunnel_server, wstunnel_port, wstunnel_secret, local_port)
-    hpc_setup.setup_directories(runner)
-    hpc_setup.install_wstunnel(runner, cfg)
-    hpc_setup.install_supervisord(runner)
-    hpc_setup.write_supervisord_conf(runner, cfg)
-    hpc_setup.start_supervisord(runner)
-    hpc_setup.check_status(runner)
-"""
 
-# from __future__ import annotations
+#############################################################################
+# --- HPC setup ---
+#"""
+#hpc_setup.py — Remote HPC node setup step functions.
+#
+#Each public function accepts a *runner* callable that executes a shell command
+#on the remote HPC node (via mccli / SSH) and returns the standard
+#``{success, output, error}`` dict used throughout hpc_client.py:
+#
+#    runner(command: str, stdin_data: bytes | None = None, timeout: int = …) -> dict
+#
+#The functions translate the logic from manager/hpc/setup.sh into Python but
+#the actual execution always happens **remotely** through the runner —
+#no local subprocess calls are made here.
+#
+#Usage (orchestrated by hpc_client.deploy):
+#    def runner(cmd, stdin_data=None, timeout=_SHORT_TIMEOUT):
+#        return _run_mccli(token, hpc_host, ssh_port, cmd, stdin_data, timeout)
+#
+#    cfg = SetupConfig(wstunnel_server, wstunnel_port, wstunnel_secret, local_port)
+#    hpc_setup.setup_directories(runner)
+#    hpc_setup.install_wstunnel(runner, cfg)
+#    hpc_setup.install_supervisord(runner)
+#    hpc_setup.write_supervisord_conf(runner, cfg)
+#    hpc_setup.start_supervisord(runner)
+#    hpc_setup.check_status(runner)
+#"""
+#
+## from __future__ import annotations
+#############################################################################
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -416,9 +454,17 @@ _SHORT_TIMEOUT = 30   # simple checks, mkdir, supervisorctl …
 _LONG_TIMEOUT  = 300  # curl download + pip install
 
 # Local path to supervisord.conf template file
-_SUPERVISOR_CONF_TEMPLATE = os.path.join(
-    os.path.dirname(__file__), "..", "hpc", "supervisord.conf.tpl"
-)
+hpc = {
+    "pilot": {
+        "supervisord_conf": {
+            "template": os.path.join(
+                os.path.dirname(__file__), "..", 
+                "hpc", "pilot","supervisord.conf.jinja"
+            )
+        }
+    }
+}
+SUPERVISOR_CONF_TEMPLATE = hpc["pilot"]["supervisord_conf"]["template"]
 
 # ── Remote path constants ──────────────────────────────────────────────────────
 # All paths use shell variable $HOME so they expand correctly on the remote node
@@ -426,16 +472,17 @@ _SUPERVISOR_CONF_TEMPLATE = os.path.join(
 # The supervisord *config file* uses supervisord's own %(ENV_HOME)s syntax
 # instead of $HOME because the file is written by Python (no shell expansion).
 
-_BASE_DIR         = "$HOME/.hpc-pilot"
+_BASE_DIR         = "$HOME/.pilot"
 _TMP_DIR          = f"{_BASE_DIR}/tmp"
 _BIN_DIR          = f"{_BASE_DIR}/bin"
 _LOG_DIR          = f"{_BASE_DIR}/log"
 _CONF_DIR         = f"{_BASE_DIR}/config"
-_VENV             = f"{_BASE_DIR}/venv"
-_SUPERVISOR_BIN   = f"{_VENV}/bin/supervisord"
-_SUPERVISOR_CONF  = f"{_VENV}/supervisord.conf"
-_SUPERVISOR_SOCK  = f"{_VENV}/supervisord.sock"
-_SUPERVISOR_PID   = f"{_VENV}/supervisord.pid"
+
+_SUPERVISORD_BIN  = f"{_BASE_DIR}/bin/supervisord"
+_SUPERVISORCTL_BIN= f"{_BASE_DIR}/bin/supervisorctl"
+_SUPERVISOR_CONF  = f"{_BASE_DIR}/supervisord.conf"
+_SUPERVISOR_SOCK  = f"{_BASE_DIR}/supervisord.sock"
+_SUPERVISOR_PID   = f"{_BASE_DIR}/supervisord.pid"
 
 _WSTUNNEL_BIN     = f"{_BIN_DIR}/wstunnel"
 _WSTUNNEL_VERSION_DEFAULT = "v10.5.5"
@@ -463,6 +510,7 @@ class SetupConfig:
     wstunnel_secret: str
     wstunnel_local_port: int
     wstunnel_version: str = _WSTUNNEL_VERSION_DEFAULT
+    wstunnel_bin: Optional[str] = None  # computed in __post_init__   
 
     def __post_init__(self) -> None:
         ver = self.wstunnel_version
@@ -470,6 +518,8 @@ class SetupConfig:
             f"https://github.com/erebe/wstunnel/releases/download/"
             f"{ver}/wstunnel_{ver.lstrip('v')}_linux_amd64.tar.gz"
         )
+        if self.wstunnel_bin is None:
+            self.wstunnel_bin = _WSTUNNEL_BIN
 
 
 # ── Step functions ─────────────────────────────────────────────────────────────
@@ -490,8 +540,9 @@ def setup_directories(runner: Runner) -> dict:
     dict  ``{success, output, error}``
     """
     cmd = (
-        f"mkdir -p {_TMP_DIR} {_BIN_DIR} {_LOG_DIR} {_CONF_DIR}" 
-        f" && echo 'Directories ready: {_BASE_DIR}'"
+        f"echo 'Creating directories: {_TMP_DIR} {_BIN_DIR} {_LOG_DIR} {_CONF_DIR}'"
+        f" && mkdir -p {_TMP_DIR} {_BIN_DIR} {_LOG_DIR} {_CONF_DIR}" 
+        f" && echo 'Directories ready'"
     )
     return runner(cmd, timeout=_SHORT_TIMEOUT)
 
@@ -516,17 +567,17 @@ def install_wstunnel(runner: Runner, cfg: SetupConfig, force: bool = False) -> d
     cmd = (
         f"curl --fail --silent --show-error -L -o {_TMP_DIR}/wstunnel.tar.gz {cfg.wstunnel_url}"
         f" && tar -xzf {_TMP_DIR}/wstunnel.tar.gz -C {_TMP_DIR}"
-        f" && install {_TMP_DIR}/wstunnel {_WSTUNNEL_BIN}" 
+        f" && install {_TMP_DIR}/wstunnel {cfg.wstunnel_bin}" 
         f" && rm {_TMP_DIR}/wstunnel.tar.gz"
-        f" && echo `{_WSTUNNEL_BIN} --version` installed"
+        f" && echo `{cfg.wstunnel_bin} --version` installed"
     )
 
     if not force:
         cmd = (
-            f"if [ ! -x {_WSTUNNEL_BIN} ]; then "
+            f"if [ ! -x {cfg.wstunnel_bin} ]; then "
             f"{cmd}"
             f"; else "
-            f"echo `{_WSTUNNEL_BIN} --version` already installed"
+            f"echo `{cfg.wstunnel_bin} --version` already installed"
             f"; fi"
         )
 
@@ -548,18 +599,18 @@ def install_supervisord(runner: Runner, force: bool = False) -> dict:
     dict  ``{success, output, error}``
     """
     cmd = (
-        f"python3 -m venv {_VENV} "
-        f" && {_VENV}/bin/pip install --upgrade pip "
-        f" && {_VENV}/bin/pip install --quiet supervisor"
-        f" && echo supervisord installed in virtualenv '{_VENV}'"
+        f"python3 -m venv {_BASE_DIR} "
+        f" && {_BASE_DIR}/bin/pip install --upgrade pip "
+        f" && {_BASE_DIR}/bin/pip install --quiet supervisor"
+        f" && echo supervisord installed in virtualenv '{_BASE_DIR}'"
     )
 
     if not force:
         cmd = (
-            f"if [ ! -x {_SUPERVISOR_BIN} ]; then "
+            f"if [ ! -x {_SUPERVISORD_BIN} ]; then "
             f"{cmd}"
             f"; else "
-            f"echo supervisord already installed: `{_SUPERVISOR_BIN} --version`"
+            f"echo supervisord already installed: `{_SUPERVISORD_BIN} --version`"
             f"; fi"
         )
 
@@ -579,7 +630,25 @@ def copy_supervisord_conf(copier: Runner, cfg: SetupConfig) -> dict:
     -------
     dict  ``{success, output, error}``
     """
-    result_copy = copier(local_path=_SUPERVISOR_CONF_TEMPLATE, 
+    import jinja2
+
+    # Load the supervisord.conf template and render it with values from cfg.
+    with open(SUPERVISOR_CONF_TEMPLATE) as f:
+        template = jinja2.Template(f.read())
+
+    rendered_conf = template.render(
+        wstunnel_bin=cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
+        wstunnel_server_addr=cfg.wstunnel_server_addr,
+        wstunnel_local_port=cfg.wstunnel_local_port,
+        wstunnel_secret=cfg.wstunnel_secret,
+        # log_dir=cfg.log_dir if hasattr(cfg, "log_dir") else _LOG_DIR,
+        # env_home="%(ENV_HOME)s",  # supervisord syntax for environment variable expansion
+    ).encode()  # type: bytes
+
+    #TODO: Delete the temporary file after copying, or use a context manager that does it automatically.
+    rendered_tempfile = write_to_tempfile(rendered_conf.decode())
+
+    result_copy = copier(local_path=rendered_tempfile.name, 
                     remote_path=_SUPERVISOR_CONF.replace("$HOME", "~"), 
                     timeout=_SHORT_TIMEOUT)
     
@@ -602,33 +671,17 @@ def start_supervisord(runner: Runner) -> dict:
     -------
     dict  ``{success, output, error}``
     """
-#     # Subshell ensures exit 1 doesn't kill the outer SSH shell.
-#     cmd = f"""\
-# (
-#     export PATH="$HOME/.local/bin:$PATH"
-#     CONF="{_SUPERVISOR_CONF}"
-#     PID_FILE="{_SUPERVISOR_PID}"
-#     SOCK="{_SUPERVISOR_SOCK}"
-#     if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-#         supervisorctl -c "$CONF" reread  >/dev/null 2>&1 || true
-#         supervisorctl -c "$CONF" update  >/dev/null 2>&1 || true
-#         supervisorctl -c "$CONF" restart all 2>&1 || true
-#         echo "Config reloaded and services restarted"
-#     else
-#         supervisord -c "$CONF" \
-#             || {{ echo 'Failed to start supervisord' >&2; exit 1; }}
-#         sleep 2
-#         if [ -S "$SOCK" ]; then
-#             echo "supervisord started successfully"
-#         else
-#             echo 'supervisord socket not found after startup' >&2
-#             exit 1
-#         fi
-#     fi
-# )"""
-    cmd = "echo 'yay'"
-    return runner(cmd, timeout=_SHORT_TIMEOUT)
+    if check_status(runner).get("success"):
+        cmd = (
+            f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} reread && "
+            f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} update && "
+            f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} restart all"
+        )
+    else:
+        cmd = f"{_SUPERVISORD_BIN} -c {_SUPERVISOR_CONF}"
 
+    result = runner(cmd, timeout=_SHORT_TIMEOUT)
+    return result
 
 def check_status(runner: Runner) -> dict:
     """
@@ -642,5 +695,5 @@ def check_status(runner: Runner) -> dict:
     -------
     dict  ``{success, output, error}``
     """
-    cmd = f"{_SUPERVISOR_BIN} -c {_SUPERVISOR_CONF} status"
+    cmd = f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} status"
     return runner(cmd, timeout=_SHORT_TIMEOUT)
