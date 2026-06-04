@@ -1,0 +1,118 @@
+---
+- name: Deploy HPC Pilot Stack (wstunnel + plugin + supervisord)
+  hosts: all
+  # No "become: yes" - we are running entirely in user space.
+  # Assuming facts are gathered so we can use ansible_env.HOME
+
+  vars:
+    # ── Path Configuration ───────────────────────────────────────────────────
+    base_dir: "{{ ansible_env.HOME }}/.pilot"
+    tmp_dir: "{{ base_dir }}/tmp"
+    bin_dir: "{{ base_dir }}/bin"
+    log_dir: "{{ base_dir }}/log"
+
+    supervisor_venv: "{{ base_dir }}/venv"
+    supervisor_conf: "{{ supervisor_venv }}/supervisord.conf"
+
+    # ── Component Versions & URLs ────────────────────────────────────────────
+    wstunnel_version: "v10.5.5"
+    # Using regex_replace to strip the 'v' from the version in the filename
+    wstunnel_url: "https://github.com/erebe/wstunnel/releases/download/{{ wstunnel_version }}/wstunnel_{{ wstunnel_version | regex_replace('^v', '') }}_linux_amd64.tar.gz"
+
+    plugin_version: "v0.1.0"
+    plugin_url: "https://github.com/chbrandt/interlink-echo-plugin/archive/refs/tags/{{ plugin_version }}.tar.gz"
+
+    # ── Required Runtime Variables ───────────────────────────────────────────
+    # These should be passed via --extra-vars or defined in your inventory
+    # wstunnel_server_addr: "MUST_BE_PROVIDED"
+    # wstunnel_secret: "MUST_BE_PROVIDED"
+    wstunnel_server_port: "80"
+    wstunnel_local_port: "{{ wstunnel_server_port | default('8420') }}"
+
+  tasks:
+    # ── 1. Setup Directories ──────────────────────────────────────────────────
+    - name: Ensure base pilot directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ tmp_dir }}"
+        - "{{ bin_dir }}"
+        - "{{ log_dir }}"
+
+    # ── 2. Install wstunnel ───────────────────────────────────────────────────
+    - name: Check if wstunnel is already installed
+      ansible.builtin.stat:
+        path: "{{ bin_dir }}/wstunnel"
+      register: wstunnel_bin
+
+    - name: Download and extract wstunnel
+      ansible.builtin.unarchive:
+        src: "{{ wstunnel_url }}"
+        dest: "{{ tmp_dir }}"
+        remote_src: yes
+      when: not wstunnel_bin.stat.exists
+
+    - name: Install wstunnel binary to bin directory
+      ansible.builtin.copy:
+        src: "{{ tmp_dir }}/wstunnel"
+        dest: "{{ bin_dir }}/wstunnel"
+        mode: "0755"
+        remote_src: yes
+      when: not wstunnel_bin.stat.exists
+
+    - name: Clean up wstunnel extracted files
+      ansible.builtin.file:
+        path: "{{ tmp_dir }}/wstunnel"
+        state: absent
+      when: not wstunnel_bin.stat.exists
+
+    # ── 3. Install Supervisord
+    - name: Install supervisor
+      ansible.builtin.pip:
+        name: supervisor
+        virtualenv: "{{ supervisor_venv }}"
+        virtualenv_command: "{{ ansible_python_interpreter }} -m venv"
+        state: latest
+
+    # ── 4. Deploy Configuration ───────────────────────────────────────────────
+    - name: Deploy supervisord.conf from template
+      ansible.builtin.template:
+        src: "supervisord.conf.jinja"
+        dest: "{{ supervisor_conf }}"
+        mode: "0644"
+
+    # ── 5. Start / Reload Supervisord ─────────────────────────────────────────
+    - name: Check if supervisord is currently running
+      ansible.builtin.command:
+        cmd: "{{ bin_dir }}/supervisorctl -c {{ supervisor_conf }} status"
+      register: supervisor_status
+      ignore_errors: true
+      changed_when: false
+
+    - name: Start supervisord daemon if not running
+      ansible.builtin.command:
+        cmd: "{{ bin_dir }}/supervisord -c {{ supervisor_conf }}"
+      when: supervisor_status.rc != 0
+
+    - name: Reread, update, and restart services if daemon is already running
+      ansible.builtin.shell: |
+        {{ bin_dir }}/supervisorctl -c {{ supervisor_conf }} reread
+        {{ bin_dir }}/supervisorctl -c {{ supervisor_conf }} update
+        {{ bin_dir }}/supervisorctl -c {{ supervisor_conf }} restart all
+      when: supervisor_status.rc == 0
+      register: supervisor_reload
+      # Only mark as changed if supervisor actually did something
+      changed_when: "'restarted' in supervisor_reload.stdout or 'added' in supervisor_reload.stdout or 'updated' in supervisor_reload.stdout"
+
+    # ── 6. Verification ───────────────────────────────────────────────────────
+    - name: Verify final supervisord status
+      ansible.builtin.command:
+        cmd: "{{ bin_dir }}/supervisorctl -c {{ supervisor_conf }} status"
+      register: final_status
+      changed_when: false
+
+    - name: Print supervisor status
+      ansible.builtin.debug:
+        var: final_status.stdout_lines
