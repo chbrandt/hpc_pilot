@@ -1,22 +1,18 @@
 """
-api/helm.py — REST endpoints for Helm chart operations.
+api/helm.py — REST endpoints for InterLink Helm chart operations.
 
 All routes are JSON-only and protected by Bearer-token auth.
 
 Endpoints
 ---------
-GET  /api/releases
-    List all Helm releases in the user's namespace.
+POST /api/interlink/deploy
+    Install the InterLink Helm chart using defaults from charts_config.yaml.
 
-POST /api/helm/install
-    Install a Helm chart.
-    JSON body: release_name, chart, version (opt), values_yaml (opt).
+GET  /api/interlink/values
+    Return the current values for the deployed InterLink Helm release.
 
-GET  /api/releases/<name>/values
-    Return the current values for a deployed Helm release.
-
-DELETE /api/releases/<name>
-    Uninstall a Helm release.
+DELETE /api/interlink/deploy
+    Uninstall the InterLink Helm release.
 """
 
 import json
@@ -26,12 +22,20 @@ import os
 from flask import Blueprint, request
 
 from api.auth import get_request_claims, require_token
-from lib.helm_client import helm_get_values, helm_install, helm_list, helm_uninstall
+from lib.helm_client import helm_get_values, helm_install, helm_uninstall
 from lib.k8s_client import K8sClient
+from lib.saved_deployments import (
+    _resolve_placeholders,
+    load_app_config,
+    load_default_charts,
+)
 
 logger = logging.getLogger(__name__)
 
 helm_bp = Blueprint("api_helm", __name__, url_prefix="/api")
+
+# Release name used by the interlink default chart
+_INTERLINK_RELEASE = "interlink"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -49,96 +53,98 @@ def _err(message: str, code: int = 400):
     return json.dumps({"error": message}), code, {"Content-Type": "application/json"}
 
 
+def _get_interlink_chart_config() -> dict | None:
+    """Return the interlink default-chart config entry, or None if not found."""
+    for chart in load_default_charts():
+        if chart.get("release_name", "").lower() == _INTERLINK_RELEASE:
+            return chart
+    return None
+
+
 # ── Routes ────────────────────────────────────────────────────────────
 
 
-@helm_bp.route("/releases", methods=["GET"])
+@helm_bp.route("/interlink/deploy", methods=["POST"])
 @require_token
-def list_releases():
-    """List Helm releases in the user's namespace."""
-    claims = get_request_claims()
-    namespace = claims["namespace"]
-    try:
-        releases = helm_list(namespace=namespace)
-        return _ok(releases)
-    except Exception as exc:
-        logger.error("list_releases failed: %s", exc)
-        return _err(str(exc), 500)
-
-
-@helm_bp.route("/helm/install", methods=["POST"])
-@require_token
-def install_chart():
+def deploy_interlink():
     """
-    Install a Helm chart into the user's namespace.
+    Install the InterLink Helm chart into the user's namespace.
 
-    JSON body keys:
-        release_name*  str  Kubernetes-valid release name (required)
-        chart*         str  Chart reference, e.g. "bitnami/nginx" (required)
-        version        str  Specific chart version to install (optional)
-        values_yaml    str  Raw YAML overrides (optional)
+    All chart settings (chart reference, version, and default values) are read
+    from *charts_config.yaml*.  No request body is required.
+
+    Only one InterLink deployment per user is allowed (singleton constraint).
     """
     claims = get_request_claims()
     namespace = claims["namespace"]
 
-    body = request.get_json(silent=True) or {}
-    release_name = body.get("release_name", "").strip()
-    chart = body.get("chart", "").strip()
+    chart_cfg = _get_interlink_chart_config()
+    if chart_cfg is None:
+        return _err("InterLink chart configuration not found in charts_config.yaml.", 500)
 
-    if not release_name:
-        return _err("'release_name' is required.")
-    if not chart:
-        return _err("'chart' is required.")
+    chart = chart_cfg.get("chart", "")
+    version = chart_cfg.get("version") or None
+    raw_values = chart_cfg.get("values_yaml") or ""
+    app_config = load_app_config()
+    values_yaml = _resolve_placeholders(raw_values, namespace, app_config) or None
 
     try:
         k8s = _get_k8s()
+
+        # ── Singleton guard ───────────────────────────────────────────
         if not k8s.namespace_exists(namespace):
             ns_result = k8s.create_namespace(namespace)
             if not ns_result["success"]:
-                return _err(f"Failed to prepare namespace: {ns_result['error']}", 500)
+                return _err(
+                    f"Failed to prepare namespace: {ns_result['error']}", 500
+                )
 
         result = helm_install(
-            release_name=release_name,
+            release_name=_INTERLINK_RELEASE,
             chart=chart,
             namespace=namespace,
-            values_yaml=body.get("values_yaml"),
-            version=body.get("version"),
+            values_yaml=values_yaml,
+            version=version,
         )
         code = 201 if result.get("success") else 400
         return _ok(result, code)
 
     except Exception as exc:
-        logger.error("install_chart failed: %s", exc)
+        logger.error("deploy_interlink failed: %s", exc)
         return _err(str(exc), 500)
 
 
-@helm_bp.route("/releases/<name>/values", methods=["GET"])
+@helm_bp.route("/interlink/values", methods=["GET"])
 @require_token
-def get_release_values(name: str):
-    """Return the current values for a deployed Helm release."""
+def get_interlink_values():
+    """Return the current values for the deployed InterLink Helm release."""
     claims = get_request_claims()
     namespace = claims["namespace"]
     try:
-        result = helm_get_values(release_name=name, namespace=namespace)
+        result = helm_get_values(
+            release_name=_INTERLINK_RELEASE, namespace=namespace
+        )
         if not result.get("success"):
             return _err(result.get("error", "Could not retrieve values"), 404)
         return _ok(result)
     except Exception as exc:
-        logger.error("get_release_values failed: %s", exc)
+        logger.error("get_interlink_values failed: %s", exc)
         return _err(str(exc), 500)
 
 
-@helm_bp.route("/releases/<name>", methods=["DELETE"])
+@helm_bp.route("/interlink/deploy", methods=["DELETE"])
 @require_token
-def delete_release(name: str):
-    """Uninstall a Helm release."""
+def delete_interlink():
+    """Uninstall the InterLink Helm release."""
     claims = get_request_claims()
     namespace = claims["namespace"]
     try:
-        result = helm_uninstall(release_name=name, namespace=namespace)
+        result = helm_uninstall(
+            release_name=_INTERLINK_RELEASE, namespace=namespace
+        )
         if result.get("success"):
             return _ok(result)
         return _err(result.get("error", "Uninstall failed"), 400)
     except Exception as exc:
-        logger.error("delete_release failed: %s", exc)
+        logger.error("delete_interlink failed: %s", exc)
         return _err(str(exc), 500)

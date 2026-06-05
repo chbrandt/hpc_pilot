@@ -590,64 +590,28 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # ── Helm ─────────────────────────────────────────────────────────────────
+  # ── InterLink ─────────────────────────────────────────────────────────────
 
-  /api/releases:
-    get:
-      tags: [Helm]
-      summary: List Helm releases
-      description: List all Helm releases in the authenticated user's namespace.
-      operationId: listReleases
-      responses:
-        "200":
-          description: Array of Helm release summaries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/HelmRelease"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  /api/helm/install:
+  /api/interlink/deploy:
     post:
       tags: [Helm]
-      summary: Install a Helm chart
+      summary: Deploy InterLink
       description: |
-        Install a Helm chart into the authenticated user's namespace
-        (auto-created if absent).
+        Install the InterLink Helm chart into the authenticated user's namespace
+        (auto-created if absent) using the default chart configuration defined
+        in *charts_config.yaml*.
+
+        No request body is required — all chart settings (reference, version,
+        and values) come from the server-side configuration.
 
         This call is **synchronous** and blocks until `helm install --wait
         --timeout=5m0s` completes (up to five minutes).
-      operationId: installChart
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/HelmInstallRequest"
-            examples:
-              minimal:
-                summary: Minimal — release name and chart only
-                value:
-                  release_name: my-nginx
-                  chart: bitnami/nginx
-              with_values:
-                summary: Pinned version with custom values
-                value:
-                  release_name: my-nginx
-                  chart: bitnami/nginx
-                  version: "15.0.2"
-                  values_yaml: |
-                    replicaCount: 2
-                    service:
-                      type: ClusterIP
+
+        Only one InterLink deployment per user is allowed.
+      operationId: deployInterlink
       responses:
         "201":
-          description: Chart installed successfully
+          description: InterLink chart installed successfully
           content:
             application/json:
               schema:
@@ -659,23 +623,14 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /api/releases/{name}:
     delete:
       tags: [Helm]
-      summary: Uninstall a Helm release
-      description: Run `helm uninstall` for the named release in the user's namespace.
-      operationId: deleteRelease
-      parameters:
-        - name: name
-          in: path
-          required: true
-          description: Helm release name
-          schema:
-            type: string
-          example: my-nginx
+      summary: Remove InterLink deployment
+      description: Run `helm uninstall` for the InterLink release in the user's namespace.
+      operationId: deleteInterlink
       responses:
         "200":
-          description: Release uninstalled successfully
+          description: InterLink release uninstalled successfully
           content:
             application/json:
               schema:
@@ -684,6 +639,38 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/interlink/values:
+    get:
+      tags: [Helm]
+      summary: Get InterLink deployment values
+      description: |
+        Return the user-supplied Helm values for the deployed InterLink release.
+      operationId: getInterlinkValues
+      responses:
+        "200":
+          description: Values retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  values_yaml:
+                    type: string
+                    nullable: true
+                    description: Raw YAML string of user-supplied values, or null if none.
+                  error:
+                    type: string
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
