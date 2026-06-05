@@ -181,7 +181,7 @@ def validate_token(token: str) -> dict:
     except pyjwt.exceptions.InvalidTokenError as exc:
         raise ValueError(f"Token signature/validation failed: {exc}") from exc
 
-    logger.info(f"Token validated for sub={claims.get('sub', '?')[:20]}...")
+    logger.info(f"Token validated for sub={claims.get('sub', '?')}...")
     return claims
 
 

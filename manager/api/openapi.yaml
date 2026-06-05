@@ -419,6 +419,51 @@ components:
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 paths:
+  # ── Kubernetes: Namespace ────────────────────────────────────────────────
+
+  /api/namespaces/ensure:
+    post:
+      tags: [Kubernetes]
+      summary: Ensure user namespace exists
+      description: |
+        Idempotently create the authenticated user's personal Kubernetes namespace
+        (derived from the Bearer token's `sub` claim).
+
+        Safe to call on every login — returns `{"created": false}` when the
+        namespace already exists.
+      operationId: ensureNamespace
+      responses:
+        "200":
+          description: Namespace already existed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  created:
+                    type: boolean
+                    example: false
+        "201":
+          description: Namespace was created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  created:
+                    type: boolean
+                    example: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   # ── Kubernetes: Deployments ───────────────────────────────────────────────
 
   /api/deployments:
