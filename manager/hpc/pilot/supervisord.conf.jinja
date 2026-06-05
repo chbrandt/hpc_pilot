@@ -35,3 +35,13 @@ startretries=5
 startsecs=3
 stdout_logfile=%(here)s/log/wstunnel.stdout
 stderr_logfile=%(here)s/log/wstunnel.stderr
+
+[program:interlink-plugin]
+command={{interlink_plugin_cmd}}
+priority=2
+autostart=true
+autorestart=true
+startretries=5
+startsecs=3
+stdout_logfile=%(here)s/log/interlink_plugin.stdout
+stderr_logfile=%(here)s/log/interlink_plugin.stderr

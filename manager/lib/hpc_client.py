@@ -20,7 +20,9 @@ functions take care of installing wstunnel + supervisord via mccli.
 """
 from __future__ import annotations
 
+from fileinput import filename
 import logging
+from multiprocessing import context
 import os
 import subprocess
 from typing import Optional
@@ -335,10 +337,11 @@ def deploy(
     )
 
     steps = [
-        ("install_supervisord",    lambda: install_supervisord(runner)),
         ("setup_directories",      lambda: setup_directories(runner)),
-        ("install_wstunnel",       lambda: install_wstunnel(runner, cfg, force=False)),
-        ("copy_supervisord_conf", lambda: copy_supervisord_conf(copier, cfg)),
+        ("install_wstunnel",       lambda: install_wstunnel(runner, cfg)),
+        ("install_supervisord",    lambda: install_supervisord(runner, cfg)),
+        ("copy_supervisord_conf",  lambda: copy_supervisord_conf(copier, cfg)),
+        ("install_plugin",         lambda: install_plugin(runner, cfg)),
         ("start_supervisord",      lambda: start_supervisord(runner)),
         ("check_status",           lambda: check_status(runner)),
     ]
@@ -370,6 +373,16 @@ def deploy(
 # --- Utilities --- 
 import tempfile
 import os
+import jinja2
+
+def render_template(filename: str, context: dict) -> str:
+    """
+    Return the rendered content of a Jinja2 template file with the given context.
+    """
+    with open(filename) as f:
+        template = jinja2.Template(f.read())
+    return template.render(**context)
+
 
 def write_to_tempfile(text: str) -> tempfile.NamedTemporaryFile:
     """"
@@ -441,6 +454,15 @@ def _sh_quote(value: str) -> str:
 ## from __future__ import annotations
 #############################################################################
 
+
+
+
+
+
+
+
+
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -476,15 +498,15 @@ _BASE_DIR         = "$HOME/.pilot"
 _TMP_DIR          = f"{_BASE_DIR}/tmp"
 _BIN_DIR          = f"{_BASE_DIR}/bin"
 _LOG_DIR          = f"{_BASE_DIR}/log"
-_CONF_DIR         = f"{_BASE_DIR}/config"
+# _ETC_DIR          = f"{_BASE_DIR}/etc"
 
-_SUPERVISORD_BIN  = f"{_BASE_DIR}/bin/supervisord"
-_SUPERVISORCTL_BIN= f"{_BASE_DIR}/bin/supervisorctl"
-_SUPERVISOR_CONF  = f"{_BASE_DIR}/supervisord.conf"
-_SUPERVISOR_SOCK  = f"{_BASE_DIR}/supervisord.sock"
-_SUPERVISOR_PID   = f"{_BASE_DIR}/supervisord.pid"
+_SUPERVISORD_BIN  = f"{_BIN_DIR}/supervisord"
+_SUPERVISORCTL_BIN= f"{_BIN_DIR}/supervisorctl"
+_SUPERVISOR_CONF  = f"{_BIN_DIR}/../supervisord.conf"
+# _SUPERVISOR_SOCK  = f"{_BASE_DIR}/supervisord.sock"
+# _SUPERVISOR_PID   = f"{_BASE_DIR}/supervisord.pid"
 
-_WSTUNNEL_BIN     = f"{_BIN_DIR}/wstunnel"
+# _WSTUNNEL_BIN     = f"{_BIN_DIR}/wstunnel"
 _WSTUNNEL_VERSION_DEFAULT = "v10.5.5"
 
 
@@ -519,7 +541,7 @@ class SetupConfig:
             f"{ver}/wstunnel_{ver.lstrip('v')}_linux_amd64.tar.gz"
         )
         if self.wstunnel_bin is None:
-            self.wstunnel_bin = _WSTUNNEL_BIN
+            self.wstunnel_bin = os.path.join(_BIN_DIR, "wstunnel")
 
 
 # ── Step functions ─────────────────────────────────────────────────────────────
@@ -540,11 +562,26 @@ def setup_directories(runner: Runner) -> dict:
     dict  ``{success, output, error}``
     """
     cmd = (
-        f"echo 'Creating directories: {_TMP_DIR} {_BIN_DIR} {_LOG_DIR} {_CONF_DIR}'"
-        f" && mkdir -p {_TMP_DIR} {_BIN_DIR} {_LOG_DIR} {_CONF_DIR}" 
+        f"echo 'Creating directories: {_TMP_DIR} {_BIN_DIR} {_LOG_DIR}'"
+        f" && mkdir -p {_TMP_DIR} {_BIN_DIR} {_LOG_DIR}" 
         f" && echo 'Directories ready'"
     )
     return runner(cmd, timeout=_SHORT_TIMEOUT)
+
+
+def install_plugin(runner: Runner, cfg: SetupConfig) -> dict:
+    """
+    Install interLink plugin
+    """
+    plugin_version = "v0.1.0"
+    _url = f"https://github.com/chbrandt/interlink-echo-plugin/archive/refs/tags/{plugin_version}.tar.gz"
+
+    cmd = (
+        f"source {_BASE_DIR}/bin/activate"
+        f" && pip install --quiet {_url}"
+    )
+
+    return runner(cmd, timeout=_LONG_TIMEOUT)
 
 
 def install_wstunnel(runner: Runner, cfg: SetupConfig, force: bool = False) -> dict:
@@ -599,9 +636,10 @@ def install_supervisord(runner: Runner, force: bool = False) -> dict:
     dict  ``{success, output, error}``
     """
     cmd = (
-        f"python3 -m venv {_BASE_DIR} "
-        f" && {_BASE_DIR}/bin/pip install --upgrade pip "
-        f" && {_BASE_DIR}/bin/pip install --quiet supervisor"
+        f"python3.12 -m venv {_BASE_DIR}"
+        f" && source {_BASE_DIR}/bin/activate"
+        f" && pip install --quiet --upgrade pip "
+        f" && pip install --quiet supervisor"
         f" && echo supervisord installed in virtualenv '{_BASE_DIR}'"
     )
 
@@ -630,24 +668,31 @@ def copy_supervisord_conf(copier: Runner, cfg: SetupConfig) -> dict:
     -------
     dict  ``{success, output, error}``
     """
-    import jinja2
+    # # Load the supervisord.conf template and render it with values from cfg.
+    # with open(SUPERVISOR_CONF_TEMPLATE) as f:
+    #     template = jinja2.Template(f.read())
 
-    # Load the supervisord.conf template and render it with values from cfg.
-    with open(SUPERVISOR_CONF_TEMPLATE) as f:
-        template = jinja2.Template(f.read())
+    # rendered_conf = template.render(
+    #     wstunnel_bin=cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
+    #     wstunnel_server_addr=cfg.wstunnel_server_addr,
+    #     wstunnel_local_port=cfg.wstunnel_local_port,
+    #     wstunnel_secret=cfg.wstunnel_secret,
+    #     # log_dir=cfg.log_dir if hasattr(cfg, "log_dir") else _LOG_DIR,
+    #     # env_home="%(ENV_HOME)s",  # supervisord syntax for environment variable expansion
+    # ).encode()  # type: bytes
 
-    rendered_conf = template.render(
-        wstunnel_bin=cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
-        wstunnel_server_addr=cfg.wstunnel_server_addr,
-        wstunnel_local_port=cfg.wstunnel_local_port,
-        wstunnel_secret=cfg.wstunnel_secret,
-        # log_dir=cfg.log_dir if hasattr(cfg, "log_dir") else _LOG_DIR,
-        # env_home="%(ENV_HOME)s",  # supervisord syntax for environment variable expansion
-    ).encode()  # type: bytes
+    # #TODO: Delete the temporary file after copying, or use a context manager that does it automatically.
+    # rendered_tempfile = write_to_tempfile(rendered_conf.decode())
+    rendered_conf = render_template(SUPERVISOR_CONF_TEMPLATE, {
+        "wstunnel_bin": cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
+        "wstunnel_server_addr": cfg.wstunnel_server_addr,
+        "wstunnel_local_port": cfg.wstunnel_local_port,
+        "wstunnel_secret": cfg.wstunnel_secret,
+        "interlink_plugin_cmd": f"{_BASE_DIR}/bin/interlink-echo-plugin --port {cfg.wstunnel_local_port}".replace("$HOME", "%(ENV_HOME)s"),
+    })
+    rendered_tempfile = write_to_tempfile(rendered_conf)
 
-    #TODO: Delete the temporary file after copying, or use a context manager that does it automatically.
-    rendered_tempfile = write_to_tempfile(rendered_conf.decode())
-
+    logger.info("Copying supervisord.conf to remote node via mccli")
     result_copy = copier(local_path=rendered_tempfile.name, 
                     remote_path=_SUPERVISOR_CONF.replace("$HOME", "~"), 
                     timeout=_SHORT_TIMEOUT)
@@ -672,12 +717,14 @@ def start_supervisord(runner: Runner) -> dict:
     dict  ``{success, output, error}``
     """
     if check_status(runner).get("success"):
+        logger.info("supervisord is already running, reloading config and restarting services")
         cmd = (
             f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} reread && "
             f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} update && "
             f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} restart all"
         )
     else:
+        logger.info("supervisord is not running, starting supervisord daemon")
         cmd = f"{_SUPERVISORD_BIN} -c {_SUPERVISOR_CONF}"
 
     result = runner(cmd, timeout=_SHORT_TIMEOUT)
@@ -695,5 +742,6 @@ def check_status(runner: Runner) -> dict:
     -------
     dict  ``{success, output, error}``
     """
+    logger.info("Checking supervisord status")
     cmd = f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} status"
     return runner(cmd, timeout=_SHORT_TIMEOUT)
