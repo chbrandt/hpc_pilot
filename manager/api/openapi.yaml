@@ -1,0 +1,769 @@
+openapi: 3.1.0
+
+info:
+  title: HPC Pilot API
+  description: |
+    REST API layer for HPC Pilot.
+
+    Exposes all manager operations as JSON endpoints under the `/api` prefix,
+    suitable for use with cURL or any HTTP client.
+
+    ## Authentication
+
+    Every endpoint requires an EGI Check-in access token sent as a Bearer token
+    in the `Authorization` header:
+
+    ```
+    Authorization: Bearer <token>
+    ```
+
+    The token is validated against EGI Check-in; the user's Kubernetes namespace
+    is derived automatically from the `sub` claim.
+  version: 1.0.0
+  contact:
+    url: https://github.com/chbrandt/hpc_pilot
+
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Kubernetes
+    description: Container deployment operations (Kubernetes)
+  - name: Helm
+    description: Helm chart operations
+  - name: HPC
+    description: Remote HPC node operations (wstunnel + supervisord)
+
+# ── Components ─────────────────────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: EGI Check-in access token
+
+  schemas:
+    # ── Generic ──────────────────────────────────────────────────────────────
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "'name' is required."
+
+    OperationResult:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+          description: Present only when success is false
+
+    # ── Kubernetes ────────────────────────────────────────────────────────────
+
+    Port:
+      type: object
+      required: [number]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          example: 80
+        name:
+          type: string
+          example: http
+        protocol:
+          type: string
+          enum: [TCP, UDP]
+          default: TCP
+
+    IngressSpec:
+      type: object
+      properties:
+        host:
+          type: string
+          description: Ingress hostname (empty string matches all)
+          example: myapp.example.com
+        path:
+          type: string
+          default: /
+          example: /
+        port:
+          oneOf:
+            - type: integer
+            - type: string
+          description: Target port number or name
+          example: 80
+        class:
+          type: string
+          description: Ingress class name
+          example: nginx
+
+    DeploymentRequest:
+      type: object
+      required: [name, image]
+      properties:
+        name:
+          type: string
+          description: Deployment name (RFC 1123, max 63 chars)
+          example: my-nginx
+        image:
+          type: string
+          description: Container image reference
+          example: nginx:latest
+        replicas:
+          type: integer
+          minimum: 1
+          default: 1
+          example: 1
+        cpu_request:
+          type: string
+          description: Kubernetes CPU request
+          example: "100m"
+        cpu_limit:
+          type: string
+          description: Kubernetes CPU limit
+          example: "500m"
+        mem_request:
+          type: string
+          description: Kubernetes memory request
+          example: "64Mi"
+        mem_limit:
+          type: string
+          description: Kubernetes memory limit
+          example: "256Mi"
+        env_vars:
+          type: object
+          description: Environment variables as key/value pairs
+          additionalProperties:
+            type: string
+          example:
+            MY_VAR: hello
+            ANOTHER: world
+        ports:
+          type: array
+          items:
+            $ref: "#/components/schemas/Port"
+          example:
+            - number: 80
+              name: http
+              protocol: TCP
+        command:
+          type: string
+          description: Shell command override (runs as `/bin/sh -c "<command>"`)
+          example: "echo hello && sleep infinity"
+        ingress:
+          $ref: "#/components/schemas/IngressSpec"
+
+    DeploymentResult:
+      allOf:
+        - $ref: "#/components/schemas/OperationResult"
+        - type: object
+          properties:
+            name:
+              type: string
+            namespace:
+              type: string
+
+    DeploymentSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+        image:
+          type: string
+        replicas:
+          type: integer
+        ready_replicas:
+          type: integer
+        status:
+          type: string
+          enum: [available, progressing, unknown]
+        created:
+          type: string
+          format: date-time
+        service_ports:
+          type: array
+          items:
+            $ref: "#/components/schemas/Port"
+          nullable: true
+        ingress_url:
+          type: string
+          nullable: true
+
+    DeploymentStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [available, progressing, unknown]
+        replicas_status:
+          type: string
+          description: "Ready/total replicas, e.g. '2/2'"
+          example: "2/2"
+        ready_replicas:
+          type: integer
+          example: 2
+        replicas:
+          type: integer
+          example: 2
+
+    DeleteDeploymentResult:
+      type: object
+      properties:
+        deployment:
+          $ref: "#/components/schemas/OperationResult"
+        service:
+          $ref: "#/components/schemas/OperationResult"
+          nullable: true
+        ingress:
+          $ref: "#/components/schemas/OperationResult"
+          nullable: true
+
+    # ── Helm ─────────────────────────────────────────────────────────────────
+
+    HelmRelease:
+      type: object
+      properties:
+        name:
+          type: string
+          example: my-release
+        namespace:
+          type: string
+          example: user-abc123
+        chart:
+          type: string
+          example: bitnami/nginx
+        chart_version:
+          type: string
+          example: 15.0.2
+        app_version:
+          type: string
+          example: 1.25.3
+        status:
+          type: string
+          example: deployed
+        updated:
+          type: string
+          format: date-time
+
+    HelmInstallRequest:
+      type: object
+      required: [release_name, chart]
+      properties:
+        release_name:
+          type: string
+          description: Kubernetes-valid release name (RFC 1123, max 63 chars)
+          example: my-release
+        chart:
+          type: string
+          description: Chart reference (e.g. "bitnami/nginx" or OCI URL)
+          example: bitnami/nginx
+        version:
+          type: string
+          description: Specific chart version to pin
+          example: "15.0.2"
+        values_yaml:
+          type: string
+          description: Raw YAML values string (passed to `--values -`)
+          example: |
+            replicaCount: 2
+            service:
+              type: ClusterIP
+
+    HelmInstallResult:
+      allOf:
+        - $ref: "#/components/schemas/OperationResult"
+        - type: object
+          properties:
+            release_name:
+              type: string
+            namespace:
+              type: string
+            output:
+              type: string
+              description: Raw output from `helm install`
+
+    HelmUninstallResult:
+      allOf:
+        - $ref: "#/components/schemas/OperationResult"
+        - type: object
+          properties:
+            release_name:
+              type: string
+            output:
+              type: string
+
+    # ── HPC ──────────────────────────────────────────────────────────────────
+
+    HpcHostBody:
+      type: object
+      required: [hpc_host]
+      properties:
+        hpc_host:
+          type: string
+          description: HPC login node hostname or IP
+          example: hpc.example.ac.uk
+        ssh_port:
+          type: integer
+          description: SSH port on the HPC login node
+          default: 22
+          example: 22
+
+    HpcDeployRequest:
+      allOf:
+        - $ref: "#/components/schemas/HpcHostBody"
+        - type: object
+          required: [wstunnel_server, wstunnel_secret]
+          properties:
+            wstunnel_server:
+              type: string
+              description: Kubernetes-side wstunnel server hostname
+              example: wstunnel.k8s.example.com
+            wstunnel_port:
+              type: integer
+              description: Port the wstunnel server listens on
+              default: 8420
+              example: 8420
+            wstunnel_secret:
+              type: string
+              description: Shared tunnel secret
+              example: my-super-secret
+            wstunnel_local_port:
+              type: integer
+              description: |
+                Local port on the HPC node that wstunnel binds to.
+                Defaults to the value of `wstunnel_port`.
+              example: 8420
+
+    HpcOperationResult:
+      allOf:
+        - $ref: "#/components/schemas/OperationResult"
+        - type: object
+          properties:
+            output:
+              type: string
+              description: stdout/stderr captured from the remote command
+            hpc_host:
+              type: string
+
+  responses:
+    Unauthorized:
+      description: |
+        Missing, malformed, or expired Bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            missing_header:
+              value:
+                error: "Missing or malformed Authorization header. Expected: Authorization: Bearer <token>"
+                code: 401
+            expired:
+              value:
+                error: "Token has expired."
+                code: 401
+
+    BadRequest:
+      description: Request validation error (missing or invalid field).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "'release_name' is required."
+
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "Deployment 'my-nginx' not found in namespace 'user-abc123'."
+
+    InternalError:
+      description: Unexpected server-side error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "connection refused"
+
+  parameters:
+    DeploymentName:
+      name: name
+      in: path
+      required: true
+      description: Deployment name
+      schema:
+        type: string
+      example: my-nginx
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+
+paths:
+  # ── Kubernetes: Deployments ───────────────────────────────────────────────
+
+  /api/deployments:
+    get:
+      tags: [Kubernetes]
+      summary: List deployments
+      description: List all container deployments in the authenticated user's namespace.
+      operationId: listDeployments
+      responses:
+        "200":
+          description: Array of deployment summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeploymentSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [Kubernetes]
+      summary: Create a deployment
+      description: |
+        Create a Kubernetes Deployment, and optionally a Service and Ingress,
+        in the authenticated user's namespace (auto-created if absent).
+      operationId: createDeployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeploymentRequest"
+            examples:
+              minimal:
+                summary: Minimal — just name and image
+                value:
+                  name: my-nginx
+                  image: nginx:latest
+              full:
+                summary: Full — resources, env vars, ports, ingress
+                value:
+                  name: my-app
+                  image: myorg/myapp:1.2.3
+                  replicas: 2
+                  cpu_request: "100m"
+                  cpu_limit: "500m"
+                  mem_request: "64Mi"
+                  mem_limit: "256Mi"
+                  env_vars:
+                    ENV: production
+                  ports:
+                    - number: 8080
+                      name: http
+                      protocol: TCP
+                  ingress:
+                    host: myapp.example.com
+                    path: /
+                    port: 8080
+                    class: nginx
+      responses:
+        "201":
+          description: Deployment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/deployments/{name}/status:
+    get:
+      tags: [Kubernetes]
+      summary: Get deployment status
+      description: Return the current rollout status for a single deployment.
+      operationId: getDeploymentStatus
+      parameters:
+        - $ref: "#/components/parameters/DeploymentName"
+      responses:
+        "200":
+          description: Deployment status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentStatus"
+              example:
+                status: available
+                replicas_status: "2/2"
+                ready_replicas: 2
+                replicas: 2
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/deployments/{name}:
+    delete:
+      tags: [Kubernetes]
+      summary: Delete a deployment
+      description: |
+        Delete a Deployment and its associated Service and Ingress (if they exist).
+      operationId: deleteDeployment
+      parameters:
+        - $ref: "#/components/parameters/DeploymentName"
+      responses:
+        "200":
+          description: Deletion result per resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteDeploymentResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── Helm ─────────────────────────────────────────────────────────────────
+
+  /api/releases:
+    get:
+      tags: [Helm]
+      summary: List Helm releases
+      description: List all Helm releases in the authenticated user's namespace.
+      operationId: listReleases
+      responses:
+        "200":
+          description: Array of Helm release summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HelmRelease"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/helm/install:
+    post:
+      tags: [Helm]
+      summary: Install a Helm chart
+      description: |
+        Install a Helm chart into the authenticated user's namespace
+        (auto-created if absent).
+
+        This call is **synchronous** and blocks until `helm install --wait
+        --timeout=5m0s` completes (up to five minutes).
+      operationId: installChart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HelmInstallRequest"
+            examples:
+              minimal:
+                summary: Minimal — release name and chart only
+                value:
+                  release_name: my-nginx
+                  chart: bitnami/nginx
+              with_values:
+                summary: Pinned version with custom values
+                value:
+                  release_name: my-nginx
+                  chart: bitnami/nginx
+                  version: "15.0.2"
+                  values_yaml: |
+                    replicaCount: 2
+                    service:
+                      type: ClusterIP
+      responses:
+        "201":
+          description: Chart installed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelmInstallResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/releases/{name}:
+    delete:
+      tags: [Helm]
+      summary: Uninstall a Helm release
+      description: Run `helm uninstall` for the named release in the user's namespace.
+      operationId: deleteRelease
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Helm release name
+          schema:
+            type: string
+          example: my-nginx
+      responses:
+        "200":
+          description: Release uninstalled successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelmUninstallResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── HPC ──────────────────────────────────────────────────────────────────
+
+  /api/hpc/deploy:
+    post:
+      tags: [HPC]
+      summary: Deploy HPC Pilot stack
+      description: |
+        Install wstunnel and supervisord on a remote HPC login node over SSH.
+
+        The Bearer token is forwarded to the HPC node so that `motley_cue` /
+        `ssh-oidc` can authenticate the SSH connection.
+      operationId: hpcDeploy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HpcDeployRequest"
+            example:
+              hpc_host: hpc.example.ac.uk
+              ssh_port: 22
+              wstunnel_server: wstunnel.k8s.example.com
+              wstunnel_port: 8420
+              wstunnel_secret: my-super-secret
+      responses:
+        "200":
+          description: Deployment succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HpcOperationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: Deployment failed (SSH error, remote command failure, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HpcOperationResult"
+
+  /api/hpc/status:
+    post:
+      tags: [HPC]
+      summary: Query HPC service status
+      description: Run `supervisorctl status` on the remote HPC node and return the output.
+      operationId: hpcStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HpcHostBody"
+            example:
+              hpc_host: hpc.example.ac.uk
+      responses:
+        "200":
+          description: Status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HpcOperationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/hpc/start:
+    post:
+      tags: [HPC]
+      summary: Start HPC services
+      description: Run `supervisorctl start all` on the remote HPC node.
+      operationId: hpcStart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HpcHostBody"
+            example:
+              hpc_host: hpc.example.ac.uk
+      responses:
+        "200":
+          description: Services started successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HpcOperationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/hpc/stop:
+    post:
+      tags: [HPC]
+      summary: Stop HPC services
+      description: Run `supervisorctl stop all` on the remote HPC node.
+      operationId: hpcStop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HpcHostBody"
+            example:
+              hpc_host: hpc.example.ac.uk
+      responses:
+        "200":
+          description: Services stopped successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HpcOperationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"

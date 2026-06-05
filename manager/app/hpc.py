@@ -1,6 +1,9 @@
 """
 app/hpc.py — Web GUI routes for HPC node deployments.
 
+All backend operations are performed via the REST API (app.api_client),
+so this module has no direct dependency on lib/.
+
 Routes (all under /hpc prefix)
 ------
 GET  /hpc                   HPC deployment form
@@ -12,12 +15,12 @@ POST /hpc/<id>/save         Persist HPC config to saved_deployments
 """
 
 import logging
-import os
 
+import requests
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from app.auth import require_login
-from lib import hpc_client
+from app.api_client import api_post
 from lib.saved_deployments import list_configs, load_app_config, save_config
 
 logger = logging.getLogger(__name__)
@@ -28,8 +31,12 @@ hpc_bp = Blueprint("app_hpc", __name__, url_prefix="/hpc")
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
-def _get_token() -> str:
-    return session.get("token", "")
+def _api_error(exc: requests.HTTPError) -> str:
+    """Extract a human-readable message from an HTTPError response."""
+    try:
+        return exc.response.json().get("error", str(exc))
+    except Exception:
+        return str(exc)
 
 
 def _default_wstunnel_config(namespace: str) -> dict:
@@ -65,7 +72,6 @@ def hpc_page():
 @require_login
 def hpc_deploy():
     """Run setup.sh on the remote HPC node via mccli."""
-    token = _get_token()
     namespace = session["namespace"]
 
     hpc_host          = request.form.get("hpc_host", "").strip()
@@ -101,18 +107,25 @@ def hpc_deploy():
         namespace, hpc_host, wstunnel_server, wstunnel_port,
     )
 
-    result = hpc_client.deploy(
-        token=token,
-        hpc_host=hpc_host,
-        ssh_port=ssh_port,
-        wstunnel_server=wstunnel_server,
-        wstunnel_port=wstunnel_port,
-        wstunnel_secret=wstunnel_secret,
-        wstunnel_local_port=wstunnel_local_port,
-    )
+    try:
+        result = api_post(
+            "/api/hpc/deploy",
+            {
+                "hpc_host": hpc_host,
+                "ssh_port": ssh_port,
+                "wstunnel_server": wstunnel_server,
+                "wstunnel_port": wstunnel_port,
+                "wstunnel_secret": wstunnel_secret,
+                "wstunnel_local_port": wstunnel_local_port,
+            },
+        )
+    except requests.HTTPError as exc:
+        result = {"success": False, "error": _api_error(exc)}
+    except Exception as exc:
+        result = {"success": False, "error": str(exc)}
 
     # Auto-save config on success
-    if result["success"]:
+    if result.get("success"):
         try:
             save_config(
                 namespace=namespace,
@@ -144,7 +157,6 @@ def hpc_deploy():
 @require_login
 def hpc_status():
     """Query supervisorctl status on the remote HPC node."""
-    token = _get_token()
     hpc_host     = request.form.get("hpc_host", "").strip()
     ssh_port_str = request.form.get("ssh_port", "22").strip()
 
@@ -157,7 +169,13 @@ def hpc_status():
     except ValueError:
         ssh_port = 22
 
-    result = hpc_client.get_status(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
+    try:
+        result = api_post("/api/hpc/status", {"hpc_host": hpc_host, "ssh_port": ssh_port})
+    except requests.HTTPError as exc:
+        result = {"success": False, "error": _api_error(exc)}
+    except Exception as exc:
+        result = {"success": False, "error": str(exc)}
+
     return render_template(
         "hpc_result.html", result=result, action="status", hpc_host=hpc_host
     )
@@ -167,7 +185,6 @@ def hpc_status():
 @require_login
 def hpc_start():
     """Start all supervisord-managed services on the remote HPC node."""
-    token = _get_token()
     hpc_host     = request.form.get("hpc_host", "").strip()
     ssh_port_str = request.form.get("ssh_port", "22").strip()
 
@@ -180,9 +197,13 @@ def hpc_start():
     except ValueError:
         ssh_port = 22
 
-    result = hpc_client.start_services(
-        token=token, hpc_host=hpc_host, ssh_port=ssh_port
-    )
+    try:
+        result = api_post("/api/hpc/start", {"hpc_host": hpc_host, "ssh_port": ssh_port})
+    except requests.HTTPError as exc:
+        result = {"success": False, "error": _api_error(exc)}
+    except Exception as exc:
+        result = {"success": False, "error": str(exc)}
+
     return render_template(
         "hpc_result.html", result=result, action="start", hpc_host=hpc_host
     )
@@ -192,7 +213,6 @@ def hpc_start():
 @require_login
 def hpc_stop():
     """Stop all supervisord-managed services on the remote HPC node."""
-    token = _get_token()
     hpc_host     = request.form.get("hpc_host", "").strip()
     ssh_port_str = request.form.get("ssh_port", "22").strip()
 
@@ -205,9 +225,13 @@ def hpc_stop():
     except ValueError:
         ssh_port = 22
 
-    result = hpc_client.stop_services(
-        token=token, hpc_host=hpc_host, ssh_port=ssh_port
-    )
+    try:
+        result = api_post("/api/hpc/stop", {"hpc_host": hpc_host, "ssh_port": ssh_port})
+    except requests.HTTPError as exc:
+        result = {"success": False, "error": _api_error(exc)}
+    except Exception as exc:
+        result = {"success": False, "error": str(exc)}
+
     return render_template(
         "hpc_result.html", result=result, action="stop", hpc_host=hpc_host
     )

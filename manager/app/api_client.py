@@ -1,0 +1,136 @@
+"""
+app/api_client.py — Thin HTTP client for calling the REST API from the web GUI.
+
+The webapp uses this module instead of importing ``lib/`` directly, so that
+the two layers can be split into separate processes in the future with no
+further changes to ``app/``.
+
+Configuration
+-------------
+API_BASE_URL   Base URL of the REST API (default: ``http://localhost:5000``).
+               Override with the ``API_BASE_URL`` environment variable when
+               running the API on a different host/port.
+
+Usage
+-----
+    from app.api_client import api_get, api_post, api_delete
+
+    deployments = api_get("/api/deployments")
+    result      = api_post("/api/deployments", {"name": "my-app", "image": "nginx"})
+    result      = api_delete("/api/deployments/my-app")
+
+All helpers forward the Bearer token stored in the Flask session so that the
+API's ``require_token`` decorator is satisfied transparently.
+
+Errors
+------
+``requests.HTTPError`` is raised for 4xx/5xx responses.  Route handlers in
+``app/`` should catch it and translate to flash messages as appropriate.
+"""
+
+import logging
+import os
+
+import requests
+from flask import session
+
+logger = logging.getLogger(__name__)
+
+# Base URL of the REST API — same origin by default (single-process mode).
+# Set API_BASE_URL to point at a remote API server when running split.
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:5000")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+
+def _headers() -> dict:
+    """Build request headers, injecting the current session Bearer token."""
+    token = session.get("token", "")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+
+# ── Public interface ──────────────────────────────────────────────────
+
+
+def api_get(path: str) -> dict | list:
+    """
+    Send a GET request to the API.
+
+    Parameters
+    ----------
+    path : str
+        Path relative to ``API_BASE_URL``, e.g. ``"/api/deployments"``.
+
+    Returns
+    -------
+    dict | list
+        Parsed JSON response body.
+
+    Raises
+    ------
+    requests.HTTPError
+        On 4xx / 5xx responses.
+    """
+    url = f"{API_BASE_URL}{path}"
+    logger.debug("API GET %s", url)
+    r = requests.get(url, headers=_headers(), timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def api_post(path: str, body: dict | None = None) -> dict:
+    """
+    Send a POST request to the API.
+
+    Parameters
+    ----------
+    path : str
+        Path relative to ``API_BASE_URL``, e.g. ``"/api/helm/install"``.
+    body : dict, optional
+        JSON-serialisable request body.
+
+    Returns
+    -------
+    dict
+        Parsed JSON response body.
+
+    Raises
+    ------
+    requests.HTTPError
+        On 4xx / 5xx responses.
+    """
+    url = f"{API_BASE_URL}{path}"
+    logger.debug("API POST %s body=%s", url, body)
+    r = requests.post(url, json=body or {}, headers=_headers(), timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def api_delete(path: str) -> dict:
+    """
+    Send a DELETE request to the API.
+
+    Parameters
+    ----------
+    path : str
+        Path relative to ``API_BASE_URL``, e.g. ``"/api/deployments/my-app"``.
+
+    Returns
+    -------
+    dict
+        Parsed JSON response body.
+
+    Raises
+    ------
+    requests.HTTPError
+        On 4xx / 5xx responses.
+    """
+    url = f"{API_BASE_URL}{path}"
+    logger.debug("API DELETE %s", url)
+    r = requests.delete(url, headers=_headers(), timeout=30)
+    r.raise_for_status()
+    return r.json()

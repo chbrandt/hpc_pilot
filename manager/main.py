@@ -70,10 +70,22 @@ def create_app() -> Flask:
     from api.k8s import k8s_bp as api_k8s_bp
     from api.helm import helm_bp as api_helm_bp
     from api.hpc import hpc_bp as api_hpc_bp
+    from api.docs import docs_bp
 
     app.register_blueprint(api_k8s_bp)
     app.register_blueprint(api_helm_bp)
     app.register_blueprint(api_hpc_bp)
+    app.register_blueprint(docs_bp)
+
+    # ── Swagger UI ────────────────────────────────────────────────────
+    from flask_swagger_ui import get_swaggerui_blueprint
+
+    swaggerui_bp = get_swaggerui_blueprint(
+        "/api/docs",          # Swagger UI will be served at this URL
+        "/api/openapi.yaml",  # URL of the OpenAPI spec (served by docs_bp)
+        config={"app_name": "HPC Pilot API"},
+    )
+    app.register_blueprint(swaggerui_bp, url_prefix="/api/docs")
 
     # ── Context processor — injects current_user into every template ──
     @app.context_processor

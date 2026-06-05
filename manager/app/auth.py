@@ -84,10 +84,8 @@ def require_login(f):
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     """Login page: accepts and validates an EGI Check-in access token."""
-    import os
-
-    from lib.k8s_client import K8sClient
     from lib.saved_deployments import seed_defaults
+    from app.api_client import api_post
 
     if request.method == "POST":
         token = request.form.get("token", "").strip()
@@ -112,29 +110,22 @@ def login():
         session["claims"] = claims
         session["namespace"] = namespace
 
-        # Auto-create the user's namespace if it doesn't exist yet
+        # Auto-create the user's namespace if it doesn't exist yet (via API)
         try:
-            kubeconfig = os.environ.get("KUBECONFIG")
-            k8s = K8sClient(kubeconfig_path=kubeconfig)
-            if not k8s.namespace_exists(namespace):
-                result = k8s.create_namespace(namespace)
-                if result["success"]:
-                    logger.info(
-                        f"Auto-created namespace '{namespace}' for {sub[:20]}..."
-                    )
-                else:
-                    logger.warning(
-                        f"Could not auto-create namespace '{namespace}': {result.get('error')}"
-                    )
+            result = api_post("/api/namespaces/ensure")
+            if result.get("created"):
+                logger.info(
+                    "Auto-created namespace '%s' for %s...", namespace, sub[:20]
+                )
         except Exception as exc:
             # Non-fatal: namespace may be created on first deploy
-            logger.warning(f"Namespace pre-creation skipped: {exc}")
+            logger.warning("Namespace pre-creation skipped: %s", exc)
 
         # Seed global default chart configs (e.g. interlink) for this user
         try:
             seed_defaults(namespace)
         except Exception as exc:
-            logger.warning(f"Could not seed default chart configs: {exc}")
+            logger.warning("Could not seed default chart configs: %s", exc)
 
         flash(f"Welcome! Your namespace is {namespace}.", "success")
         next_url = request.form.get("next") or url_for("app_k8s.index")

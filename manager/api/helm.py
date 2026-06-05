@@ -12,6 +12,9 @@ POST /api/helm/install
     Install a Helm chart.
     JSON body: release_name, chart, version (opt), values_yaml (opt).
 
+GET  /api/releases/<name>/values
+    Return the current values for a deployed Helm release.
+
 DELETE /api/releases/<name>
     Uninstall a Helm release.
 """
@@ -23,7 +26,7 @@ import os
 from flask import Blueprint, request
 
 from api.auth import get_request_claims, require_token
-from lib.helm_client import helm_install, helm_list, helm_uninstall
+from lib.helm_client import helm_get_values, helm_install, helm_list, helm_uninstall
 from lib.k8s_client import K8sClient
 
 logger = logging.getLogger(__name__)
@@ -106,6 +109,22 @@ def install_chart():
 
     except Exception as exc:
         logger.error("install_chart failed: %s", exc)
+        return _err(str(exc), 500)
+
+
+@helm_bp.route("/releases/<name>/values", methods=["GET"])
+@require_token
+def get_release_values(name: str):
+    """Return the current values for a deployed Helm release."""
+    claims = get_request_claims()
+    namespace = claims["namespace"]
+    try:
+        result = helm_get_values(release_name=name, namespace=namespace)
+        if not result.get("success"):
+            return _err(result.get("error", "Could not retrieve values"), 404)
+        return _ok(result)
+    except Exception as exc:
+        logger.error("get_release_values failed: %s", exc)
         return _err(str(exc), 500)
 
 

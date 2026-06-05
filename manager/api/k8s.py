@@ -5,12 +5,19 @@ All routes are JSON-only and protected by Bearer-token auth.
 
 Endpoints
 ---------
+POST /api/namespaces/ensure
+    Idempotently create the user's personal namespace (derived from the token sub
+    claim).  Safe to call on every login — does nothing if the namespace exists.
+
 GET  /api/deployments
     List all container deployments in the user's namespace.
 
 POST /api/deployments
     Create a new container deployment.
     JSON body mirrors the parameters of lib.k8s_client.K8sClient.create_deployment.
+
+GET  /api/deployments/<name>
+    Return the full spec of a single deployment (for saving / re-deploying).
 
 GET  /api/deployments/<name>/status
     Get detailed status for a single deployment.
@@ -50,6 +57,32 @@ def _err(message: str, code: int = 400):
 
 
 # ── Routes ────────────────────────────────────────────────────────────
+
+
+@k8s_bp.route("/namespaces/ensure", methods=["POST"])
+@require_token
+def ensure_namespace():
+    """
+    Idempotently create the user's personal namespace.
+
+    Derives the namespace from the Bearer token's ``sub`` claim (same logic
+    used by all other endpoints).  Safe to call on every login — returns
+    ``{"created": false}`` when the namespace already exists.
+    """
+    claims = get_request_claims()
+    namespace = claims["namespace"]
+    try:
+        k8s = _get_k8s()
+        if k8s.namespace_exists(namespace):
+            return _ok({"namespace": namespace, "created": False})
+        result = k8s.create_namespace(namespace)
+        if result["success"]:
+            logger.info("ensure_namespace: created '%s'", namespace)
+            return _ok({"namespace": namespace, "created": True}, 201)
+        return _err(f"Failed to create namespace: {result.get('error')}", 500)
+    except Exception as exc:
+        logger.error("ensure_namespace failed: %s", exc)
+        return _err(str(exc), 500)
 
 
 @k8s_bp.route("/deployments", methods=["GET"])
@@ -126,6 +159,23 @@ def create_deployment():
 
     except Exception as exc:
         logger.error("create_deployment failed: %s", exc)
+        return _err(str(exc), 500)
+
+
+@k8s_bp.route("/deployments/<name>", methods=["GET"])
+@require_token
+def get_deployment(name: str):
+    """Return the full spec of a single deployment (for saving / re-deploying)."""
+    claims = get_request_claims()
+    namespace = claims["namespace"]
+    try:
+        k8s = _get_k8s()
+        spec = k8s.get_deployment_spec(name=name, namespace=namespace)
+        if "error" in spec:
+            return _err(spec["error"], 404)
+        return _ok(spec)
+    except Exception as exc:
+        logger.error("get_deployment failed: %s", exc)
         return _err(str(exc), 500)
 
 

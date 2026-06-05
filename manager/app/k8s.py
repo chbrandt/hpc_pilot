@@ -1,6 +1,9 @@
 """
 app/k8s.py — Web GUI routes for Kubernetes container deployments.
 
+All backend operations are performed via the REST API (app.api_client),
+so this module has no direct dependency on lib/.
+
 Routes
 ------
 GET  /                           Main deployment form (index)
@@ -13,14 +16,13 @@ POST /deployments/<ns>/<name>/save     Save deployment config
 
 import json
 import logging
-import os
 import re
 
+import requests
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
-from app.auth import get_session_user, require_login
-from lib.helm_client import helm_list
-from lib.k8s_client import K8sClient
+from app.auth import require_login
+from app.api_client import api_delete, api_get, api_post
 from lib.saved_deployments import list_configs, save_config
 
 logger = logging.getLogger(__name__)
@@ -31,14 +33,18 @@ k8s_bp = Blueprint("app_k8s", __name__)
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-def _get_k8s() -> K8sClient:
-    return K8sClient(kubeconfig_path=os.environ.get("KUBECONFIG"))
-
-
 def _validate_k8s_name(name: str) -> bool:
     """Validate a Kubernetes resource name (RFC 1123 subdomain)."""
     pattern = r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$"
     return bool(re.match(pattern, name))
+
+
+def _api_error(exc: requests.HTTPError) -> str:
+    """Extract a human-readable message from an HTTPError response."""
+    try:
+        return exc.response.json().get("error", str(exc))
+    except Exception:
+        return str(exc)
 
 
 # ── Routes ────────────────────────────────────────────────────────────
@@ -48,15 +54,20 @@ def _validate_k8s_name(name: str) -> bool:
 @require_login
 def index():
     """Main page with deployment form."""
-    error = None
-    try:
-        _get_k8s()
-    except Exception as exc:
-        error = f"Cannot connect to Kubernetes cluster: {exc}"
-        logger.error(error)
-
     namespace = session.get("namespace", "")
     saved = list_configs(namespace, kind="container") if namespace else []
+
+    # Light connectivity check — will show a banner if the API is unreachable
+    error = None
+    try:
+        api_get("/api/deployments")
+    except requests.HTTPError as exc:
+        # 401 is expected when the session token is fresh; not a connectivity issue
+        if exc.response.status_code != 401:
+            error = f"Cannot reach API: {exc}"
+    except Exception as exc:
+        error = f"Cannot reach API: {exc}"
+
     return render_template("index.html", error=error, saved_configs=saved)
 
 
@@ -146,32 +157,31 @@ def deploy():
         return redirect(url_for("app_k8s.index"))
 
     try:
-        k8s = _get_k8s()
-
-        if not k8s.namespace_exists(namespace):
-            ns_result = k8s.create_namespace(namespace)
-            if not ns_result["success"]:
-                flash(f"Failed to prepare namespace: {ns_result['error']}", "error")
-                return redirect(url_for("app_k8s.index"))
-
-        result = k8s.create_deployment(
-            name=name,
-            image=image,
-            namespace=namespace,
-            replicas=replicas,
-            cpu_request=cpu_request,
-            cpu_limit=cpu_limit,
-            mem_request=mem_request,
-            mem_limit=mem_limit,
-            env_vars=env_vars,
-            ports=ports,
-            command=command,
-            ingress=ingress,
+        result = api_post(
+            "/api/deployments",
+            {
+                "name": name,
+                "image": image,
+                "replicas": replicas,
+                "cpu_request": cpu_request,
+                "cpu_limit": cpu_limit,
+                "mem_request": mem_request,
+                "mem_limit": mem_limit,
+                "env_vars": env_vars,
+                "ports": ports,
+                "command": command,
+                "ingress": ingress,
+            },
         )
         return render_template("status.html", result=result)
 
+    except requests.HTTPError as exc:
+        msg = _api_error(exc)
+        logger.error("Deployment failed: %s", msg)
+        flash(f"Deployment failed: {msg}", "error")
+        return redirect(url_for("app_k8s.index"))
     except Exception as exc:
-        logger.error(f"Deployment failed: {exc}")
+        logger.error("Deployment failed: %s", exc)
         flash(f"Deployment failed: {exc}", "error")
         return redirect(url_for("app_k8s.index"))
 
@@ -180,14 +190,12 @@ def deploy():
 @require_login
 def deployments():
     """List all user workloads: container deployments and Helm releases merged."""
-    namespace = session["namespace"]
     errors = []
     workloads = []
 
     # ── Container deployments (K8s Deployments) ───────────────────────
     try:
-        k8s = _get_k8s()
-        for dep in k8s.list_deployments(namespace=namespace):
+        for dep in api_get("/api/deployments"):
             workloads.append(
                 {
                     "kind": "container",
@@ -203,11 +211,11 @@ def deployments():
             )
     except Exception as exc:
         errors.append(f"Deployments: {exc}")
-        logger.error(f"Could not list container deployments: {exc}")
+        logger.error("Could not list container deployments: %s", exc)
 
     # ── Helm releases ─────────────────────────────────────────────────
     try:
-        for rel in helm_list(namespace=namespace):
+        for rel in api_get("/api/releases"):
             workloads.append(
                 {
                     "kind": "helm",
@@ -224,8 +232,9 @@ def deployments():
             )
     except Exception as exc:
         errors.append(f"Helm releases: {exc}")
-        logger.error(f"Could not list Helm releases: {exc}")
+        logger.error("Could not list Helm releases: %s", exc)
 
+    namespace = session["namespace"]
     error = "; ".join(errors) if errors else None
     return render_template(
         "deployments.html",
@@ -245,17 +254,11 @@ def delete_deployment(namespace, name):
         return redirect(url_for("app_k8s.deployments"))
 
     try:
-        k8s = _get_k8s()
-        result = k8s.delete_deployment(name=name, namespace=namespace)
-        if result["deployment"] and result["deployment"]["success"]:
-            flash(f"Deployment '{name}' deleted successfully.", "success")
-        else:
-            error = (
-                result["deployment"]["error"]
-                if result["deployment"]
-                else "Unknown error"
-            )
-            flash(f"Failed to delete deployment: {error}", "error")
+        api_delete(f"/api/deployments/{name}")
+        flash(f"Deployment '{name}' deleted successfully.", "success")
+    except requests.HTTPError as exc:
+        msg = _api_error(exc)
+        flash(f"Failed to delete deployment: {msg}", "error")
     except Exception as exc:
         flash(f"Error: {exc}", "error")
 
@@ -267,9 +270,18 @@ def delete_deployment(namespace, name):
 def deployment_status(namespace, name):
     """Get deployment status as JSON (for AJAX refresh)."""
     try:
-        k8s = _get_k8s()
-        status = k8s.get_deployment_status(name=name, namespace=namespace)
+        status = api_get(f"/api/deployments/{name}/status")
         return json.dumps(status), 200, {"Content-Type": "application/json"}
+    except requests.HTTPError as exc:
+        try:
+            body = exc.response.json()
+        except Exception:
+            body = {"error": str(exc)}
+        return (
+            json.dumps(body),
+            exc.response.status_code,
+            {"Content-Type": "application/json"},
+        )
     except Exception as exc:
         return (
             json.dumps({"error": str(exc)}),
@@ -288,19 +300,17 @@ def save_deployment(namespace, name):
         return redirect(url_for("app_k8s.deployments"))
 
     try:
-        k8s = _get_k8s()
-        spec = k8s.get_deployment_spec(name=name, namespace=namespace)
-        if "error" in spec:
-            flash(f"Could not read deployment spec: {spec['error']}", "error")
-            return redirect(url_for("app_k8s.deployments"))
-
+        spec = api_get(f"/api/deployments/{name}")
         save_config(namespace=namespace, kind="container", config=spec)
         flash(
             f"Configuration for '{name}' saved. Load it from the Deploy page.",
             "success",
         )
+    except requests.HTTPError as exc:
+        msg = _api_error(exc)
+        flash(f"Could not read deployment spec: {msg}", "error")
     except Exception as exc:
-        logger.error(f"Save deployment failed: {exc}")
+        logger.error("Save deployment failed: %s", exc)
         flash(f"Failed to save configuration: {exc}", "error")
 
     return redirect(url_for("app_k8s.deployments"))
