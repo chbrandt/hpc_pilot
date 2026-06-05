@@ -70,11 +70,13 @@ def create_app() -> Flask:
     from api.k8s import k8s_bp as api_k8s_bp
     from api.helm import helm_bp as api_helm_bp
     from api.hpc import hpc_bp as api_hpc_bp
+    from api.saved import saved_bp as api_saved_bp
     from api.docs import docs_bp
 
     app.register_blueprint(api_k8s_bp)
     app.register_blueprint(api_helm_bp)
     app.register_blueprint(api_hpc_bp)
+    app.register_blueprint(api_saved_bp)
     app.register_blueprint(docs_bp)
 
     # ── Swagger UI ────────────────────────────────────────────────────

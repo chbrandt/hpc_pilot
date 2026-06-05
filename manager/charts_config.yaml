@@ -1,14 +1,5 @@
 # charts_config.yaml — Global default chart settings for HPC Pilot Manager
 #
-# app_config:
-#   Global settings for the application.
-#
-#   Fields:
-#     cluster_domain: The wildcard base domain of the Kubernetes cluster
-#                     (e.g. for "*.dev.local" set this to "dev.local").
-#                     Each interlink deployment will be reachable at
-#                     "<user-namespace>.<cluster_domain>".
-#
 # default_charts:
 #   A list of Helm chart configurations that are automatically pre-saved for
 #   every user on first login.
@@ -23,11 +14,8 @@
 #     values_yaml : Default values passed to `helm install --values -` (raw YAML string).
 #                   The following placeholder tokens are substituted per-user at seed time:
 #                     __NAMESPACE__       → the user's Kubernetes namespace (e.g. user-a3f1b2c4d5e6f7a8)
-#                     __CLUSTER_DOMAIN__  → app_config.cluster_domain (e.g. dev.local)
+#                     __CLUSTER_DOMAIN__  → site_config.cluster_domain (e.g. dev.local)
 #                     __NAMESPACE_HASH__  → the hex digest part of the namespace (e.g. a3f1b2c4d5e6f7a8)
-
-app_config:
-  cluster_domain: dev.local
 
 default_charts:
   - kind: helm

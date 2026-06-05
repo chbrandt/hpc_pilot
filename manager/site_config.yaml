@@ -1,0 +1,15 @@
+# site_config.yaml — Operator-level site settings for HPC Pilot Manager
+#
+# This file contains settings that describe the deployment environment and
+# are independent of any specific Helm chart or user workflow.
+# It is read at the api/app layer; the lib/ layer never touches it directly.
+#
+# Fields
+# ------
+# cluster_domain : str
+#     Wildcard base domain of the Kubernetes cluster.
+#     Each user's InterLink deployment will be reachable at
+#     "<user-namespace>.<cluster_domain>".
+#     Example: for a wildcard certificate "*.dev.local" set this to "dev.local".
+
+cluster_domain: dev.local

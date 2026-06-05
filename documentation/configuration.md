@@ -2,6 +2,42 @@
 
 ---
 
+## `site_config.yaml`
+
+Operator-level settings that describe the deployment environment. This file
+lives at `manager/site_config.yaml` and is read at startup by the api/app
+layer. The `lib/` layer never reads it directly — site config is always passed
+explicitly as an argument to library functions.
+
+| Key | Default | Description |
+|---|---|---|
+| `cluster_domain` | `dev.local` | Wildcard base domain of the Kubernetes cluster. Each user's InterLink deployment is reachable at `<namespace>.<cluster_domain>`. For a wildcard certificate `*.prod.example.com` set this to `prod.example.com`. |
+
+**Example:**
+
+```yaml
+# site_config.yaml
+cluster_domain: prod.example.com
+```
+
+> **Note:** `cluster_domain` was previously located inside `charts_config.yaml`
+> under the `app_config:` key.  That section has been removed; update any
+> existing deployments by migrating the value to `site_config.yaml`.
+
+---
+
+## `charts_config.yaml`
+
+Chart-catalogue settings that control which Helm charts are pre-seeded into
+every user's saved-config store on first login. This file lives at
+`manager/charts_config.yaml`.
+
+See the inline comments in that file for a full description of the
+`default_charts` fields and the supported placeholder tokens
+(`__NAMESPACE__`, `__CLUSTER_DOMAIN__`, `__NAMESPACE_HASH__`).
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Required | Description |

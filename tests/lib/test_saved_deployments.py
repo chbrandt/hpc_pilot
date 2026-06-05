@@ -119,7 +119,6 @@ class TestCRUD:
 # ---------------------------------------------------------------------------
 
 FAKE_CHARTS_CONFIG = {
-    "app_config": {"cluster_domain": "test.local"},
     "default_charts": [
         {
             "kind": "helm",
@@ -137,6 +136,9 @@ FAKE_CHARTS_CONFIG = {
     ],
 }
 
+# Site config supplied explicitly by callers (as the api layer would)
+FAKE_SITE_CONFIG = {"cluster_domain": "test.local"}
+
 
 class TestSeedDefaults:
     NS = "user-abcdef1234567890"
@@ -147,30 +149,30 @@ class TestSeedDefaults:
             yield
 
     def test_seed_inserts_default_chart(self):
-        sd.seed_defaults(self.NS)
+        sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         configs = sd.list_configs(self.NS)
         assert len(configs) == 1
         assert configs[0]["release_name"] == "interlink"
 
     def test_seed_is_idempotent(self):
-        sd.seed_defaults(self.NS)
-        sd.seed_defaults(self.NS)
+        sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
+        sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         assert len(sd.list_configs(self.NS)) == 1
 
     def test_placeholder_namespace_resolved(self):
-        sd.seed_defaults(self.NS)
+        sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         entry = sd.list_configs(self.NS)[0]
         assert self.NS in entry["values_yaml"]
         assert "__NAMESPACE__" not in entry["values_yaml"]
 
     def test_placeholder_cluster_domain_resolved(self):
-        sd.seed_defaults(self.NS)
+        sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         entry = sd.list_configs(self.NS)[0]
         assert "test.local" in entry["values_yaml"]
         assert "__CLUSTER_DOMAIN__" not in entry["values_yaml"]
 
     def test_placeholder_namespace_hash_resolved(self):
-        sd.seed_defaults(self.NS)
+        sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         entry = sd.list_configs(self.NS)[0]
         expected_hash = self.NS.removeprefix("user-")
         assert expected_hash in entry["values_yaml"]
@@ -178,21 +180,23 @@ class TestSeedDefaults:
 
     def test_seed_with_no_defaults_does_nothing(self):
         with patch.object(sd, "_load_charts_config", return_value={}):
-            sd.seed_defaults(self.NS)
+            sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         assert sd.list_configs(self.NS) == []
+
+    def test_seed_without_site_config_uses_fallback_domain(self):
+        """Calling seed_defaults with no site_config falls back to 'dev.local'."""
+        sd.seed_defaults(self.NS)
+        entry = sd.list_configs(self.NS)[0]
+        assert "dev.local" in entry["values_yaml"]
+        assert "__CLUSTER_DOMAIN__" not in entry["values_yaml"]
 
 
 # ---------------------------------------------------------------------------
-# load_app_config / load_default_charts with missing file
+# load_default_charts with missing file
 # ---------------------------------------------------------------------------
 
 
 class TestLoadHelpers:
-    def test_load_app_config_missing_file(self):
-        with patch.object(sd, "_CHARTS_CONFIG", "/nonexistent/path.yaml"):
-            cfg = sd.load_app_config()
-        assert cfg == {}
-
     def test_load_default_charts_missing_file(self):
         with patch.object(sd, "_CHARTS_CONFIG", "/nonexistent/path.yaml"):
             charts = sd.load_default_charts()

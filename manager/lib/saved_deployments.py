@@ -7,6 +7,11 @@ No database dependency.
 
 Global default chart presets are read from ``charts_config.yaml`` (at the
 manager root) and automatically seeded into each user's store on first login.
+
+Site-level configuration (e.g. ``cluster_domain``) is **not** read here.
+Callers in the api/app layer are responsible for loading ``site_config.yaml``
+and passing the relevant values as arguments to functions that need them
+(e.g. :func:`seed_defaults`).
 """
 
 import json
@@ -159,23 +164,6 @@ def _load_charts_config() -> dict:
         return {}
 
 
-def load_app_config() -> dict:
-    """
-    Return the ``app_config`` section from *charts_config.yaml*.
-
-    Currently defined keys:
-
-    * ``cluster_domain`` (str) — wildcard base domain of the Kubernetes cluster
-      (e.g. ``"dev.local"``).  Each user's interlink deployment will be reachable
-      at ``<namespace>.<cluster_domain>``.
-
-    Returns an empty dict if the section is absent or the file cannot be read.
-    """
-    data = _load_charts_config()
-    cfg = data.get("app_config", {})
-    return cfg if isinstance(cfg, dict) else {}
-
-
 def load_default_charts() -> list[dict]:
     """
     Load and return the list of default chart configs from *charts_config.yaml*.
@@ -190,7 +178,7 @@ def load_default_charts() -> list[dict]:
     return charts if isinstance(charts, list) else []
 
 
-def _resolve_placeholders(text: str, namespace: str, app_config: dict) -> str:
+def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
     """
     Substitute per-user placeholder tokens in *text*.
 
@@ -199,13 +187,24 @@ def _resolve_placeholders(text: str, namespace: str, app_config: dict) -> str:
     __NAMESPACE__
         The user's Kubernetes namespace (e.g. ``user-a3f1b2c4d5e6f7a8``).
     __CLUSTER_DOMAIN__
-        The wildcard base domain from ``app_config.cluster_domain``
+        The wildcard base domain from ``site_config["cluster_domain"]``
         (e.g. ``dev.local``).
     __NAMESPACE_HASH__
         The hex-digest portion of the namespace, i.e. everything after the
         leading ``"user-"`` prefix (e.g. ``a3f1b2c4d5e6f7a8``).
+
+    Parameters
+    ----------
+    text : str
+        The template string containing placeholder tokens.
+    namespace : str
+        The user's Kubernetes namespace.
+    site_config : dict
+        Site-level configuration dict (from ``site_config.yaml``), used to
+        resolve ``__CLUSTER_DOMAIN__``.  Falls back to ``"dev.local"`` when
+        the key is absent.
     """
-    cluster_domain = app_config.get("cluster_domain", "dev.local")
+    cluster_domain = site_config.get("cluster_domain", "dev.local")
     # Strip the "user-" prefix to get just the hash; fall back to the full
     # namespace string if the expected prefix is absent.
     namespace_hash = namespace.removeprefix("user-")
@@ -218,7 +217,7 @@ def _resolve_placeholders(text: str, namespace: str, app_config: dict) -> str:
     )
 
 
-def seed_defaults(namespace: str) -> None:
+def seed_defaults(namespace: str, site_config: Optional[dict] = None) -> None:
     """
     Ensure every default chart from *charts_config.yaml* is present in the
     saved-configs store for *namespace*.
@@ -229,13 +228,22 @@ def seed_defaults(namespace: str) -> None:
 
     Dynamic placeholder tokens in ``values_yaml`` (``__NAMESPACE__``,
     ``__CLUSTER_DOMAIN__``, ``__NAMESPACE_HASH__``) are resolved against the
-    user's namespace and the global ``app_config`` before the entry is stored.
+    user's namespace and the supplied *site_config* before the entry is stored.
+
+    Parameters
+    ----------
+    namespace : str
+        The user's Kubernetes namespace.
+    site_config : dict, optional
+        Site-level configuration dict (from ``site_config.yaml``).  When
+        omitted, placeholder resolution falls back to built-in defaults
+        (``cluster_domain`` → ``"dev.local"``).
     """
     defaults = load_default_charts()
     if not defaults:
         return
 
-    app_config = load_app_config()
+    cfg = site_config or {}
     configs = _load(namespace)
     existing_ids = {c.get("id") for c in configs}
 
@@ -250,7 +258,7 @@ def seed_defaults(namespace: str) -> None:
 
         # Resolve per-user placeholders in values_yaml
         raw_values = chart.get("values_yaml") or ""
-        resolved_values = _resolve_placeholders(raw_values, namespace, app_config) or None
+        resolved_values = _resolve_placeholders(raw_values, namespace, cfg) or None
 
         entry = {
             "id": stable_id,

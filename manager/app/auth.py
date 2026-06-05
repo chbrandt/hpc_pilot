@@ -84,7 +84,6 @@ def require_login(f):
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     """Login page: accepts and validates an EGI Check-in access token."""
-    from lib.saved_deployments import seed_defaults
     from app.api_client import api_post
 
     if request.method == "POST":
@@ -123,7 +122,7 @@ def login():
 
         # Seed global default chart configs (e.g. interlink) for this user
         try:
-            seed_defaults(namespace)
+            api_post("/api/saved/seed")
         except Exception as exc:
             logger.warning("Could not seed default chart configs: %s", exc)
 

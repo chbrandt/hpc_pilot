@@ -22,13 +22,10 @@ import os
 from flask import Blueprint, request
 
 from api.auth import get_request_claims, require_token
+from api.site_config import load_site_config
 from lib.helm_client import helm_get_values, helm_install, helm_uninstall
 from lib.k8s_client import K8sClient
-from lib.saved_deployments import (
-    _resolve_placeholders,
-    load_app_config,
-    load_default_charts,
-)
+from lib.saved_deployments import _resolve_placeholders, load_default_charts
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +82,8 @@ def deploy_interlink():
     chart = chart_cfg.get("chart", "")
     version = chart_cfg.get("version") or None
     raw_values = chart_cfg.get("values_yaml") or ""
-    app_config = load_app_config()
-    values_yaml = _resolve_placeholders(raw_values, namespace, app_config) or None
+    site_cfg = load_site_config()
+    values_yaml = _resolve_placeholders(raw_values, namespace, site_cfg) or None
 
     try:
         k8s = _get_k8s()

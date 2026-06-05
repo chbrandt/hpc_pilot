@@ -20,7 +20,7 @@ HELM_GET_VALUES_PATCH = "api.helm.helm_get_values"
 HELM_UNINSTALL_PATCH = "api.helm.helm_uninstall"
 K8S_PATCH = "api.helm._get_k8s"
 LOAD_DEFAULT_CHARTS_PATCH = "api.helm.load_default_charts"
-LOAD_APP_CONFIG_PATCH = "api.helm.load_app_config"
+LOAD_SITE_CONFIG_PATCH = "api.helm.load_site_config"
 RESOLVE_PLACEHOLDERS_PATCH = "api.helm._resolve_placeholders"
 
 # Minimal interlink chart config returned by the mocked loader
@@ -46,7 +46,7 @@ def _default_chart_patches():
     """Return a context-manager stack that patches chart-config helpers."""
     return (
         patch(LOAD_DEFAULT_CHARTS_PATCH, return_value=_INTERLINK_CFG),
-        patch(LOAD_APP_CONFIG_PATCH, return_value={"cluster_domain": "dev.local"}),
+        patch(LOAD_SITE_CONFIG_PATCH, return_value={"cluster_domain": "dev.local"}),
         patch(RESOLVE_PLACEHOLDERS_PATCH, side_effect=lambda text, ns, cfg: text),
     )
 

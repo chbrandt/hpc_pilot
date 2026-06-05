@@ -21,7 +21,8 @@ from flask import Blueprint, flash, redirect, render_template, request, session,
 
 from app.auth import require_login
 from app.api_client import api_post
-from lib.saved_deployments import list_configs, load_app_config, save_config
+from api.site_config import load_site_config
+from lib.saved_deployments import list_configs, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,10 @@ def _api_error(exc: requests.HTTPError) -> str:
 def _default_wstunnel_config(namespace: str) -> dict:
     """
     Build sensible wstunnel defaults from the user's namespace and the
-    global app_config (cluster_domain).
+    site config (cluster_domain).
     """
-    app_cfg = load_app_config()
-    cluster_domain = app_cfg.get("cluster_domain", "dev.local")
+    site_cfg = load_site_config()
+    cluster_domain = site_cfg.get("cluster_domain", "dev.local")
     namespace_hash = namespace.removeprefix("user-")
     return {
         "wstunnel_server": f"{namespace}.{cluster_domain}",
