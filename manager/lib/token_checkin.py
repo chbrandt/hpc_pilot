@@ -23,12 +23,16 @@ The refresh token is long-lived. Keep the tokens file private (0600). Rotate whe
 
 # stdlib
 import argparse
+import base64
+import hashlib
 import json
 import logging
 import os
+import secrets
 import sys
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
+from urllib.parse import urlencode
 
 # third-party
 import requests
@@ -36,24 +40,153 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-REALM_BASE = "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect"
-DEVICE_ENDPOINT = f"{REALM_BASE}/auth/device"
-TOKEN_ENDPOINT = f"{REALM_BASE}/token"
-REVOCATION_ENDPOINT = f"{REALM_BASE}/revocation"
+# ── Default (production) OIDC endpoints ──────────────────────────────────────
+
+DEFAULT_ISSUER = "https://aai.egi.eu/auth/realms/egi"
+
+_REALM_BASE = f"{DEFAULT_ISSUER}/protocol/openid-connect"
+DEVICE_ENDPOINT = f"{_REALM_BASE}/auth/device"
+TOKEN_ENDPOINT = f"{_REALM_BASE}/token"
+REVOCATION_ENDPOINT = f"{_REALM_BASE}/revoke"
 
 DEFAULT_CLIENT_ID = "oidc-agent"
 DEFAULT_SCOPE = "openid offline_access profile email"
 DEFAULT_TOKENS_PATH = "tokens_egi.json"
 
+# ── OIDC Discovery ────────────────────────────────────────────────────────────
+
+_DISCOVERY_CACHE: Dict[str, dict] = {}
+_DISCOVERY_CACHE_TTL = 3600  # seconds (1 hour)
+
+
+def oidc_discover(issuer: Optional[str] = None) -> Dict:
+    """
+    Fetch (and cache for 1 hour) the OIDC Discovery document for *issuer*.
+
+    If *issuer* is ``None``, the value of the ``CHECKIN_ISSUER`` environment
+    variable is used, falling back to :data:`DEFAULT_ISSUER`.
+
+    Args:
+        issuer: Base issuer URL, e.g.
+            ``"https://aai-dev.egi.eu/auth/realms/egi"``.
+
+    Returns:
+        The parsed JSON discovery document (as a dict).
+
+    Raises:
+        RuntimeError: if the discovery endpoint is unreachable or returns a
+            non-2xx response.
+
+    Example::
+
+        doc = oidc_discover()
+        token_ep = doc["token_endpoint"]
+    """
+    if issuer is None:
+        issuer = os.environ.get("CHECKIN_ISSUER", DEFAULT_ISSUER).rstrip("/")
+
+    cached = _DISCOVERY_CACHE.get(issuer)
+    if cached and (time.time() - cached["fetched_at"]) < _DISCOVERY_CACHE_TTL:
+        return cached["doc"]
+
+    url = f"{issuer}/.well-known/openid-configuration"
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        doc: Dict = resp.json()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cannot fetch OIDC configuration from {url}: {exc}"
+        ) from exc
+
+    logger.debug("OIDC discovery fetched for issuer %s", issuer)
+    _DISCOVERY_CACHE[issuer] = {"doc": doc, "fetched_at": time.time()}
+    return doc
+
+
+def _get_token_endpoint(issuer: Optional[str] = None) -> str:
+    """Return the token endpoint URL for the given or configured issuer.
+
+    Uses the hardcoded default when the resolved issuer matches
+    :data:`DEFAULT_ISSUER` (avoids an unnecessary discovery round-trip for the
+    production environment).
+
+    Args:
+        issuer: Explicit issuer URL.  If ``None``, falls back to the
+            ``CHECKIN_ISSUER`` environment variable, then the compiled-in
+            default (production EGI Check-in).
+    """
+    resolved = (issuer or os.environ.get("CHECKIN_ISSUER", "")).rstrip("/")
+    if not resolved or resolved == DEFAULT_ISSUER:
+        return TOKEN_ENDPOINT
+    return oidc_discover(resolved)["token_endpoint"]
+
+
+def _get_device_endpoint(issuer: Optional[str] = None) -> str:
+    """Return the device authorization endpoint URL for the given or configured issuer.
+
+    Uses the hardcoded default when the resolved issuer matches
+    :data:`DEFAULT_ISSUER`.
+
+    Args:
+        issuer: Explicit issuer URL.  If ``None``, falls back to the
+            ``CHECKIN_ISSUER`` environment variable, then the compiled-in default.
+    """
+    resolved = (issuer or os.environ.get("CHECKIN_ISSUER", "")).rstrip("/")
+    if not resolved or resolved == DEFAULT_ISSUER:
+        return DEVICE_ENDPOINT
+    return oidc_discover(resolved)["device_authorization_endpoint"]
+
+
+def _get_auth_endpoint(issuer: Optional[str] = None) -> str:
+    """Return the authorization endpoint URL for the given or configured issuer.
+
+    Uses the hardcoded default when the resolved issuer matches
+    :data:`DEFAULT_ISSUER`.
+
+    Args:
+        issuer: Explicit issuer URL.  If ``None``, falls back to the
+            ``CHECKIN_ISSUER`` environment variable, then the compiled-in default.
+    """
+    resolved = (issuer or os.environ.get("CHECKIN_ISSUER", "")).rstrip("/")
+    if not resolved or resolved == DEFAULT_ISSUER:
+        return AUTH_ENDPOINT
+    return oidc_discover(resolved)["authorization_endpoint"]
+
+
+def _get_revocation_endpoint(issuer: Optional[str] = None) -> str:
+    """Return the revocation endpoint URL for the given or configured issuer.
+
+    Uses the hardcoded default when the resolved issuer matches
+    :data:`DEFAULT_ISSUER`.
+
+    Args:
+        issuer: Explicit issuer URL.  If ``None``, falls back to the
+            ``CHECKIN_ISSUER`` environment variable, then the compiled-in default.
+    """
+    resolved = (issuer or os.environ.get("CHECKIN_ISSUER", "")).rstrip("/")
+    if not resolved or resolved == DEFAULT_ISSUER:
+        return REVOCATION_ENDPOINT
+    return oidc_discover(resolved)["revocation_endpoint"]
+
 
 def start_device_flow(client_id: str,
                       scope: str,
-                      audience: Optional[str] = None) -> Dict:
+                      audience: Optional[str] = None,
+                      issuer: Optional[str] = None) -> Dict:
     """
     POST the device authorization request.
 
     Returns JSON with device_code, user_code, verification_uri(_complete),
     interval, expires_in, etc.
+
+    Args:
+        client_id: OIDC client identifier.
+        scope:     Space-separated OIDC scopes.
+        audience:  Optional ``audience`` parameter added to the request.
+        issuer:    Explicit OIDC issuer URL.  If ``None``, falls back to the
+                   ``CHECKIN_ISSUER`` environment variable, then the compiled-in
+                   default.
 
     Raises:
         requests.HTTPError: if the server returns a non-2xx status.
@@ -68,7 +201,7 @@ def start_device_flow(client_id: str,
     logger.debug("Device auth request data: %r", data)
 
     resp = requests.post(
-        DEVICE_ENDPOINT,
+        _get_device_endpoint(issuer=issuer),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data=data,
         timeout=30,
@@ -118,7 +251,7 @@ def poll_token_endpoint(device_code: str,
         logger.debug("Token request data: %r", data)
 
         resp = requests.post(
-            TOKEN_ENDPOINT,
+            _get_token_endpoint(),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data=data,
             timeout=30,
@@ -209,7 +342,7 @@ def refresh_with_rt(refresh_token: str,
     logger.debug("Refresh token request data: %r", data)
 
     resp = requests.post(
-        TOKEN_ENDPOINT,
+        _get_token_endpoint(),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data=data,
         timeout=30,
@@ -241,7 +374,7 @@ def revoke_token(refresh_token: str, access_token: str, client_id: str) -> reque
         "client_id": client_id,
     }
     resp = requests.post(
-        REVOCATION_ENDPOINT,
+        _get_revocation_endpoint(),
         headers={
             "Content-Type": "application/x-www-form-urlencoded",
             "Authorization": f"Bearer {access_token}",
@@ -306,6 +439,125 @@ def _print_token_summary(tokens: Dict) -> None:
     print(f"  expires_in    : {tokens.get('expires_in')} s")
     if "refresh_expires_in" in tokens:
         print(f"  refresh_expires_in : {tokens['refresh_expires_in']} s")
+
+
+# ── PKCE & Authorization Code Flow ────────────────────────────────────────────
+
+AUTH_ENDPOINT = f"{_REALM_BASE}/auth"
+
+
+def generate_pkce_pair() -> Tuple[str, str]:
+    """
+    Generate a PKCE code_verifier / code_challenge pair (S256 method).
+
+    Returns:
+        A ``(code_verifier, code_challenge)`` tuple, both URL-safe base64
+        strings.  The *code_verifier* is 32 random bytes; the *code_challenge*
+        is its SHA-256 digest, base64url-encoded without padding.
+
+    Example::
+
+        verifier, challenge = generate_pkce_pair()
+        # verifier  → "abc123..."   (kept secret, sent at token exchange)
+        # challenge → "xyz789..."   (sent with the authorization request)
+    """
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return code_verifier, code_challenge
+
+
+def build_auth_code_url(
+    client_id: str,
+    redirect_uri: str,
+    scope: str,
+    state: str,
+    code_challenge: str,
+    code_challenge_method: str = "S256",
+    issuer: Optional[str] = None,
+) -> str:
+    """
+    Build the EGI Check-in authorization URL for the Authorization Code + PKCE flow.
+
+    Args:
+        client_id:             OIDC client identifier.
+        redirect_uri:          Callback URL registered with EGI Check-in.
+        scope:                 Space-separated OIDC scopes.
+        state:                 Opaque CSRF-protection value (store in session).
+        code_challenge:        PKCE code challenge (S256 hash of the verifier).
+        code_challenge_method: Always ``"S256"`` for modern PKCE.
+        issuer:                Explicit OIDC issuer URL.  If ``None``, falls back
+                               to the ``CHECKIN_ISSUER`` environment variable,
+                               then the compiled-in default.
+
+    Returns:
+        Full authorization URL to redirect the user's browser to.
+    """
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": code_challenge_method,
+    }
+    return f"{_get_auth_endpoint(issuer=issuer)}?{urlencode(params)}"
+
+
+def exchange_code_for_tokens(
+    code: str,
+    client_id: str,
+    redirect_uri: str,
+    code_verifier: str,
+    issuer: Optional[str] = None,
+) -> Dict:
+    """
+    Exchange an authorization code for tokens (Authorization Code + PKCE).
+
+    Posts the code and PKCE verifier to the token endpoint and returns the
+    full token response (``access_token``, ``id_token``, ``refresh_token``, …).
+
+    Args:
+        code:          The ``code`` query-parameter from the callback URL.
+        client_id:     OIDC client identifier (must match the original request).
+        redirect_uri:  Callback URI (must match the original authorization request).
+        code_verifier: The PKCE verifier generated alongside the challenge.
+        issuer:        Explicit OIDC issuer URL.  If ``None``, falls back to the
+                       ``CHECKIN_ISSUER`` environment variable, then the
+                       compiled-in default.
+
+    Returns:
+        Token response dict.
+
+    Raises:
+        RuntimeError: if the token endpoint returns a non-200 status.
+    """
+    data: Dict[str, str] = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "code_verifier": code_verifier,
+    }
+
+    logger.debug("Auth code exchange request data: %r", data)
+
+    resp = requests.post(
+        _get_token_endpoint(issuer=issuer),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data=data,
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        try:
+            body: object = resp.json()
+        except Exception:
+            body = resp.text
+        raise RuntimeError(
+            f"Authorization code exchange failed ({resp.status_code}): {body!r}"
+        )
+    return resp.json()
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────────

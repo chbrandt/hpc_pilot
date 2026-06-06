@@ -11,5 +11,35 @@
 #     Each user's InterLink deployment will be reachable at
 #     "<user-namespace>.<cluster_domain>".
 #     Example: for a wildcard certificate "*.dev.local" set this to "dev.local".
+#
+# oidc : dict
+#     OIDC / OAuth 2.0 settings for EGI Check-in authentication.
+#     All keys are optional — the defaults shown below are used when a key is absent.
+#
+#     issuer : str
+#         Base URL of the OIDC issuer (realm).  Discovery is performed at
+#         "<issuer>/.well-known/openid-configuration".
+#         Default: "https://aai.egi.eu/auth/realms/egi"  (production)
+#         Dev:     "https://aai-dev.egi.eu/auth/realms/egi"
+#         Demo:    "https://aai-demo.egi.eu/auth/realms/egi"
+#
+#     client_id : str
+#         OIDC public client identifier.
+#         Default: "oidc-agent"
+#
+#     scope : str
+#         Space-separated OIDC scopes to request.
+#         Default: "openid offline_access profile email"
+#
+#     redirect_uri : str
+#         Callback URL registered with the OIDC provider for the
+#         Authorization Code flow (browser login).
+#         Default: "http://localhost:5000/api/auth/checkin/callback"
 
 cluster_domain: dev.local
+
+oidc:
+  issuer: "https://aai.egi.eu/auth/realms/egi"
+  client_id: "oidc-agent"
+  scope: "openid offline_access profile email"
+  redirect_uri: "http://localhost:5000/api/auth/checkin/callback"
