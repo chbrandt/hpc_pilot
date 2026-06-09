@@ -214,20 +214,23 @@ def deployments():
         logger.error("Could not list container deployments: %s", exc)
 
     # ── Helm releases ─────────────────────────────────────────────────
+    # The only managed Helm release is 'interlink'; check its presence
+    # via GET /api/interlink/values (returns {"success": true, ...} when deployed).
     try:
-        for rel in api_get("/api/releases"):
+        result = api_get("/api/interlink/values")
+        if result.get("success"):
             workloads.append(
                 {
                     "kind": "helm",
-                    "name": rel["name"],
-                    "namespace": rel["namespace"],
-                    "detail": rel.get("chart", ""),
-                    "status": rel.get("status", "unknown"),
-                    "status_label": rel.get("status", ""),
-                    "created": rel.get("updated", ""),
+                    "name": "interlink",
+                    "namespace": session["namespace"],
+                    "detail": "oci://ghcr.io/chbrandt/interlink",
+                    "status": "deployed",
+                    "status_label": "deployed",
+                    "created": "",
                     "service_ports": None,
                     "ingress_url": None,
-                    "app_version": rel.get("app_version", ""),
+                    "app_version": "",
                 }
             )
     except Exception as exc:

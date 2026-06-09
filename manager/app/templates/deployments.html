@@ -123,7 +123,7 @@
   <p>No workloads in your namespace yet.</p>
   <div style="display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap;">
     <a href="{{ url_for('app_k8s.index') }}" class="btn btn-primary">🐳 Deploy a Container</a>
-    <a href="{{ url_for('app_helm.helm_page') }}" class="btn btn-secondary">⎈ Deploy a Chart</a>
+    <a href="{{ url_for('app_helm.releases') }}" class="btn btn-secondary">⎈ Deploy a Chart</a>
   </div>
 </div>
 {% endif %}

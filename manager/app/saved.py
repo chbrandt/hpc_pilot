@@ -34,7 +34,7 @@ def delete_saved_config(config_id):
     # Redirect back to the appropriate deploy form
     kind = entry.get("kind") if entry else None
     if kind == "helm":
-        return redirect(url_for("app_helm.helm_page"))
+        return redirect(url_for("app_helm.releases"))
     if kind == "hpc":
         return redirect(url_for("app_hpc.hpc_page"))
     return redirect(url_for("app_k8s.index"))
