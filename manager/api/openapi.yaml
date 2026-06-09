@@ -322,7 +322,7 @@ components:
           type: integer
           description: SSH port on the HPC login node
           default: 22
-          example: 22
+          example: 3333
 
     HpcDeployRequest:
       allOf:
@@ -337,8 +337,8 @@ components:
             wstunnel_port:
               type: integer
               description: Port the wstunnel server listens on
-              default: 8420
-              example: 8420
+              default: 80
+              example: 80
             wstunnel_secret:
               type: string
               description: Shared tunnel secret
@@ -348,7 +348,7 @@ components:
               description: |
                 Local port on the HPC node that wstunnel binds to.
                 Defaults to the value of `wstunnel_port`.
-              example: 8420
+              example: 4000
 
     HpcOperationResult:
       allOf:
@@ -696,7 +696,7 @@ paths:
               hpc_host: hpc.example.ac.uk
               ssh_port: 22
               wstunnel_server: wstunnel.k8s.example.com
-              wstunnel_port: 8420
+              wstunnel_port: 80
               wstunnel_secret: my-super-secret
       responses:
         "200":

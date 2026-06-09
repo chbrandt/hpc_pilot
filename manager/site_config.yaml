@@ -13,3 +13,12 @@
 #     Example: for a wildcard certificate "*.dev.local" set this to "dev.local".
 
 cluster_domain: dev.local
+
+wstunnel:
+  # Port on which the wstunnel server listens for incoming connections.
+  # This should match the port configured in the wstunnel server deployment.
+  port: 80
+
+  # Local port on which the wstunnel client will listen for forwarded connections.
+  # This can be set to any available port on the local machine.
+  local_port: 4000

@@ -29,6 +29,7 @@ import logging
 from flask import Blueprint, request
 
 from api.auth import get_request_claims, require_token
+from api.site_config import load_site_config
 from lib import hpc_client
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,8 @@ def hpc_deploy():
     claims = get_request_claims()
     token = claims["_token"]
 
+    site_cfg = load_site_config()
+
     body = request.get_json(silent=True) or {}
     try:
         hpc_host, ssh_port = _parse_host(body)
@@ -89,8 +92,8 @@ def hpc_deploy():
     if not wstunnel_secret:
         return _err("'wstunnel_secret' is required.")
 
-    wstunnel_port = int(body.get("wstunnel_port", 8420))
-    wstunnel_local_port = int(body.get("wstunnel_local_port", wstunnel_port))
+    wstunnel_port = int(body.get("wstunnel_port", site_cfg["wstunnel"]["port"]))
+    wstunnel_local_port = int(body.get("wstunnel_local_port", site_cfg["wstunnel"]["local_port"]))
 
     result = hpc_client.deploy(
         token=token,

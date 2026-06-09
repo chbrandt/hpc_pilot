@@ -47,12 +47,15 @@ def _default_wstunnel_config(namespace: str) -> dict:
     """
     site_cfg = load_site_config()
     cluster_domain = site_cfg.get("cluster_domain", "dev.local")
+    wstunnel_port = site_cfg["wstunnel"]["port"]
+    wstunnel_server = f"{namespace}.{cluster_domain}"
+    wstunnel_local_port = site_cfg["wstunnel"]["local_port"]
     namespace_hash = namespace.removeprefix("user-")
     return {
-        "wstunnel_server": f"{namespace}.{cluster_domain}",
-        "wstunnel_port": 8420,
+        "wstunnel_server": wstunnel_server,
+        "wstunnel_port": wstunnel_port,
         "wstunnel_secret": namespace_hash,
-        "wstunnel_local_port": 8420,
+        "wstunnel_local_port": wstunnel_local_port,
     }
 
 
@@ -74,11 +77,12 @@ def hpc_page():
 def hpc_deploy():
     """Run setup.sh on the remote HPC node via mccli."""
     namespace = session["namespace"]
+    defaults = _default_wstunnel_config(namespace)
 
     hpc_host          = request.form.get("hpc_host", "").strip()
     ssh_port_str      = request.form.get("ssh_port", "22").strip()
-    wstunnel_server   = request.form.get("wstunnel_server", "").strip()
-    wstunnel_port_str = request.form.get("wstunnel_port", "8420").strip()
+    wstunnel_server   = request.form.get("wstunnel_server", defaults["wstunnel_server"]).strip()
+    wstunnel_port_str = request.form.get("wstunnel_port", str(defaults["wstunnel_port"])).strip()
     wstunnel_secret   = request.form.get("wstunnel_secret", "").strip()
     wstunnel_local_port_str = request.form.get(
         "wstunnel_local_port", wstunnel_port_str
@@ -243,11 +247,12 @@ def hpc_stop():
 def hpc_save(config_id: str):
     """Persist (or re-persist) an HPC config to the saved_deployments store."""
     namespace = session["namespace"]
+    defaults = _default_wstunnel_config(namespace)
 
     hpc_host          = request.form.get("hpc_host", "").strip()
     ssh_port_str      = request.form.get("ssh_port", "22").strip()
-    wstunnel_server   = request.form.get("wstunnel_server", "").strip()
-    wstunnel_port_str = request.form.get("wstunnel_port", "8420").strip()
+    wstunnel_server   = request.form.get("wstunnel_server", defaults["wstunnel_server"]).strip()
+    wstunnel_port_str = request.form.get("wstunnel_port", str(defaults["wstunnel_port"])).strip()
     wstunnel_secret   = request.form.get("wstunnel_secret", "").strip()
     wstunnel_local_port_str = request.form.get(
         "wstunnel_local_port", wstunnel_port_str
