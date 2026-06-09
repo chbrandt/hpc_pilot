@@ -9,34 +9,15 @@ lives at `manager/site_config.yaml` and is read at startup by the api/app
 layer. The `lib/` layer never reads it directly — site config is always passed
 explicitly as an argument to library functions.
 
-### Top-level keys
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `cluster_domain` | string | `dev.local` | Wildcard base domain of the Kubernetes cluster. Each user's InterLink deployment is reachable at `<namespace>.<cluster_domain>`. For a wildcard certificate `*.prod.example.com` set this to `prod.example.com`. |
-| `oidc` | mapping | *(see below)* | OIDC / OAuth 2.0 settings for EGI Check-in authentication. |
-
-### `oidc` sub-keys
-
 | Key | Default | Description |
 |---|---|---|
-| `oidc.issuer` | `https://aai.egi.eu/auth/realms/egi` | OIDC realm base URL. OIDC Discovery is performed at `<issuer>/.well-known/openid-configuration`. Use `https://aai-dev.egi.eu/auth/realms/egi` for the dev environment. |
-| `oidc.client_id` | `oidc-agent` | OIDC public client identifier registered with EGI Check-in. |
-| `oidc.scope` | `openid offline_access profile email` | Space-separated OIDC scopes to request. |
-| `oidc.redirect_uri` | `http://localhost:5000/api/auth/checkin/callback` | Callback URL registered with the OIDC provider for the Authorization Code (browser) flow. Must match the exact URI registered in the Check-in client configuration. |
+| `cluster_domain` | `dev.local` | Wildcard base domain of the Kubernetes cluster. Each user's InterLink deployment is reachable at `<namespace>.<cluster_domain>`. For a wildcard certificate `*.prod.example.com` set this to `prod.example.com`. |
 
-All `oidc` keys are optional — any missing key falls back to its default. Environment variables (see below) take precedence over values set in this file.
-
-**Example — switch to the dev environment:**
+**Example:**
 
 ```yaml
 # site_config.yaml
 cluster_domain: prod.example.com
-
-oidc:
-  issuer: "https://aai-dev.egi.eu/auth/realms/egi"
-  client_id: "my-hpc-pilot-client"
-  redirect_uri: "https://hpc-pilot.example.com/api/auth/checkin/callback"
 ```
 
 > **Note:** `cluster_domain` was previously located inside `charts_config.yaml`
@@ -59,28 +40,12 @@ See the inline comments in that file for a full description of the
 
 ## Environment Variables
 
-Environment variables always take precedence over values in `site_config.yaml`.
-
-### Flask / Kubernetes
-
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `KUBECONFIG` | `~/.kube/config` | No | Path to kubeconfig file. If unset, the Kubernetes client falls back to `~/.kube/config`. |
 | `FLASK_SECRET_KEY` | `dev-secret-change-in-production` | **Yes (production)** | Key used to sign and encrypt the session cookie. Generate with: `python -c 'import secrets; print(secrets.token_hex(32))'` |
 | `FLASK_PORT` | `5000` | No | TCP port for the Flask development server. |
 | `FLASK_DEBUG` | `0` | No | Set to `1` to enable Flask debug mode (auto-reload, detailed error pages). **Never use in production.** |
-| `SITE_CONFIG` | `manager/site_config.yaml` | No | Absolute (or relative-to-CWD) path to the site configuration file. Use this to point the app at a custom config without editing the default file — useful in CI, Docker, or multi-environment deployments. **Example:** `SITE_CONFIG=/etc/hpc-pilot/site_config.yaml python main.py` |
-
-### OIDC / EGI Check-in overrides
-
-These override the corresponding `oidc.*` keys in `site_config.yaml`.
-
-| Variable | Overrides | Description |
-|---|---|---|
-| `CHECKIN_ISSUER` | `oidc.issuer` | OIDC realm base URL. |
-| `CHECKIN_CLIENT_ID` | `oidc.client_id` | OIDC client identifier. |
-| `CHECKIN_SCOPE` | `oidc.scope` | Space-separated OIDC scopes. |
-| `CHECKIN_REDIRECT_URI` | `oidc.redirect_uri` | Authorization Code callback URL. |
 
 ---
 

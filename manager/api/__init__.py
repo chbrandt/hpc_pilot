@@ -11,9 +11,7 @@ Authentication: pass the EGI Check-in access token as a Bearer token in the
 
 Blueprints
 ----------
-checkin_bp  /api/auth        — EGI Check-in OIDC authentication (browser: auth
-                               code + PKCE; curl/terminal: device flow)
-k8s_bp      /api/deployments — container deployments & namespaces
-helm_bp     /api/helm        — Helm chart operations
-hpc_bp      /api/hpc         — HPC node operations
+k8s_bp    /api/deployments  — container deployments & namespaces
+helm_bp   /api/helm         — Helm chart operations
+hpc_bp    /api/hpc          — HPC node operations
 """

@@ -22,8 +22,6 @@ KUBECONFIG       Path to kubeconfig file (default: ~/.kube/config)
 FLASK_PORT       Port to listen on (default: 5000)
 FLASK_DEBUG      Set to "1" to enable debug mode
 FLASK_SECRET_KEY Flask session secret (change in production!)
-SITE_CONFIG      Absolute path to a custom site_config.yaml
-                 (default: manager/site_config.yaml)
 """
 
 import logging
@@ -74,14 +72,12 @@ def create_app() -> Flask:
     from api.hpc import hpc_bp as api_hpc_bp
     from api.saved import saved_bp as api_saved_bp
     from api.docs import docs_bp
-    from api.checkin import checkin_bp
 
     app.register_blueprint(api_k8s_bp)
     app.register_blueprint(api_helm_bp)
     app.register_blueprint(api_hpc_bp)
     app.register_blueprint(api_saved_bp)
     app.register_blueprint(docs_bp)
-    app.register_blueprint(checkin_bp)
 
     # ── Swagger UI ────────────────────────────────────────────────────
     from flask_swagger_ui import get_swaggerui_blueprint
