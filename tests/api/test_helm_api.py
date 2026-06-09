@@ -52,12 +52,12 @@ def _default_chart_patches():
 
 
 # ---------------------------------------------------------------------------
-# POST /api/interlink/deploy
+# POST /api/interlink
 # ---------------------------------------------------------------------------
 
 
 class TestDeployInterlink:
-    URL = "/api/interlink/deploy"
+    URL = "/api/interlink"
 
     def test_requires_auth(self, client):
         assert client.post(self.URL).status_code == 401
@@ -118,12 +118,12 @@ class TestDeployInterlink:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/interlink/values
+# GET /api/interlink
 # ---------------------------------------------------------------------------
 
 
 class TestGetInterlinkValues:
-    URL = "/api/interlink/values"
+    URL = "/api/interlink"
 
     def test_requires_auth(self, client):
         assert client.get(self.URL).status_code == 401
@@ -156,12 +156,12 @@ class TestGetInterlinkValues:
 
 
 # ---------------------------------------------------------------------------
-# DELETE /api/interlink/deploy
+# DELETE /api/interlink
 # ---------------------------------------------------------------------------
 
 
 class TestDeleteInterlink:
-    URL = "/api/interlink/deploy"
+    URL = "/api/interlink"
 
     def test_requires_auth(self, client):
         assert client.delete(self.URL).status_code == 401

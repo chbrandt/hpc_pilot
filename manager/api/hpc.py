@@ -10,6 +10,10 @@ POST /api/hpc/deploy
     JSON body: hpc_host, ssh_port (opt), wstunnel_server, wstunnel_port (opt),
                wstunnel_secret, wstunnel_local_port (opt).
 
+DELETE /api/hpc/deploy
+    Stop all services and remove the HPC Pilot installation from the remote node.
+    JSON body: hpc_host, ssh_port (opt).
+
 POST /api/hpc/status
     Query supervisorctl status on the remote HPC node.
     JSON body: hpc_host, ssh_port (opt).
@@ -104,6 +108,33 @@ def hpc_deploy():
         wstunnel_secret=wstunnel_secret,
         wstunnel_local_port=wstunnel_local_port,
     )
+    code = 200 if result.get("success") else 500
+    return _ok(result, code)
+
+
+@hpc_bp.route("/deploy", methods=["DELETE"])
+@require_token
+def hpc_undeploy():
+    """
+    Stop all services and uninstall the HPC Pilot stack from the remote node.
+
+    This is the inverse of POST /api/hpc/deploy.  It stops all supervisord-managed
+    services, shuts down supervisord, and removes the ``~/.pilot`` directory.
+
+    JSON body keys:
+        hpc_host*  str   HPC login node hostname (required)
+        ssh_port   int   SSH port (default 22)
+    """
+    claims = get_request_claims()
+    token = claims["_token"]
+
+    body = request.get_json(silent=True) or {}
+    try:
+        hpc_host, ssh_port = _parse_host(body)
+    except ValueError as exc:
+        return _err(str(exc))
+
+    result = hpc_client.undeploy(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
     code = 200 if result.get("success") else 500
     return _ok(result, code)
 

@@ -91,6 +91,50 @@ class TestHpcDeploy:
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/hpc/deploy
+# ---------------------------------------------------------------------------
+
+
+class TestHpcUndeploy:
+    URL = "/api/hpc/deploy"
+
+    def test_requires_auth(self, client):
+        assert client.delete(self.URL, json={}).status_code == 401
+
+    def test_missing_hpc_host_returns_400(self, client, auth_headers):
+        headers, _ = auth_headers
+        resp = client.delete(self.URL, json={}, headers=headers)
+        assert resp.status_code == 400
+        assert "hpc_host" in resp.get_json(force=True)["error"].lower()
+
+    def test_success_returns_200(self, client, auth_headers):
+        headers, _ = auth_headers
+        with patch(f"{HPC_CLIENT}.undeploy", return_value=_SUCCESS):
+            resp = client.delete(
+                self.URL, json={"hpc_host": "hpc.example.org"}, headers=headers
+            )
+        assert resp.status_code == 200
+        assert resp.get_json(force=True)["success"] is True
+
+    def test_failure_returns_500(self, client, auth_headers):
+        headers, _ = auth_headers
+        with patch(f"{HPC_CLIENT}.undeploy", return_value=_FAILURE):
+            resp = client.delete(
+                self.URL, json={"hpc_host": "hpc.example.org"}, headers=headers
+            )
+        assert resp.status_code == 500
+
+    def test_custom_ssh_port_passed_through(self, client, auth_headers):
+        """Verify ssh_port is forwarded to hpc_client.undeploy."""
+        headers, _ = auth_headers
+        body = {"hpc_host": "hpc.example.org", "ssh_port": 2222}
+        with patch(f"{HPC_CLIENT}.undeploy", return_value=_SUCCESS) as mock_undeploy:
+            client.delete(self.URL, json=body, headers=headers)
+        call_kwargs = mock_undeploy.call_args.kwargs
+        assert call_kwargs["ssh_port"] == 2222
+
+
+# ---------------------------------------------------------------------------
 # POST /api/hpc/status
 # ---------------------------------------------------------------------------
 

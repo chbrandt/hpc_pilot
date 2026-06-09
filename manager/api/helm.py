@@ -5,13 +5,13 @@ All routes are JSON-only and protected by Bearer-token auth.
 
 Endpoints
 ---------
-POST /api/interlink/deploy
+POST /api/interlink
     Install the InterLink Helm chart using defaults from charts_config.yaml.
 
-GET  /api/interlink/values
+GET  /api/interlink
     Return the current values for the deployed InterLink Helm release.
 
-DELETE /api/interlink/deploy
+DELETE /api/interlink
     Uninstall the InterLink Helm release.
 """
 
@@ -61,7 +61,7 @@ def _get_interlink_chart_config() -> dict | None:
 # ── Routes ────────────────────────────────────────────────────────────
 
 
-@helm_bp.route("/interlink/deploy", methods=["POST"])
+@helm_bp.route("/interlink", methods=["POST"])
 @require_token
 def deploy_interlink():
     """
@@ -111,7 +111,7 @@ def deploy_interlink():
         return _err(str(exc), 500)
 
 
-@helm_bp.route("/interlink/values", methods=["GET"])
+@helm_bp.route("/interlink", methods=["GET"])
 @require_token
 def get_interlink_values():
     """Return the current values for the deployed InterLink Helm release."""
@@ -129,7 +129,7 @@ def get_interlink_values():
         return _err(str(exc), 500)
 
 
-@helm_bp.route("/interlink/deploy", methods=["DELETE"])
+@helm_bp.route("/interlink", methods=["DELETE"])
 @require_token
 def delete_interlink():
     """Uninstall the InterLink Helm release."""

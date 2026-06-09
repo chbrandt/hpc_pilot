@@ -215,9 +215,9 @@ def deployments():
 
     # ── Helm releases ─────────────────────────────────────────────────
     # The only managed Helm release is 'interlink'; check its presence
-    # via GET /api/interlink/values (returns {"success": true, ...} when deployed).
+    # via GET /api/interlink (returns {"success": true, ...} when deployed).
     try:
-        result = api_get("/api/interlink/values")
+        result = api_get("/api/interlink")
         if result.get("success"):
             workloads.append(
                 {

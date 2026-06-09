@@ -151,6 +151,23 @@ class TestPublicHelpers:
             result = hpc.stop_services(FAKE_TOKEN, FAKE_HOST, FAKE_PORT)
         assert result == expected
 
+    def test_undeploy_success_returns_success_dict(self):
+        """undeploy() succeeds when both remote steps succeed."""
+        ok = {"success": True, "output": "done", "error": ""}
+        with patch("lib.hpc_client._run_mccli", return_value=ok):
+            result = hpc.undeploy(FAKE_TOKEN, FAKE_HOST, FAKE_PORT)
+        assert result["success"] is True
+
+    def test_undeploy_failure_on_remove_step(self):
+        """undeploy() propagates failure when the rm -rf step fails."""
+        stop_ok = {"success": True, "output": "stopped", "error": ""}
+        remove_fail = {"success": False, "output": "", "error": "permission denied"}
+        responses = [stop_ok, remove_fail]
+        with patch("lib.hpc_client._run_mccli", side_effect=responses):
+            result = hpc.undeploy(FAKE_TOKEN, FAKE_HOST, FAKE_PORT)
+        assert result["success"] is False
+        assert "remove_installation" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # SetupConfig

@@ -283,6 +283,63 @@ def stop_services(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
     )
 
 
+def undeploy(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
+    """
+    Stop all services and remove the HPC Pilot installation from the remote node.
+
+    This is the inverse of :func:`deploy`.  It performs two remote steps:
+
+    1. Gracefully stop all supervisord-managed services and shut down supervisord.
+       This step tolerates failures (e.g. supervisord was never started).
+    2. Remove the ``~/.pilot`` base directory entirely.
+
+    Parameters
+    ----------
+    token    : EGI Check-in access token.
+    hpc_host : HPC login/edge node hostname or IP.
+    ssh_port : SSH port (usually 22).
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
+    """
+    def runner(command: str, timeout: int = _SHORT_TIMEOUT) -> dict:
+        return _run_mccli(token, hpc_host, ssh_port, command, timeout=timeout)
+
+    logger.info("Undeploying HPC stack from %s", hpc_host)
+
+    all_output: list[str] = []
+
+    # Step 1: stop supervisord (best-effort — tolerate failure if already down)
+    stop_cmd = (
+        f"source {_BASE_DIR}/bin/activate"
+        f" && supervisorctl stop all"
+        f" && {_SUPERVISORD_BIN} -c {_SUPERVISOR_CONF} ctl shutdown"
+        f" || true"
+    )
+    stop_result = runner(stop_cmd)
+    if stop_result.get("output"):
+        all_output.append(f"[stop_services] {stop_result['output']}")
+
+    # Step 2: remove the installation directory
+    remove_result = runner(f"rm -rf {_BASE_DIR} && echo 'Installation removed.'")
+    if remove_result.get("output"):
+        all_output.append(f"[remove_installation] {remove_result['output']}")
+
+    if not remove_result["success"]:
+        return {
+            "success": False,
+            "output": "\n".join(all_output),
+            "error": f"[remove_installation] {remove_result.get('error', '')}",
+        }
+
+    return {
+        "success": True,
+        "output": "\n".join(all_output),
+        "error": "",
+    }
+
+
 def deploy(
     token: str,
     hpc_host: str,

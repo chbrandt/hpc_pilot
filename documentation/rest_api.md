@@ -387,6 +387,35 @@ remote node (downloads wstunnel binary, configures supervisord, etc.).
 
 ---
 
+### `DELETE /api/hpc/deploy` — Uninstall HPC deployment
+
+Stop all supervisord-managed services, shut down supervisord, and remove
+the ``~/.pilot`` installation directory from the remote node.
+This is the inverse of `POST /api/hpc/deploy`.
+
+```{code-block} bash
+curl -s -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hpc_host": "hpc-login.example.org"}' \
+  https://manager.example.org/api/hpc/deploy | jq .
+```
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `hpc_host` | string | ✓ | HPC login node hostname |
+| `ssh_port` | int | — | SSH port (default `22`) |
+
+**Response `200`:**
+
+```{code-block} json
+{"success": true, "output": "[stop_services] ...\n[remove_installation] Installation removed.", "error": ""}
+```
+
+---
+
 ### `POST /api/hpc/status` — Query service status
 
 Calls `supervisorctl status` on the remote node.
@@ -501,6 +530,7 @@ print(resp.json())
 | `POST` | `/api/helm/install` | Install a Helm chart |
 | `DELETE` | `/api/releases/<name>` | Uninstall a Helm release |
 | `POST` | `/api/hpc/deploy` | Deploy wstunnel on HPC node |
+| `DELETE` | `/api/hpc/deploy` | Stop & uninstall HPC deployment |
 | `POST` | `/api/hpc/status` | Query HPC service status |
 | `POST` | `/api/hpc/start` | Start HPC services |
 | `POST` | `/api/hpc/stop` | Stop HPC services |

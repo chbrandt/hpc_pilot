@@ -49,7 +49,7 @@ def releases():
     try:
         # InterLink is the only managed Helm deployment; retrieve its values
         # as a single-item list to populate the releases table.
-        result = api_get("/api/interlink/values")
+        result = api_get("/api/interlink")
         if result.get("success"):
             release_list = [{"name": "interlink", "namespace": namespace, "status": "deployed"}]
     except Exception as exc:
@@ -69,7 +69,7 @@ def releases():
 def delete_release(name):
     """Uninstall the InterLink Helm release."""
     try:
-        api_delete("/api/interlink/deploy")
+        api_delete("/api/interlink")
         flash(f"Release '{name}' uninstalled successfully.", "success")
     except requests.HTTPError as exc:
         msg = _api_error(exc)
@@ -89,7 +89,7 @@ def save_release(name):
     namespace = session["namespace"]
 
     try:
-        values_result = api_get("/api/interlink/values")
+        values_result = api_get("/api/interlink")
         values_yaml = values_result.get("values_yaml")
 
         config = {

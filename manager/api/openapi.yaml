@@ -592,7 +592,7 @@ paths:
 
   # ── InterLink ─────────────────────────────────────────────────────────────
 
-  /api/interlink/deploy:
+  /api/interlink:
     post:
       tags: [Helm]
       summary: Deploy InterLink
@@ -642,7 +642,6 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /api/interlink/values:
     get:
       tags: [Helm]
       summary: Get InterLink deployment values
@@ -711,6 +710,44 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           description: Deployment failed (SSH error, remote command failure, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HpcOperationResult"
+
+    delete:
+      tags: [HPC]
+      summary: Uninstall HPC deployment
+      description: |
+        Stop all supervisord-managed services, shut down supervisord, and remove
+        the ``~/.pilot`` installation directory from the remote HPC node.
+
+        This is the inverse of `POST /api/hpc/deploy`.  The operation is
+        idempotent — it is safe to call even if services were never started or
+        the directory does not exist.
+      operationId: hpcUndeploy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HpcHostBody"
+            example:
+              hpc_host: hpc.example.ac.uk
+              ssh_port: 22
+      responses:
+        "200":
+          description: Uninstallation succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HpcOperationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: Uninstallation failed (SSH error, remote command failure, etc.)
           content:
             application/json:
               schema:
