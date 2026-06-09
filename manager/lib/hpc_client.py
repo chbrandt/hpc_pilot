@@ -242,7 +242,7 @@ def check_installed(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
     #   e.g. check for the supervisord.conf file or a running wstunnel process.
     result = _run_mccli(
         token, hpc_host, ssh_port,
-        f"[ -d {_REMOTE_BASE_DIR} ] && echo installed || echo missing",
+        f"[ -d {_BASE_DIR} ] && echo installed || echo missing",
         timeout=_SHORT_TIMEOUT,
     )
     return result["success"] and "installed" in result["output"]
@@ -259,7 +259,7 @@ def get_status(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
     #TODO: Improve the status check for something more meaningful/structured.
     status = _run_mccli(
         token, hpc_host, ssh_port,
-        f"supervisorctl -c {_REMOTE_BASE_DIR}/supervisord.conf status",
+        f"source {_BASE_DIR}/bin/activate && supervisorctl status",
         timeout=_SHORT_TIMEOUT,
     )
     return status
@@ -269,7 +269,7 @@ def start_services(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
     """Start all supervisord-managed services (wstunnel)."""
     return _run_mccli(
         token, hpc_host, ssh_port,
-        f"supervisorctl -c {_REMOTE_BASE_DIR}/supervisord.conf start all",
+        f"source {_BASE_DIR}/bin/activate && supervisorctl start all",
         timeout=_SHORT_TIMEOUT,
     )
 
@@ -278,7 +278,7 @@ def stop_services(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
     """Stop all supervisord-managed services."""
     return _run_mccli(
         token, hpc_host, ssh_port,
-        f"supervisorctl -c {_REMOTE_BASE_DIR}/supervisord.conf stop all",
+        f"source {_BASE_DIR}/bin/activate && supervisorctl stop all",
         timeout=_SHORT_TIMEOUT,
     )
 
@@ -501,7 +501,7 @@ _LOG_DIR          = f"{_BASE_DIR}/log"
 # _ETC_DIR          = f"{_BASE_DIR}/etc"
 
 _SUPERVISORD_BIN  = f"{_BIN_DIR}/supervisord"
-_SUPERVISORCTL_BIN= f"{_BIN_DIR}/supervisorctl"
+# _SUPERVISORCTL_BIN= f"{_BIN_DIR}/supervisorctl"
 _SUPERVISOR_CONF  = f"{_BIN_DIR}/../supervisord.conf"
 # _SUPERVISOR_SOCK  = f"{_BASE_DIR}/supervisord.sock"
 # _SUPERVISOR_PID   = f"{_BASE_DIR}/supervisord.pid"
@@ -719,9 +719,10 @@ def start_supervisord(runner: Runner) -> dict:
     if check_status(runner).get("success"):
         logger.info("supervisord is already running, reloading config and restarting services")
         cmd = (
-            f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} reread && "
-            f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} update && "
-            f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} restart all"
+            f"source {_BASE_DIR}/bin/activate &&"
+            f"supervisorctl reread && "
+            f"supervisorctl update && "
+            f"supervisorctl restart all"
         )
     else:
         logger.info("supervisord is not running, starting supervisord daemon")
@@ -743,5 +744,5 @@ def check_status(runner: Runner) -> dict:
     dict  ``{success, output, error}``
     """
     logger.info("Checking supervisord status")
-    cmd = f"{_SUPERVISORCTL_BIN} -c {_SUPERVISOR_CONF} status"
+    cmd = f"source {_BASE_DIR}/bin/activate && supervisorctl status"
     return runner(cmd, timeout=_SHORT_TIMEOUT)
