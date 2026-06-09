@@ -2,7 +2,6 @@ tmp/
 manager/data/
 __pycache__/
 charts/interlink-helm-chart
-.clinerules/
 .DS_Store
 .venv/
 
