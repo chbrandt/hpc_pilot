@@ -112,6 +112,8 @@ webapp/
     ├── architecture.md
     ├── authentication.md
     ├── api.md
+    ├── rest_api.md
+    ├── lib.md
     ├── kubernetes.md
     ├── helm.md
     └── configuration.md
@@ -124,6 +126,8 @@ webapp/
 - [Architecture](architecture.md) — component diagram and request lifecycle
 - [Authentication](authentication.md) — EGI Check-in token flow
 - [API Reference](api.md) — all Flask routes
+- [REST API Reference](rest_api.md) — REST API endpoints
+- [Python Library](lib.md) — pure-Python package `lib`
 - [Kubernetes Integration](kubernetes.md) — resources created, RBAC
 - [Helm Integration](helm.md) — chart deployment details
 - [Configuration](configuration.md) — all environment variables

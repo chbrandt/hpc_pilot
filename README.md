@@ -4,7 +4,7 @@ Pilot builds on top of [interLink](https://interlink-project.dev)
 to manage cloud-native jobs in HPC appliances for EGI communities through
 [Check-in](https://www.egi.eu/service/check-in/).
 
-![HPC Pilot Architecture](./docs/assets/pilot_architecture.png)
+![HPC Pilot Architecture](./documentation/assets/pilot_architecture.png)
 
 ## Components
 
