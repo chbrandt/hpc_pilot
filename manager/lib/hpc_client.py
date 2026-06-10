@@ -42,9 +42,52 @@ _REMOTE_BASE_DIR = "~/.hpc-pilot"
 # Enable/diable verbose (debug-level) output from mccli subprocess calls.
 _VERBOSE = False
 
-# ── Internal helper ────────────────────────────────────────────────────
+
+#############################################################################
+# Helpers 
+# =======
+
+# Jinja2 utils
+# ------------
+import tempfile
+import os
+import jinja2
+
+def _render_template(filename: str, context: dict) -> str:
+    """
+    Return the rendered content of a Jinja2 template file with the given context.
+    """
+    with open(filename) as f:
+        template = jinja2.Template(f.read())
+    return template.render(**context)
 
 
+def _write_to_tempfile(text: str) -> tempfile.NamedTemporaryFile:
+    """"
+    Return name of the temporary file after writing the given text to it.
+    """
+    # Define your custom directory
+    temp_dir = "/tmp/pilot_temp"
+    
+    # Ensure the custom directory exists (optional, but good practice)
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Use dir, prefix, and suffix to control the file's location and name
+    try:
+        with tempfile.NamedTemporaryFile(
+          dir=temp_dir, 
+          mode='w+', 
+          delete=False
+        ) as temp_file:
+            temp_file.write(text)
+            temp_file.flush()
+            return temp_file
+    except Exception as e:
+        raise RuntimeError(f"Failed to write to temporary file: {e}")
+    
+
+# mccli wrappers 
+# --------------
 def _copy_mccli(
     token: str,
     hpc_host: str,
@@ -188,7 +231,7 @@ def _run_mccli(
         # stderr = result.stderr.decode(errors="replace").replace("\r\n", "\n")
         # success = result.returncode == 0
         success = "__MCCLI_COMMAND_FAILED__" not in stdout
-        # stdout = stdout.replace("__MCCLI_COMMAND_FAILED__", "").strip()
+        stdout = stdout.replace("__MCCLI_COMMAND_FAILED__", "").strip()
 
         return {
             "success": success,
@@ -212,7 +255,17 @@ def _run_mccli(
         }
 
 
-# ── Public API ─────────────────────────────────────────────────────────
+# def _sh_quote(value: str) -> str:
+#     """
+#     Wrap *value* in single quotes suitable for passing to a remote shell.
+#
+#     Single quotes inside the value are escaped by ending the quote, inserting
+#     a literal single-quote, and re-opening.
+#     """
+#     return "'" + value.replace("'", "'\\''") + "'"
+
+
+###########################################################################
 
 
 def check_connection(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
@@ -281,63 +334,6 @@ def stop_services(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
         f"source {_BASE_DIR}/bin/activate && supervisorctl stop all",
         timeout=_SHORT_TIMEOUT,
     )
-
-
-def undeploy(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
-    """
-    Stop all services and remove the HPC Pilot installation from the remote node.
-
-    This is the inverse of :func:`deploy`.  It performs two remote steps:
-
-    1. Gracefully stop all supervisord-managed services and shut down supervisord.
-       This step tolerates failures (e.g. supervisord was never started).
-    2. Remove the ``~/.pilot`` base directory entirely.
-
-    Parameters
-    ----------
-    token    : EGI Check-in access token.
-    hpc_host : HPC login/edge node hostname or IP.
-    ssh_port : SSH port (usually 22).
-
-    Returns
-    -------
-    dict  ``{success, output, error}``
-    """
-    def runner(command: str, timeout: int = _SHORT_TIMEOUT) -> dict:
-        return _run_mccli(token, hpc_host, ssh_port, command, timeout=timeout)
-
-    logger.info("Undeploying HPC stack from %s", hpc_host)
-
-    all_output: list[str] = []
-
-    # Step 1: stop supervisord (best-effort — tolerate failure if already down)
-    stop_cmd = (
-        f"source {_BASE_DIR}/bin/activate"
-        f" && supervisorctl stop all"
-        f" && {_SUPERVISORD_BIN} -c {_SUPERVISOR_CONF} ctl shutdown"
-        f" || true"
-    )
-    stop_result = runner(stop_cmd)
-    if stop_result.get("output"):
-        all_output.append(f"[stop_services] {stop_result['output']}")
-
-    # Step 2: remove the installation directory
-    remove_result = runner(f"rm -rf {_BASE_DIR} && echo 'Installation removed.'")
-    if remove_result.get("output"):
-        all_output.append(f"[remove_installation] {remove_result['output']}")
-
-    if not remove_result["success"]:
-        return {
-            "success": False,
-            "output": "\n".join(all_output),
-            "error": f"[remove_installation] {remove_result.get('error', '')}",
-        }
-
-    return {
-        "success": True,
-        "output": "\n".join(all_output),
-        "error": "",
-    }
 
 
 def deploy(
@@ -426,100 +422,82 @@ def deploy(
     }
 
 
+def undeploy(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
+    """
+    Stop all services and remove the HPC Pilot installation from the remote node.
+
+    This is the inverse of :func:`deploy`.  It performs two remote steps:
+
+    1. Gracefully stop all supervisord-managed services and shut down supervisord.
+       This step tolerates failures (e.g. supervisord was never started).
+    2. Remove the ``~/.pilot`` base directory entirely.
+
+    Parameters
+    ----------
+    token    : EGI Check-in access token.
+    hpc_host : HPC login/edge node hostname or IP.
+    ssh_port : SSH port (usually 22).
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
+    """
+    def runner(command: str, timeout: int = _SHORT_TIMEOUT) -> dict:
+        return _run_mccli(token, hpc_host, ssh_port, command, timeout=timeout)
+
+    logger.info("Undeploying HPC stack from %s", hpc_host)
+
+    all_output: list[str] = []
+
+    # Step 1: stop supervisord (best-effort — tolerate failure if already down)
+    stop_cmd = (
+        f"source {_BASE_DIR}/bin/activate"
+        f" && supervisorctl stop all"
+        f" && supervisord -c {_SUPERVISOR_CONF} ctl shutdown"
+        f" || true"
+    )
+    stop_result = runner(stop_cmd)
+    if stop_result.get("output"):
+        all_output.append(f"[stop_services] {stop_result['output']}")
+
+    # Step 2: remove the installation directory
+    remove_result = runner(f"rm -rf {_BASE_DIR} && echo 'Installation removed.'")
+    if remove_result.get("output"):
+        all_output.append(f"[remove_installation] {remove_result['output']}")
+
+    if not remove_result["success"]:
+        return {
+            "success": False,
+            "output": "\n".join(all_output),
+            "error": f"[remove_installation] {remove_result.get('error', '')}",
+        }
+
+    return {
+        "success": True,
+        "output": "\n".join(all_output),
+        "error": "",
+    }
+
+
 #############################################################################
-# --- Utilities --- 
-import tempfile
-import os
-import jinja2
-
-def render_template(filename: str, context: dict) -> str:
-    """
-    Return the rendered content of a Jinja2 template file with the given context.
-    """
-    with open(filename) as f:
-        template = jinja2.Template(f.read())
-    return template.render(**context)
-
-
-def write_to_tempfile(text: str) -> tempfile.NamedTemporaryFile:
-    """"
-    Return name of the temporary file after writing the given text to it.
-    """
-    # Define your custom directory
-    temp_dir = "/tmp/pilot_temp"
-    
-    # Ensure the custom directory exists (optional, but good practice)
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    # Use dir, prefix, and suffix to control the file's location and name
-    try:
-        with tempfile.NamedTemporaryFile(
-          dir=temp_dir, 
-          mode='w+', 
-          delete=False
-        ) as temp_file:
-            temp_file.write(text)
-            temp_file.flush()
-            return temp_file
-    except Exception as e:
-        raise RuntimeError(f"Failed to write to temporary file: {e}")
-    
-
-def _sh_quote(value: str) -> str:
-    """
-    Wrap *value* in single quotes suitable for passing to a remote shell.
-
-    Single quotes inside the value are escaped by ending the quote, inserting
-    a literal single-quote, and re-opening.
-    """
-    return "'" + value.replace("'", "'\\''") + "'"
-
-
-
-
-
-
-
-#############################################################################
-# --- HPC setup ---
-#"""
-#hpc_setup.py — Remote HPC node setup step functions.
+# HPC setup
+# =========
 #
-#Each public function accepts a *runner* callable that executes a shell command
-#on the remote HPC node (via mccli / SSH) and returns the standard
-#``{success, output, error}`` dict used throughout hpc_client.py:
+# Remote HPC node setup step functions.
 #
-#    runner(command: str, stdin_data: bytes | None = None, timeout: int = …) -> dict
+# Each public function accepts a *runner* callable that executes a shell command
+# on the remote HPC node (via mccli / SSH) and returns the standard
+# ``{success, output, error}`` dict used throughout hpc_client.py:
 #
-#The functions translate the logic from manager/hpc/setup.sh into Python but
-#the actual execution always happens **remotely** through the runner —
-#no local subprocess calls are made here.
+#     runner(command: str, stdin_data: bytes | None = None, timeout: int = …) -> dict
 #
-#Usage (orchestrated by hpc_client.deploy):
-#    def runner(cmd, stdin_data=None, timeout=_SHORT_TIMEOUT):
-#        return _run_mccli(token, hpc_host, ssh_port, cmd, stdin_data, timeout)
+# The functions translate the logic from manager/hpc/setup.sh into Python but
+# the actual execution always happens **remotely** through the runner —
+# no local subprocess calls are made here.
 #
-#    cfg = SetupConfig(wstunnel_server, wstunnel_port, wstunnel_secret, local_port)
-#    hpc_setup.setup_directories(runner)
-#    hpc_setup.install_wstunnel(runner, cfg)
-#    hpc_setup.install_supervisord(runner)
-#    hpc_setup.write_supervisord_conf(runner, cfg)
-#    hpc_setup.start_supervisord(runner)
-#    hpc_setup.check_status(runner)
-#"""
-#
-## from __future__ import annotations
 #############################################################################
 
-
-
-
-
-
-
-
-
-
+# from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -557,9 +535,9 @@ _BIN_DIR          = f"{_BASE_DIR}/bin"
 _LOG_DIR          = f"{_BASE_DIR}/log"
 # _ETC_DIR          = f"{_BASE_DIR}/etc"
 
-_SUPERVISORD_BIN  = f"{_BIN_DIR}/supervisord"
-# _SUPERVISORCTL_BIN= f"{_BIN_DIR}/supervisorctl"
 _SUPERVISOR_CONF  = f"{_BIN_DIR}/../supervisord.conf"
+# _SUPERVISORD_BIN  = f"{_BIN_DIR}/supervisord"
+# _SUPERVISORCTL_BIN= f"{_BIN_DIR}/supervisorctl"
 # _SUPERVISOR_SOCK  = f"{_BASE_DIR}/supervisord.sock"
 # _SUPERVISOR_PID   = f"{_BASE_DIR}/supervisord.pid"
 
@@ -700,14 +678,14 @@ def install_supervisord(runner: Runner, force: bool = False) -> dict:
         f" && echo supervisord installed in virtualenv '{_BASE_DIR}'"
     )
 
-    if not force:
-        cmd = (
-            f"if [ ! -x {_SUPERVISORD_BIN} ]; then "
-            f"{cmd}"
-            f"; else "
-            f"echo supervisord already installed: `{_SUPERVISORD_BIN} --version`"
-            f"; fi"
-        )
+    # if not force:
+    #     cmd = (
+    #         f"if [ ! -x {_SUPERVISORD_BIN} ]; then "
+    #         f"{cmd}"
+    #         f"; else "
+    #         f"echo supervisord already installed: `{_SUPERVISORD_BIN} --version`"
+    #         f"; fi"
+    #     )
 
     return runner(cmd, timeout=_LONG_TIMEOUT)
 
@@ -725,29 +703,18 @@ def copy_supervisord_conf(copier: Runner, cfg: SetupConfig) -> dict:
     -------
     dict  ``{success, output, error}``
     """
-    # # Load the supervisord.conf template and render it with values from cfg.
-    # with open(SUPERVISOR_CONF_TEMPLATE) as f:
-    #     template = jinja2.Template(f.read())
 
-    # rendered_conf = template.render(
-    #     wstunnel_bin=cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
-    #     wstunnel_server_addr=cfg.wstunnel_server_addr,
-    #     wstunnel_local_port=cfg.wstunnel_local_port,
-    #     wstunnel_secret=cfg.wstunnel_secret,
-    #     # log_dir=cfg.log_dir if hasattr(cfg, "log_dir") else _LOG_DIR,
-    #     # env_home="%(ENV_HOME)s",  # supervisord syntax for environment variable expansion
-    # ).encode()  # type: bytes
-
-    # #TODO: Delete the temporary file after copying, or use a context manager that does it automatically.
-    # rendered_tempfile = write_to_tempfile(rendered_conf.decode())
-    rendered_conf = render_template(SUPERVISOR_CONF_TEMPLATE, {
+    rendered_conf = _render_template(SUPERVISOR_CONF_TEMPLATE, {
         "wstunnel_bin": cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
         "wstunnel_server_addr": cfg.wstunnel_server_addr,
         "wstunnel_local_port": cfg.wstunnel_local_port,
+        "wstunnel_server_port": cfg.wstunnel_server_port,
         "wstunnel_secret": cfg.wstunnel_secret,
         "interlink_plugin_cmd": f"{_BASE_DIR}/bin/interlink-echo-plugin --port {cfg.wstunnel_local_port}".replace("$HOME", "%(ENV_HOME)s"),
     })
-    rendered_tempfile = write_to_tempfile(rendered_conf)
+
+    #TODO: Delete the temporary file after copying, or use a context manager that does it automatically.
+    rendered_tempfile = _write_to_tempfile(rendered_conf)
 
     logger.info("Copying supervisord.conf to remote node via mccli")
     result_copy = copier(local_path=rendered_tempfile.name, 
@@ -783,7 +750,7 @@ def start_supervisord(runner: Runner) -> dict:
         )
     else:
         logger.info("supervisord is not running, starting supervisord daemon")
-        cmd = f"{_SUPERVISORD_BIN} -c {_SUPERVISOR_CONF}"
+        cmd = f"source {_BASE_DIR}/bin/activate && supervisord -c {_SUPERVISOR_CONF}"
 
     result = runner(cmd, timeout=_SHORT_TIMEOUT)
     return result
