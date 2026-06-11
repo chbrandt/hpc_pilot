@@ -12,7 +12,7 @@
 #     "<user-namespace>.<cluster_domain>".
 #     Example: for a wildcard certificate "*.dev.local" set this to "dev.local".
 
-cluster_domain: dev.local
+cluster_domain: ngrok.dev
 
 wstunnel:
   # Port on which the wstunnel server listens for incoming connections.

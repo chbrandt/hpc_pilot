@@ -447,30 +447,27 @@ def undeploy(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
 
     logger.info("Undeploying HPC stack from %s", hpc_host)
 
+    steps = [
+        ("stop_services", lambda: stop_services(token, hpc_host, ssh_port)),
+        ("stop_supervisord", lambda: stop_supervisord(runner)),
+        ("remove_installation", lambda: remove_installation(runner))
+    ]
+
+    #TODO: Flush output after each step so we can show the progress.
     all_output: list[str] = []
-
-    # Step 1: stop supervisord (best-effort — tolerate failure if already down)
-    stop_cmd = (
-        f"source {_BASE_DIR}/bin/activate"
-        f" && supervisorctl stop all"
-        f" && supervisord -c {_SUPERVISOR_CONF} ctl shutdown"
-        f" || true"
-    )
-    stop_result = runner(stop_cmd)
-    if stop_result.get("output"):
-        all_output.append(f"[stop_services] {stop_result['output']}")
-
-    # Step 2: remove the installation directory
-    remove_result = runner(f"rm -rf {_BASE_DIR} && echo 'Installation removed.'")
-    if remove_result.get("output"):
-        all_output.append(f"[remove_installation] {remove_result['output']}")
-
-    if not remove_result["success"]:
-        return {
-            "success": False,
-            "output": "\n".join(all_output),
-            "error": f"[remove_installation] {remove_result.get('error', '')}",
-        }
+    for step_name, step_fn in steps:
+        logger.info("Undeploy step: %s", step_name)
+        result = step_fn()
+        if result.get("output"):
+            step_output = f"[{step_name}] {result['output']}"
+            print(step_output)
+            all_output.append(step_output)
+        if not result["success"]:
+            return {
+                "success": False,
+                "output": "\n".join(all_output),
+                "error": f"[{step_name}] {result.get('error', '')}",
+            }
 
     return {
         "success": True,
@@ -755,6 +752,24 @@ def start_supervisord(runner: Runner) -> dict:
     result = runner(cmd, timeout=_SHORT_TIMEOUT)
     return result
 
+
+def stop_supervisord(runner: Runner) -> dict:
+    """
+    Stop the supervisord daemon on the remote node.
+
+    Parameters
+    ----------
+    runner : callable that executes a remote shell command via mccli.
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
+    """
+    logger.info("Stopping supervisord on remote node")
+    cmd = f"source {_BASE_DIR}/bin/activate && supervisorctl shutdown"
+    return runner(cmd, timeout=_SHORT_TIMEOUT)
+
+
 def check_status(runner: Runner) -> dict:
     """
     Query ``supervisorctl status`` on the remote node.
@@ -769,4 +784,23 @@ def check_status(runner: Runner) -> dict:
     """
     logger.info("Checking supervisord status")
     cmd = f"source {_BASE_DIR}/bin/activate && supervisorctl status"
+    return runner(cmd, timeout=_SHORT_TIMEOUT)
+
+
+def remove_installation(runner: Runner) -> dict:
+    """
+    Remove the HPC Pilot installation from the remote node.
+
+    This is the final step of undeploy and is separated here so it can be
+    called independently after stopping services.
+
+    Parameters
+    ----------
+    runner : callable that executes a remote shell command via mccli.
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
+    """
+    cmd = f"rm -rf {_BASE_DIR} && echo 'Installation removed.'"
     return runner(cmd, timeout=_SHORT_TIMEOUT)
