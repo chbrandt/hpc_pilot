@@ -13,12 +13,6 @@ metadata:
     {{- include "manager.labels" . | nindent 4 }}
 data:
   site_config.yaml: |
-    # Operator-level site settings — managed by Helm.
-    # To change these values, update the Helm release:
-    #   helm upgrade manager ./charts/manager --set siteConfig.clusterDomain=example.com
+    rootDomain: {{ .Values.siteConfig.rootDomain }}
+    subDomain: {{ .Values.siteConfig.subDomain }}
 
-    cluster_domain: {{ .Values.siteConfig.clusterDomain | quote }}
-
-    wstunnel:
-      port: {{ .Values.siteConfig.wstunnel.port }}
-      local_port: {{ .Values.siteConfig.wstunnel.localPort }}

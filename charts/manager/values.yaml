@@ -10,7 +10,7 @@ namespace: hpc-pilot
 image:
   repository: ghcr.io/chbrandt/hpc-pilot-manager
   tag: latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
   # pullSecrets:
   #   - name: my-registry-secret
 
@@ -23,7 +23,7 @@ flask:
   debug: "0"
   # secretKey: supply a strong random value here or reference an existing secret.
   # If left empty a placeholder value is used (NOT safe for production).
-  secretKey: ""
+  secretKey: "ok-for-dev-only-change-me--in-prod-use-a-secret-or-random-value"
 
   # Reference an existing Secret instead of creating one from secretKey above.
   # When set, 'flask.secretKey' is ignored.
@@ -33,68 +33,96 @@ flask:
 # ── Site configuration (written into site_config.yaml ConfigMap) ───────────────
 siteConfig:
   # Wildcard base domain of the Kubernetes cluster.
-  # Every user's InterLink wstunnel server will be reachable at
-  # <user-namespace>.<clusterDomain> via the nginx Ingress wildcard rule.
-  clusterDomain: dev.local
+  rootDomain: dev.local
+  # Subdomain. The manager/app will be served at <subdomain>.<rootDomain>.
+  subDomain: app
+  # Note: each user's InterLink wstunnel server will be reachable at
+  # <user-namespace>.<rootDomain> via the nginx Ingress wildcard rule.
 
+interlinkConfig:
+  chart: oci://ghcr.io/chbrandt/interlink
+  version: null
+
+  # You probably don't need to change the values below.
   wstunnel:
-    # Port on which the wstunnel server in the InterLink pod listens.
-    port: 80
-    # Local port on the HPC edge-node that the wstunnel client forwards to.
-    localPort: 4000
+    server:
+      logLevel: debug
+      # Hostname that the wstunnel client uses to connect to the server.
+      host: __NAMESPACE__.__CLUSTER_DOMAIN__
+      # Port on which the Ingress will route traffic to the wstunnel server.
+      externalPort: 80
+      # Port on which the wstunnel server in the InterLink pod listens.
+      port: 8080
+      # Local port on the pod used to forward to the client.
+      internalPort: 4000
+      # Secret value used for authenticating wstunnel clients. Must match the
+      # value configured in the InterLink pod's wstunnel server.
+      secret: "__NAMESPACE_HASH__"
 
-# ── Default charts configuration (written into charts_config.yaml ConfigMap) ──
-# This controls which Helm charts are pre-seeded for every user on first login.
-# The content below mirrors manager/charts_config.yaml.
-# Override 'chartsConfig' with a custom YAML block if needed.
-chartsConfig: |
-  default_charts:
-    - kind: helm
-      release_name: interlink
-      chart: oci://ghcr.io/chbrandt/interlink
-      version: null
-      singleton: true
-      description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
-      values_yaml: |
-        nodeName: vk-node
+  interlink:
+    # Port on which the InterLink API server in the InterLink pod listens.
+    port: 3000
+    # Address that the InterLink API server binds to inside the InterLink pod.
+    address: http://0.0.0.0
 
-        interlink:
-          enabled: true
-          address: http://0.0.0.0
-          port: 3000
+  plugin:
+    # Port on which the plugin API server in the HPC edge-node listens.
+    port: 4000
+    # Address that the plugin API server binds to inside the HPC edge-node.
+    address: http://0.0.0.0
 
-        plugin:
-          enabled: false
-          address: http://0.0.0.0
-          port: 4000
+# # ── Default charts configuration (written into charts_config.yaml ConfigMap) ──
+# # This controls which Helm charts are pre-seeded for every user on first login.
+# # The content below mirrors manager/charts_config.yaml.
+# # Override 'chartsConfig' with a custom YAML block if needed.
+# chartsConfig: |
+#   default_charts:
+#     - kind: helm
+#       release_name: interlink
+#       chart: oci://ghcr.io/chbrandt/interlink
+#       version: null
+#       singleton: true
+#       description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
+#       values_yaml: |
+#         nodeName: virtual-node
 
-        wstunnel:
-          enabled: true
-          port: 8420
-          host: __NAMESPACE__.__CLUSTER_DOMAIN__
-          logLevel: debug
-          secret: "__NAMESPACE_HASH__"
+#         interlink:
+#           enabled: true
+#           address: http://0.0.0.0
+#           port: 3000
+
+#         plugin:
+#           enabled: false
+#           address: http://0.0.0.0
+#           port: 4000
+
+#         wstunnel:
+#           enabled: true
+#           port: 8420
+#           host: __NAMESPACE__.__CLUSTER_DOMAIN__
+#           logLevel: debug
+#           secret: "__NAMESPACE_HASH__"
 
 # ── Persistent storage for saved deployment configs ────────────────────────────
 persistence:
-  enabled: true
+  enabled: false
   # storageClass: ""   # leave blank to use the cluster default StorageClass
   accessMode: ReadWriteOnce
   size: 1Gi
   # existingClaim: ""  # use a pre-existing PVC instead of creating one
 
-# ── Service ────────────────────────────────────────────────────────────────────
-service:
-  type: ClusterIP
-  port: 80
+# # ── Service ────────────────────────────────────────────────────────────────────
+# service:
+#   type: ClusterIP
+#   port: 80
 
 # ── Ingress ────────────────────────────────────────────────────────────────────
 ingress:
   enabled: true
   className: nginx
-  host: manager.dev.local
   path: /
   pathType: Prefix
+  port: 80
   annotations:
     # Allow long-running helm install --wait requests (up to 6 minutes)
     nginx.ingress.kubernetes.io/proxy-read-timeout: "360"
@@ -114,12 +142,12 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-# ── Service account ────────────────────────────────────────────────────────────
-serviceAccount:
-  # Name of the ServiceAccount to create and bind to the ClusterRole.
-  name: hpc-pilot-manager
+# # ── Service account ────────────────────────────────────────────────────────────
+# serviceAccount:
+#   # Name of the ServiceAccount to create and bind to the ClusterRole.
+#   name: hpc-pilot-manager
 
-# ── Additional environment variables ──────────────────────────────────────────
-extraEnv: []
-# - name: MY_VAR
-#   value: "my-value"
+# # ── Additional environment variables ──────────────────────────────────────────
+# extraEnv: []
+# # - name: MY_VAR
+# #   value: "my-value"

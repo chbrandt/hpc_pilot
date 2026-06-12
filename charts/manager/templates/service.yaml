@@ -6,11 +6,11 @@ metadata:
   labels:
     {{- include "manager.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.service.type }}
+  type: ClusterIP
   selector:
     {{- include "manager.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
-      port: {{ .Values.service.port }}
+      port: 80
       targetPort: {{ .Values.flask.port }}
       protocol: TCP

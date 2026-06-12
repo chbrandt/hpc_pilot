@@ -50,7 +50,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Name of the ServiceAccount to use.
 */}}
 {{- define "manager.serviceAccountName" -}}
-{{- .Values.serviceAccount.name | default (include "manager.fullname" .) }}
+{{- .Values.namespace -}}-sa
 {{- end }}
 
 {{/*

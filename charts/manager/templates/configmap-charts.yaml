@@ -13,4 +13,26 @@ metadata:
     {{- include "manager.labels" . | nindent 4 }}
 data:
   charts_config.yaml: |
-{{ .Values.chartsConfig | indent 4 }}
+    default_charts:
+      - kind: helm
+        release_name: interlink
+        chart: {{ .Values.interlinkConfig.chart }}
+        version: {{ .Values.interlinkConfig.version }}
+        singleton: true
+        description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
+        values_yaml: |
+          nodeName: virtual-node
+          interlink:
+            enabled: true
+            address: {{ .Values.interlinkConfig.interlink.address | default "http://0.0.0.0" }}
+            port: {{ .Values.interlinkConfig.interlink.port | default 3000 }}
+          plugin:
+            enabled: false
+            address: {{ .Values.interlinkConfig.plugin.address | default "http://0.0.0.0" }}
+            port: {{ .Values.interlinkConfig.plugin.port | default 4000 }}
+          wstunnel:
+            enabled: true
+            port: {{ .Values.interlinkConfig.wstunnel.port | default 8080 }}
+            host: {{ .Values.interlinkConfig.wstunnel.host | default "__NAMESPACE__.__CLUSTER_DOMAIN__" }}
+            logLevel: {{ .Values.interlinkConfig.wstunnel.logLevel | default "debug" }}
+            secret: {{ .Values.interlinkConfig.wstunnel.secret | default "__NAMESPACE_HASH__" }}

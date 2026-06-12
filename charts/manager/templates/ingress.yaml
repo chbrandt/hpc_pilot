@@ -19,14 +19,14 @@ spec:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host | quote }}
+    - host: "{{ .Values.siteConfig.subDomain | replace "\"" "" }}.{{ .Values.siteConfig.rootDomain | replace "\"" "" }}"
       http:
         paths:
-          - path: {{ .Values.ingress.path }}
-            pathType: {{ .Values.ingress.pathType }}
+          - path: {{ .Values.ingress.path | default "/" }}
+            pathType: {{ .Values.ingress.pathType | default "Prefix" }}
             backend:
               service:
                 name: {{ include "manager.fullname" . }}
                 port:
-                  number: {{ .Values.service.port }}
+                  number: {{ .Values.ingress.port | default 80 }}
 {{- end }}
