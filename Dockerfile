@@ -20,11 +20,10 @@ RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | b
 # ── Python dependencies ───────────────────────────────────────────────────────
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
 # ── Application source ────────────────────────────────────────────────────────
-COPY . .
+COPY manager/. .
+
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Runtime config ────────────────────────────────────────────────────────────
 # FLASK_SECRET_KEY must be overridden at runtime (e.g. via a Kubernetes Secret).
