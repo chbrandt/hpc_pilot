@@ -1,0 +1,125 @@
+# values.yaml — Default configuration for the HPC Pilot Manager Helm chart.
+#
+# Override any of these values in a custom values file:
+#   helm install manager ./charts/manager -f my-values.yaml
+
+# ── Namespace ──────────────────────────────────────────────────────────────────
+namespace: hpc-pilot
+
+# ── Container image ────────────────────────────────────────────────────────────
+image:
+  repository: ghcr.io/chbrandt/hpc-pilot-manager
+  tag: latest
+  pullPolicy: IfNotPresent
+  # pullSecrets:
+  #   - name: my-registry-secret
+
+# ── Replica count ──────────────────────────────────────────────────────────────
+replicaCount: 1
+
+# ── Flask configuration ────────────────────────────────────────────────────────
+flask:
+  port: 5000
+  debug: "0"
+  # secretKey: supply a strong random value here or reference an existing secret.
+  # If left empty a placeholder value is used (NOT safe for production).
+  secretKey: ""
+
+  # Reference an existing Secret instead of creating one from secretKey above.
+  # When set, 'flask.secretKey' is ignored.
+  existingSecret: ""
+  existingSecretKey: "flask-secret-key"
+
+# ── Site configuration (written into site_config.yaml ConfigMap) ───────────────
+siteConfig:
+  # Wildcard base domain of the Kubernetes cluster.
+  # Every user's InterLink wstunnel server will be reachable at
+  # <user-namespace>.<clusterDomain> via the nginx Ingress wildcard rule.
+  clusterDomain: dev.local
+
+  wstunnel:
+    # Port on which the wstunnel server in the InterLink pod listens.
+    port: 80
+    # Local port on the HPC edge-node that the wstunnel client forwards to.
+    localPort: 4000
+
+# ── Default charts configuration (written into charts_config.yaml ConfigMap) ──
+# This controls which Helm charts are pre-seeded for every user on first login.
+# The content below mirrors manager/charts_config.yaml.
+# Override 'chartsConfig' with a custom YAML block if needed.
+chartsConfig: |
+  default_charts:
+    - kind: helm
+      release_name: interlink
+      chart: oci://ghcr.io/chbrandt/interlink
+      version: null
+      singleton: true
+      description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
+      values_yaml: |
+        nodeName: vk-node
+
+        interlink:
+          enabled: true
+          address: http://0.0.0.0
+          port: 3000
+
+        plugin:
+          enabled: false
+          address: http://0.0.0.0
+          port: 4000
+
+        wstunnel:
+          enabled: true
+          port: 8420
+          host: __NAMESPACE__.__CLUSTER_DOMAIN__
+          logLevel: debug
+          secret: "__NAMESPACE_HASH__"
+
+# ── Persistent storage for saved deployment configs ────────────────────────────
+persistence:
+  enabled: true
+  # storageClass: ""   # leave blank to use the cluster default StorageClass
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  # existingClaim: ""  # use a pre-existing PVC instead of creating one
+
+# ── Service ────────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 80
+
+# ── Ingress ────────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: manager.dev.local
+  path: /
+  pathType: Prefix
+  annotations:
+    # Allow long-running helm install --wait requests (up to 6 minutes)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "360"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "360"
+  tls: []
+  # tls:
+  #   - secretName: manager-tls
+  #     hosts:
+  #       - manager.dev.local
+
+# ── Resource limits ────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# ── Service account ────────────────────────────────────────────────────────────
+serviceAccount:
+  # Name of the ServiceAccount to create and bind to the ClusterRole.
+  name: hpc-pilot-manager
+
+# ── Additional environment variables ──────────────────────────────────────────
+extraEnv: []
+# - name: MY_VAR
+#   value: "my-value"

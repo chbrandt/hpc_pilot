@@ -1,0 +1,64 @@
+{{/*
+ClusterRole — grants the manager the minimum Kubernetes permissions it needs:
+  • Namespace management  (create user namespaces on login)
+  • Deployment CRUD       (container workloads via k8s_client.py)
+  • Service CRUD          (NodePort services alongside each Deployment)
+  • Ingress CRUD          (optional Ingress resources)
+  • Node read             (to resolve the node IP shown in service_ports)
+  • Pod read              (status polling)
+
+Helm chart management is handled by the `helm` CLI subprocess which inherits
+the same kubeconfig / in-cluster ServiceAccount token — no extra CRDs needed.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "manager.fullname" . }}
+  labels:
+    {{- include "manager.labels" . | nindent 4 }}
+rules:
+  # ── Namespace management ────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+
+  # ── Deployment management ───────────────────────────────────────────────────
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "delete"]
+
+  # ── Service management ──────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "delete"]
+
+  # ── Ingress management ──────────────────────────────────────────────────────
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "delete"]
+
+  # ── Node read (for external IP resolution) ──────────────────────────────────
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+
+  # ── Pod read (deployment status polling) ───────────────────────────────────
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+  # ── ConfigMap / Secret access for Helm ─────────────────────────────────────
+  # Helm stores release data as Secrets in the target namespace.
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "create", "update", "delete"]
+
+  # ── Events (Helm and Kubernetes write events on resource changes) ───────────
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+
+  # ── ReplicaSets (owned by Deployments; needed for full status display) ──────
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]

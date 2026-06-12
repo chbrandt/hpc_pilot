@@ -1,0 +1,16 @@
+{{/*
+ConfigMap: charts_config.yaml
+Mounted into the manager pod at /app/charts_config.yaml.
+Defines the default Helm charts pre-seeded into every user's saved-config
+store on first login (including the InterLink chart).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "manager.fullname" . }}-charts-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "manager.labels" . | nindent 4 }}
+data:
+  charts_config.yaml: |
+{{ .Values.chartsConfig | indent 4 }}

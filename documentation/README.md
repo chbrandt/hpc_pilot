@@ -1,10 +1,14 @@
 # HPC Pilot — Web Application
 
 HPC Pilot is a Flask web application for deploying containerised workloads
-and HPC jobs to a Kubernetes cluster **from outside the cluster**. It manages
+and HPC jobs to a Kubernetes cluster. It manages
 [interLink](https://interlink-project.dev) pods per user and authenticates
 via [EGI Check-in](https://www.egi.eu/service/check-in/) access tokens.
 Every authenticated user gets their own isolated Kubernetes namespace.
+
+The manager can run **outside** the cluster (local dev, VM) or **inside**
+the cluster as a Kubernetes Deployment managed by the
+[`charts/manager/`](../charts/manager/) Helm chart.
 
 ---
 
@@ -64,7 +68,7 @@ pip install -r requirements.txt
 
 ### 2. Configure the site
 
-Edit `manager/site_config.yaml` to set your cluster domain:
+Edit `manager/site_config.yaml` to set your cluster domain (wildcard domain):
 
 ```yaml
 # manager/site_config.yaml
@@ -180,6 +184,7 @@ manager/
 
 ## Further Reading
 
+- [**Deployment Guide**](deployment.md) — build the image, install the Helm chart, connect InterLink and the HPC edge-node end-to-end
 - [Architecture](architecture.md) — component diagram and request lifecycle
 - [Authentication](authentication.md) — EGI Check-in OIDC token flow
 - [API Reference](api.md) — all Flask routes

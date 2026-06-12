@@ -1,0 +1,25 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+{{/*
+PersistentVolumeClaim for the manager's data/ directory.
+
+The manager stores per-user saved deployment configs as JSON files under
+/app/data/<namespace>.json.  Without a PVC these files are lost on pod
+restart.  For a single-replica deployment ReadWriteOnce is sufficient.
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "manager.pvcName" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "manager.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}

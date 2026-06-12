@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "manager.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "manager.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "manager.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "manager.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "manager.serviceAccountName" . }}
+
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.flask.port }}
+              protocol: TCP
+
+          # ── Environment ─────────────────────────────────────────────────────
+          env:
+            - name: FLASK_PORT
+              value: {{ .Values.flask.port | quote }}
+            - name: FLASK_DEBUG
+              value: {{ .Values.flask.debug | quote }}
+            - name: FLASK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "manager.secretName" . }}
+                  key: {{ .Values.flask.existingSecretKey | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+          # ── Volume mounts ────────────────────────────────────────────────────
+          volumeMounts:
+            # site_config.yaml — operator-level cluster settings
+            - name: site-config
+              mountPath: /app/site_config.yaml
+              subPath: site_config.yaml
+              readOnly: true
+
+            # charts_config.yaml — default Helm chart presets
+            - name: charts-config
+              mountPath: /app/charts_config.yaml
+              subPath: charts_config.yaml
+              readOnly: true
+
+            {{- if .Values.persistence.enabled }}
+            # data/ — durable store for per-user saved configs
+            - name: data
+              mountPath: /app/data
+            {{- end }}
+
+          # ── Health checks ────────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # ── Resources ────────────────────────────────────────────────────────
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      # ── Volumes ───────────────────────────────────────────────────────────────
+      volumes:
+        - name: site-config
+          configMap:
+            name: {{ include "manager.fullname" . }}-site-config
+
+        - name: charts-config
+          configMap:
+            name: {{ include "manager.fullname" . }}-charts-config
+
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "manager.pvcName" . }}
+        {{- end }}

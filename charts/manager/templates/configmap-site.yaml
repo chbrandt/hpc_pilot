@@ -1,0 +1,24 @@
+{{/*
+ConfigMap: site_config.yaml
+Mounted into the manager pod at /app/site_config.yaml.
+Controls the cluster domain and wstunnel port used by the manager to
+generate per-user InterLink chart values.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "manager.fullname" . }}-site-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "manager.labels" . | nindent 4 }}
+data:
+  site_config.yaml: |
+    # Operator-level site settings — managed by Helm.
+    # To change these values, update the Helm release:
+    #   helm upgrade manager ./charts/manager --set siteConfig.clusterDomain=example.com
+
+    cluster_domain: {{ .Values.siteConfig.clusterDomain | quote }}
+
+    wstunnel:
+      port: {{ .Values.siteConfig.wstunnel.port }}
+      local_port: {{ .Values.siteConfig.wstunnel.localPort }}
