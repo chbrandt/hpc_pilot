@@ -1,0 +1,12 @@
+To-Do list
+##########
+
+- Add '--config' for api app launch
+- Add interlink version to app config
+- Add TLS
+- Move away from NGINX (ingress)
+- Add admins whitelist
+- Add VO whitelist
+- Add HPC install functionality
+- Support unix sockets in wstunnel client
+- 
