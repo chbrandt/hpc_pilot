@@ -88,6 +88,49 @@ class TestNamespaceOperations:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# InterLink node listing
+# ---------------------------------------------------------------------------
+
+
+class TestListInterlinkNodes:
+    def _make_node_mock(self, name: str, taint_keys: list[str]):
+        node = MagicMock()
+        node.metadata.name = name
+        taints = []
+        for key in taint_keys:
+            t = MagicMock()
+            t.key = key
+            taints.append(t)
+        node.spec.taints = taints
+        return node
+
+    def test_returns_nodes_with_interlink_taint(self, k8s):
+        vk_node = self._make_node_mock("vk-node-1", ["virtual-node.interlink/no-schedule"])
+        other_node = self._make_node_mock("regular-node", ["other.taint/key"])
+        k8s.core_v1.list_node.return_value.items = [vk_node, other_node]
+        result = k8s.list_interlink_nodes()
+        assert result == ["vk-node-1"]
+
+    def test_returns_multiple_interlink_nodes_sorted(self, k8s):
+        node_b = self._make_node_mock("vk-b", ["virtual-node.interlink/no-schedule"])
+        node_a = self._make_node_mock("vk-a", ["virtual-node.interlink/no-schedule"])
+        k8s.core_v1.list_node.return_value.items = [node_b, node_a]
+        result = k8s.list_interlink_nodes()
+        assert result == ["vk-a", "vk-b"]
+
+    def test_excludes_nodes_without_interlink_taint(self, k8s):
+        node = self._make_node_mock("plain-node", [])
+        k8s.core_v1.list_node.return_value.items = [node]
+        result = k8s.list_interlink_nodes()
+        assert result == []
+
+    def test_returns_empty_list_on_api_exception(self, k8s):
+        k8s.core_v1.list_node.side_effect = ApiException(status=403)
+        result = k8s.list_interlink_nodes()
+        assert result == []
+
+
 class TestDeploymentOperations:
     def _make_deployment_mock(self, name: str = "myapp", ns: str = "user-ns"):
         dep = MagicMock()
@@ -96,6 +139,7 @@ class TestDeploymentOperations:
         dep.metadata.creation_timestamp.strftime.return_value = "2024-01-01 00:00:00"
         dep.spec.replicas = 1
         dep.spec.template.spec.containers = [MagicMock(image="nginx:latest")]
+        dep.spec.template.spec.node_selector = {"kubernetes.io/hostname": "vk-node"}
         dep.status.ready_replicas = 1
         dep.status.available_replicas = 1
         dep.status.updated_replicas = 1
@@ -105,15 +149,34 @@ class TestDeploymentOperations:
     def test_create_deployment_success(self, k8s):
         created = self._make_deployment_mock()
         k8s.apps_v1.create_namespaced_deployment.return_value = created
-        result = k8s.create_deployment(name="myapp", image="nginx:latest", namespace="user-ns")
+        result = k8s.create_deployment(
+            name="myapp", image="nginx:latest", node_name="vk-node", namespace="user-ns"
+        )
         assert result["success"] is True
         assert result["deployment_name"] == "myapp"
+
+    def test_create_deployment_sets_node_selector_and_toleration(self, k8s):
+        """The pod spec passed to the API must include nodeSelector and tolerations."""
+        created = self._make_deployment_mock()
+        k8s.apps_v1.create_namespaced_deployment.return_value = created
+        k8s.create_deployment(
+            name="myapp", image="nginx:latest", node_name="vk-node", namespace="user-ns"
+        )
+        call_kwargs = k8s.apps_v1.create_namespaced_deployment.call_args
+        deployment_body = call_kwargs[1]["body"] if call_kwargs[1] else call_kwargs[0][1]
+        pod_spec = deployment_body.spec.template.spec
+        assert pod_spec.node_selector == {"kubernetes.io/hostname": "vk-node"}
+        assert len(pod_spec.tolerations) == 1
+        assert pod_spec.tolerations[0].key == "virtual-node.interlink/no-schedule"
+        assert pod_spec.tolerations[0].operator == "Exists"
 
     def test_create_deployment_api_exception(self, k8s):
         k8s.apps_v1.create_namespaced_deployment.side_effect = ApiException(
             status=409, reason="AlreadyExists"
         )
-        result = k8s.create_deployment(name="myapp", image="nginx:latest", namespace="user-ns")
+        result = k8s.create_deployment(
+            name="myapp", image="nginx:latest", node_name="vk-node", namespace="user-ns"
+        )
         assert result["success"] is False
         assert "error" in result
 
@@ -145,6 +208,19 @@ class TestDeploymentOperations:
         result = k8s.get_deployment_spec("myapp", "user-ns")
         assert result["name"] == "myapp"
         assert result["image"] == "nginx:latest"
+
+    def test_get_deployment_spec_returns_node_name(self, k8s):
+        dep = self._make_deployment_mock()
+        container = dep.spec.template.spec.containers[0]
+        container.image = "nginx:latest"
+        container.command = None
+        container.ports = []
+        container.env = []
+        container.resources = None
+        dep.spec.template.spec.node_selector = {"kubernetes.io/hostname": "vk-node"}
+        k8s.apps_v1.read_namespaced_deployment.return_value = dep
+        result = k8s.get_deployment_spec("myapp", "user-ns")
+        assert result["node_name"] == "vk-node"
 
     def test_get_deployment_spec_api_exception(self, k8s):
         k8s.apps_v1.read_namespaced_deployment.side_effect = ApiException(status=404)

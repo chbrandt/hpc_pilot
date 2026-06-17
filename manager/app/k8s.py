@@ -57,18 +57,24 @@ def index():
     namespace = session.get("namespace", "")
     saved = list_configs(namespace, kind="container") if namespace else []
 
-    # Light connectivity check — will show a banner if the API is unreachable
+    # Fetch available InterLink virtual-kubelet nodes for the dropdown
+    interlink_nodes = []
     error = None
     try:
-        api_get("/api/deployments")
+        result = api_get("/api/nodes/interlink")
+        interlink_nodes = result.get("nodes", [])
     except requests.HTTPError as exc:
-        # 401 is expected when the session token is fresh; not a connectivity issue
         if exc.response.status_code != 401:
             error = f"Cannot reach API: {exc}"
     except Exception as exc:
         error = f"Cannot reach API: {exc}"
 
-    return render_template("index.html", error=error, saved_configs=saved)
+    return render_template(
+        "index.html",
+        error=error,
+        saved_configs=saved,
+        interlink_nodes=interlink_nodes,
+    )
 
 
 @k8s_bp.route("/deploy", methods=["POST"])
@@ -79,6 +85,7 @@ def deploy():
 
     name = request.form.get("name", "").strip()
     image = request.form.get("image", "").strip()
+    node_name = request.form.get("node_name", "").strip()
     replicas_str = request.form.get("replicas", "1").strip()
     cpu_request = request.form.get("cpu_request", "").strip() or None
     cpu_limit = request.form.get("cpu_limit", "").strip() or None
@@ -155,6 +162,9 @@ def deploy():
     if not image:
         flash("Container image is required.", "error")
         return redirect(url_for("app_k8s.index"))
+    if not node_name:
+        flash("InterLink node name is required.", "error")
+        return redirect(url_for("app_k8s.index"))
 
     try:
         result = api_post(
@@ -162,6 +172,7 @@ def deploy():
             {
                 "name": name,
                 "image": image,
+                "node_name": node_name,
                 "replicas": replicas,
                 "cpu_request": cpu_request,
                 "cpu_limit": cpu_limit,

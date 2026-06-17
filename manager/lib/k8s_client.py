@@ -98,6 +98,7 @@ class K8sClient:
         self,
         name: str,
         image: str,
+        node_name: str,
         namespace: str = "default",
         replicas: int = 1,
         cpu_request: Optional[str] = None,
@@ -115,9 +116,18 @@ class K8sClient:
         A Deployment manages a ReplicaSet which keeps the desired number of
         pod replicas running and handles self-healing and rolling updates.
 
+        The pod template is always pinned to the InterLink virtual-kubelet node
+        identified by *node_name*:
+
+        * ``spec.nodeSelector["kubernetes.io/hostname"]`` is set to *node_name*.
+        * A toleration for ``virtual-node.interlink/no-schedule`` (operator
+          ``Exists``) is added so the pod is accepted by the tainted node.
+
         Args:
             name: Deployment (and container) name.
             image: Container image (e.g. "nginx:latest").
+            node_name: Name of the InterLink virtual-kubelet node on which pods
+                must be scheduled (e.g. "vk-node").
             namespace: Target namespace.
             replicas: Number of pod replicas (default 1).
             cpu_request: CPU request (e.g. "100m").
@@ -181,7 +191,9 @@ class K8sClient:
         if command:
             container.command = ["/bin/sh", "-c", command]
 
-        # Pod template used by the Deployment's ReplicaSet
+        # Pod template used by the Deployment's ReplicaSet.
+        # Always pin to the interlink virtual-kubelet node and add the
+        # matching toleration so the pod is accepted by the tainted node.
         pod_template = client.V1PodTemplateSpec(
             metadata=client.V1ObjectMeta(
                 labels={
@@ -191,6 +203,13 @@ class K8sClient:
             ),
             spec=client.V1PodSpec(
                 containers=[container],
+                node_selector={"kubernetes.io/hostname": node_name},
+                tolerations=[
+                    client.V1Toleration(
+                        key="virtual-node.interlink/no-schedule",
+                        operator="Exists",
+                    )
+                ],
             ),
         )
 
@@ -459,6 +478,30 @@ class K8sClient:
             logger.error(f"Failed to create ingress: {e}")
             return {"success": False, "error": str(e)}
 
+    def list_interlink_nodes(self) -> list[str]:
+        """
+        Return sorted names of cluster nodes registered as InterLink virtual-kubelet nodes.
+
+        A node is considered an interlink node when it carries the taint key
+        ``virtual-node.interlink/no-schedule`` (regardless of value or effect).
+
+        Returns:
+            Sorted list of node names.  Returns an empty list on error.
+        """
+        try:
+            nodes = self.core_v1.list_node()
+            result = []
+            for node in nodes.items:
+                taints = node.spec.taints or [] if node.spec else []
+                for taint in taints:
+                    if taint.key == "virtual-node.interlink/no-schedule":
+                        result.append(node.metadata.name)
+                        break
+            return sorted(result)
+        except ApiException as e:
+            logger.error(f"Failed to list interlink nodes: {e}")
+            return []
+
     def _get_node_ip(self) -> Optional[str]:
         """Try to get an external or internal IP of a cluster node."""
         try:
@@ -580,8 +623,9 @@ class K8sClient:
         -------
         dict
             A dict mirroring the parameters accepted by :meth:`create_deployment`:
-            ``name``, ``image``, ``replicas``, ``cpu_request``, ``cpu_limit``,
-            ``mem_request``, ``mem_limit``, ``env_vars``, ``ports``, ``command``.
+            ``name``, ``image``, ``node_name``, ``replicas``, ``cpu_request``,
+            ``cpu_limit``, ``mem_request``, ``mem_limit``, ``env_vars``,
+            ``ports``, ``command``.
             Returns ``{"error": "..."}`` on failure.
         """
         try:
@@ -639,9 +683,14 @@ class K8sClient:
                 else:
                     command = " ".join(container.command)
 
+            # ── InterLink node name ────────────────────────────────────
+            node_selector = dep.spec.template.spec.node_selector or {}
+            node_name = node_selector.get("kubernetes.io/hostname")
+
             return {
                 "name": dep.metadata.name,
                 "image": container.image,
+                "node_name": node_name,
                 "replicas": dep.spec.replicas or 1,
                 "cpu_request": cpu_request,
                 "cpu_limit": cpu_limit,

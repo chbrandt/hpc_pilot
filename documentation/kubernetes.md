@@ -20,6 +20,7 @@ Labels:     app=<name>, created-by=hpc-pilot-webapp
 ```
 
 Spec:
+
 - `replicas` — from form (default 1)
 - `selector.matchLabels` — `app=<name>`
 - Pod template:
@@ -29,6 +30,12 @@ Spec:
   - Env vars: from form (if provided)
   - Command: `["/bin/sh", "-c", "<command>"]` (if provided)
   - Ports: container ports (if provided)
+  - **`nodeSelector`** — `kubernetes.io/hostname: <node_name>` (always set)
+  - **`tolerations`** — `key: virtual-node.interlink/no-schedule, operator: Exists` (always set)
+
+These two fields are mandatory and ensure every pod is scheduled exclusively
+on the InterLink virtual-kubelet node chosen by the user.  Without them,
+Kubernetes would not schedule a pod onto a tainted virtual-kubelet node.
 
 ### 2. `Service` (`v1`) — created when ports are defined
 
@@ -51,6 +58,7 @@ Labels:     app=<name>, created-by=hpc-pilot-webapp
 ```
 
 Spec:
+
 - `ingressClassName` — from form (if provided)
 - Rule: host (optional) → path → `serviceName: <name>-svc`, `servicePort: <port>`
 - Annotation `nginx.ingress.kubernetes.io/rewrite-target: /` — added
@@ -153,7 +161,23 @@ kubectl apply -f webapp/manager_role.yaml
 | `__init__(kubeconfig_path=None)` | Load kubeconfig; initialise CoreV1, AppsV1, NetworkingV1 API clients |
 | `namespace_exists(namespace)` | Return `True` if namespace exists |
 | `create_namespace(namespace)` | Create namespace; return `{success, error}` |
-| `create_deployment(name, image, namespace, ...)` | Create Deployment + Service + Ingress; return result dict |
+| `list_interlink_nodes()` | Return sorted list of node names that carry the `virtual-node.interlink/no-schedule` taint |
+| `create_deployment(name, image, node_name, namespace, ...)` | Create Deployment (with `nodeSelector` + `tolerations`) + Service + Ingress; return result dict |
 | `list_deployments(namespace=None)` | List deployments (all namespaces if `None`); return list of dicts |
+| `get_deployment_spec(name, namespace)` | Return full deployment spec including `node_name` (for saving/re-deploying) |
 | `get_deployment_status(name, namespace)` | Return `{status, replicas_status, ready_replicas, replicas}` |
 | `delete_deployment(name, namespace)` | Delete Deployment + Service + Ingress; return `{deployment, service, ingress}` result dict |
+
+---
+
+## REST API Endpoints (Kubernetes)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/namespaces/ensure` | Idempotently create the user's personal namespace |
+| `GET` | `/api/nodes/interlink` | List InterLink virtual-kubelet node names (`{"nodes": [...]}`) |
+| `GET` | `/api/deployments` | List container deployments in the user's namespace |
+| `POST` | `/api/deployments` | Create a deployment (`name`, `image`, `node_name` required) |
+| `GET` | `/api/deployments/<name>` | Return full spec of a deployment (incl. `node_name`) |
+| `GET` | `/api/deployments/<name>/status` | Get deployment status |
+| `DELETE` | `/api/deployments/<name>` | Delete deployment + service + ingress |

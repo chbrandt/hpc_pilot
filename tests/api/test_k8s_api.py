@@ -25,6 +25,9 @@ def _mock_k8s(**kwargs):
     m.create_namespace.return_value = kwargs.get(
         "create_namespace", {"success": True, "namespace": "user-testns"}
     )
+    m.list_interlink_nodes.return_value = kwargs.get(
+        "list_interlink_nodes", ["vk-node"]
+    )
     m.list_deployments.return_value = kwargs.get("list_deployments", [])
     m.create_deployment.return_value = kwargs.get(
         "create_deployment",
@@ -32,7 +35,7 @@ def _mock_k8s(**kwargs):
     )
     m.get_deployment_spec.return_value = kwargs.get(
         "get_deployment_spec",
-        {"name": "myapp", "image": "nginx:latest", "replicas": 1},
+        {"name": "myapp", "image": "nginx:latest", "node_name": "vk-node", "replicas": 1},
     )
     m.get_deployment_status.return_value = kwargs.get(
         "get_deployment_status",
@@ -91,6 +94,43 @@ class TestEnsureNamespace:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/nodes/interlink
+# ---------------------------------------------------------------------------
+
+
+class TestListInterlinkNodes:
+    URL = "/api/nodes/interlink"
+
+    def test_requires_auth(self, client):
+        assert client.get(self.URL).status_code == 401
+
+    def test_returns_node_list(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(list_interlink_nodes=["vk-node-a", "vk-node-b"])
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.get(self.URL, headers=headers)
+        assert resp.status_code == 200
+        data = resp.get_json(force=True)
+        assert data["nodes"] == ["vk-node-a", "vk-node-b"]
+
+    def test_returns_empty_list_when_no_nodes(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(list_interlink_nodes=[])
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.get(self.URL, headers=headers)
+        assert resp.status_code == 200
+        assert resp.get_json(force=True)["nodes"] == []
+
+    def test_exception_returns_500(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = MagicMock()
+        k8s.list_interlink_nodes.side_effect = RuntimeError("k8s down")
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.get(self.URL, headers=headers)
+        assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
 # GET /api/deployments
 # ---------------------------------------------------------------------------
 
@@ -144,6 +184,16 @@ class TestCreateDeployment:
         assert resp.status_code == 400
         assert "image" in resp.get_json(force=True)["error"].lower()
 
+    def test_missing_node_name_returns_400(self, client, auth_headers):
+        headers, _ = auth_headers
+        resp = client.post(
+            self.URL,
+            json={"name": "myapp", "image": "nginx:latest"},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "node_name" in resp.get_json(force=True)["error"].lower()
+
     def test_success_returns_201(self, client, auth_headers):
         headers, ns = auth_headers
         k8s = _mock_k8s(
@@ -153,10 +203,26 @@ class TestCreateDeployment:
         with patch(K8S_PATCH, return_value=k8s):
             resp = client.post(
                 self.URL,
-                json={"name": "myapp", "image": "nginx:latest"},
+                json={"name": "myapp", "image": "nginx:latest", "node_name": "vk-node"},
                 headers=headers,
             )
         assert resp.status_code == 201
+
+    def test_node_name_is_forwarded_to_k8s_client(self, client, auth_headers):
+        """node_name must be passed through to K8sClient.create_deployment."""
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            create_deployment={"success": True, "deployment_name": "myapp"},
+        )
+        with patch(K8S_PATCH, return_value=k8s):
+            client.post(
+                self.URL,
+                json={"name": "myapp", "image": "nginx:latest", "node_name": "vk-node"},
+                headers=headers,
+            )
+        call_kwargs = k8s.create_deployment.call_args
+        assert call_kwargs[1].get("node_name") == "vk-node"
 
     def test_k8s_failure_returns_400(self, client, auth_headers):
         headers, _ = auth_headers
@@ -167,7 +233,7 @@ class TestCreateDeployment:
         with patch(K8S_PATCH, return_value=k8s):
             resp = client.post(
                 self.URL,
-                json={"name": "myapp", "image": "nginx:latest"},
+                json={"name": "myapp", "image": "nginx:latest", "node_name": "vk-node"},
                 headers=headers,
             )
         assert resp.status_code == 400

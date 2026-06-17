@@ -9,6 +9,9 @@ POST /api/namespaces/ensure
     Idempotently create the user's personal namespace (derived from the token sub
     claim).  Safe to call on every login — does nothing if the namespace exists.
 
+GET  /api/nodes/interlink
+    Return the list of InterLink virtual-kubelet node names available in the cluster.
+
 GET  /api/deployments
     List all container deployments in the user's namespace.
 
@@ -85,6 +88,27 @@ def ensure_namespace():
         return _err(str(exc), 500)
 
 
+@k8s_bp.route("/nodes/interlink", methods=["GET"])
+@require_token
+def list_interlink_nodes():
+    """
+    Return the names of InterLink virtual-kubelet nodes available in the cluster.
+
+    A node is considered an interlink node when it carries the taint key
+    ``virtual-node.interlink/no-schedule``.
+
+    Returns:
+        JSON object ``{"nodes": ["node-a", "node-b", ...]}``.
+    """
+    try:
+        k8s = _get_k8s()
+        nodes = k8s.list_interlink_nodes()
+        return _ok({"nodes": nodes})
+    except Exception as exc:
+        logger.error("list_interlink_nodes failed: %s", exc)
+        return _err(str(exc), 500)
+
+
 @k8s_bp.route("/deployments", methods=["GET"])
 @require_token
 def list_deployments():
@@ -109,6 +133,7 @@ def create_deployment():
     JSON body keys (all optional unless marked required):
         name*         str   deployment name (required)
         image*        str   container image (required)
+        node_name*    str   InterLink virtual-kubelet node name (required)
         replicas      int   number of replicas (default 1)
         cpu_request   str   e.g. "100m"
         cpu_limit     str
@@ -126,10 +151,13 @@ def create_deployment():
 
     name = body.get("name", "").strip()
     image = body.get("image", "").strip()
+    node_name = body.get("node_name", "").strip()
     if not name:
         return _err("'name' is required.")
     if not image:
         return _err("'image' is required.")
+    if not node_name:
+        return _err("'node_name' is required.")
 
     try:
         k8s = _get_k8s()
@@ -143,6 +171,7 @@ def create_deployment():
         result = k8s.create_deployment(
             name=name,
             image=image,
+            node_name=node_name,
             namespace=namespace,
             replicas=body.get("replicas", 1),
             cpu_request=body.get("cpu_request"),

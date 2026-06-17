@@ -96,8 +96,10 @@ def hpc_deploy():
     if not wstunnel_secret:
         return _err("'wstunnel_secret' is required.")
 
-    wstunnel_port = int(body.get("wstunnel_port", site_cfg["wstunnel"]["port"]))
-    wstunnel_local_port = int(body.get("wstunnel_local_port", site_cfg["wstunnel"]["local_port"]))
+    wstunnel_port = int(body.get("wstunnel_port", 
+                                 site_cfg["wstunnel"]["port"]))
+    wstunnel_local_port = int(body.get("wstunnel_local_port", 
+                                       site_cfg["wstunnel"]["local_port"]))
 
     result = hpc_client.deploy(
         token=token,
