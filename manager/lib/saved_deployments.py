@@ -34,8 +34,15 @@ _DATA_DIR = os.path.join(_MANAGER_DIR, "data")
 # Path to the global chart defaults configuration file.
 _CHARTS_CONFIG = os.path.join(_MANAGER_DIR, "charts_config.yaml")
 
-# Stable ID prefix used for auto-seeded default configs.
+# Path to the global HPC node defaults configuration file.
+_HPC_CONFIG = os.path.join(_MANAGER_DIR, "hpc_config.yaml")
+
+# Stable ID prefixes used for auto-seeded default configs.
 _DEFAULT_ID_PREFIX = "default-"
+_HPC_DEFAULT_ID_PREFIX = "hpc-default-"
+
+# Allowed plugin values for HPC configs.
+HPC_PLUGIN_OPTIONS = ("echo", "docker", "slurm")
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
@@ -309,3 +316,117 @@ def delete_config(namespace: str, config_id: str) -> bool:
         return False  # not found
     _dump(namespace, new_configs)
     return True
+
+
+# ── Default HPC config helpers ────────────────────────────────────────
+
+
+def _load_hpc_config() -> dict:
+    """
+    Parse *hpc_config.yaml* and return the raw top-level dict.
+
+    Returns an empty dict if the file is missing or malformed.
+    """
+    if not os.path.exists(_HPC_CONFIG):
+        logger.warning("hpc_config.yaml not found at %s", _HPC_CONFIG)
+        return {}
+    try:
+        with open(_HPC_CONFIG, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("Could not parse hpc_config.yaml: %s", exc)
+        return {}
+
+
+def load_default_hpc_configs() -> list[dict]:
+    """
+    Load and return the list of default HPC node configs from *hpc_config.yaml*.
+
+    Each entry is a plain dict with keys: ``kind``, ``label``, ``hpc_host``,
+    ``ssh_port``, ``plugin``, ``description``.
+
+    Valid ``plugin`` values are ``"echo"``, ``"docker"``, and ``"slurm"``.
+
+    Returns an empty list if the file is missing or malformed.
+    """
+    data = _load_hpc_config()
+    configs = data.get("default_hpc_configs", []) if data else []
+    return configs if isinstance(configs, list) else []
+
+
+def _slugify_label(label: str) -> str:
+    """
+    Convert *label* to a filesystem-safe slug for use in stable IDs.
+
+    Lowercases and replaces any non-alphanumeric character with a hyphen,
+    then strips leading/trailing hyphens.
+    """
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+    return slug or "config"
+
+
+def seed_hpc_defaults(namespace: str, site_config: Optional[dict] = None) -> None:
+    """
+    Ensure every default HPC config from *hpc_config.yaml* is present in the
+    saved-configs store for *namespace*.
+
+    Each entry gets a stable, deterministic ID
+    (``"hpc-default-<label_slug>"``) so it is only inserted once regardless
+    of how many times this function is called (e.g. on every login).
+
+    Unlike Helm chart defaults, HPC configs do **not** support placeholder
+    tokens because the wstunnel parameters are derived from the K8s namespace
+    and site config at deploy time, not stored in the HPC config.
+
+    Parameters
+    ----------
+    namespace : str
+        The user's Kubernetes namespace.
+    site_config : dict, optional
+        Accepted for API symmetry with :func:`seed_defaults` but not used.
+    """
+    defaults = load_default_hpc_configs()
+    if not defaults:
+        return
+
+    configs = _load(namespace)
+    existing_ids = {c.get("id") for c in configs}
+
+    added = []
+    for hpc in defaults:
+        label = hpc.get("label", "")
+        if not label:
+            continue
+        stable_id = f"{_HPC_DEFAULT_ID_PREFIX}{_slugify_label(label)}"
+        if stable_id in existing_ids:
+            continue  # already seeded
+
+        plugin = hpc.get("plugin", "echo")
+        if plugin not in HPC_PLUGIN_OPTIONS:
+            logger.warning(
+                "Invalid plugin '%s' in hpc_config.yaml (allowed: %s); defaulting to 'echo'",
+                plugin, HPC_PLUGIN_OPTIONS,
+            )
+            plugin = "echo"
+
+        entry = {
+            "id": stable_id,
+            "kind": "hpc",
+            "saved_at": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
+            "is_default": True,
+            "label": label,
+            "hpc_host": hpc.get("hpc_host", ""),
+            "ssh_port": int(hpc.get("ssh_port", 22)),
+            "plugin": plugin,
+            "description": hpc.get("description", ""),
+        }
+        configs.append(entry)
+        added.append(label)
+
+    if added:
+        _dump(namespace, configs)
+        logger.info(
+            "Seeded default HPC config(s) %s for namespace %s", added, namespace
+        )

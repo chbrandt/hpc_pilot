@@ -43,6 +43,60 @@ See the inline comments in that file for a full description of the
 
 ---
 
+## `hpc_config.yaml`
+
+HPC node defaults that are pre-seeded into every user's saved-config store
+on first login, alongside the Helm chart defaults. This file lives at
+`manager/hpc_config.yaml` and is read by `POST /api/saved/seed` (called
+automatically at login).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `kind` | string | `"hpc"` | Always `"hpc"` for entries in this file. |
+| `label` | string | — | Human-readable name shown in the UI (required; used as the stable-ID slug). |
+| `hpc_host` | string | `""` | Hostname or IP of the HPC login node. Leave empty to require the user to fill it in. |
+| `ssh_port` | int | `22` | SSH port on the HPC node. |
+| `plugin` | string | `"echo"` | InterLink plugin to install. One of `echo`, `docker`, `slurm`. |
+| `description` | string | `""` | Human-readable description shown in the UI. |
+
+> **Note:** Unlike `charts_config.yaml`, HPC configs do **not** support
+> placeholder tokens (`__NAMESPACE__`, etc.).  The wstunnel parameters are
+> derived from the K8s namespace and `site_config.yaml` at deploy time and
+> are not stored in the HPC config.
+
+**Plugin values:**
+
+| Value | Description |
+|---|---|
+| `echo` | Minimal echo plugin — echoes job requests back. Useful for testing the tunnel without a real workload manager. |
+| `docker` | Docker-based job execution plugin. |
+| `slurm` | SLURM workload manager integration plugin. |
+
+**Example:**
+
+```yaml
+# hpc_config.yaml
+default_hpc_configs:
+  - kind: hpc
+    label: "SLURM Cluster"
+    hpc_host: "login.hpc.example.org"
+    ssh_port: 22
+    plugin: slurm
+    description: "Production SLURM cluster"
+
+  - kind: hpc
+    label: "Test Node (echo)"
+    hpc_host: ""
+    ssh_port: 22
+    plugin: echo
+    description: "Template — fill in hpc_host before deploying"
+```
+
+Each entry is seeded with a stable ID of the form `hpc-default-<label-slug>`
+so re-running `POST /api/saved/seed` on every login is idempotent.
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Required | Description |

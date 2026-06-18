@@ -50,7 +50,7 @@
 {% else %}
 <div class="empty-state">
   <p>No Helm releases in your namespace yet.</p>
-  <a href="{{ url_for('app_helm.releases') }}" class="btn btn-primary">Deploy a Chart</a>
+  <a href="{{ url_for('app_helm.helm_deploy') }}" class="btn btn-primary">Deploy a Chart</a>
 </div>
 {% endif %}
 {% endblock %}

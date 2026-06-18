@@ -42,6 +42,10 @@ _REMOTE_BASE_DIR = "~/.hpc-pilot"
 # Enable/diable verbose (debug-level) output from mccli subprocess calls.
 _VERBOSE = False
 
+# Default interLink plugin — referenced by deploy() before the full plugin
+# table is declared in the HPC setup section below.
+_DEFAULT_PLUGIN = "echo"
+
 
 #############################################################################
 # Helpers 
@@ -344,6 +348,7 @@ def deploy(
     wstunnel_port: int,
     wstunnel_secret: str,
     wstunnel_local_port: Optional[int] = None,
+    plugin: str = _DEFAULT_PLUGIN,
 ) -> dict:
     """
     Install wstunnel + supervisord on the remote HPC node and start them.
@@ -363,6 +368,9 @@ def deploy(
     wstunnel_secret  : Shared secret / bearer token for the tunnel.
     wstunnel_local_port : Local TCP port on the HPC node that wstunnel
                           exposes (defaults to *wstunnel_port*).
+    plugin           : InterLink plugin to install on the HPC node.
+                       Allowed values: ``"echo"``, ``"docker"``, ``"slurm"``
+                       (default: ``"echo"``).
 
     Returns
     -------
@@ -385,8 +393,8 @@ def deploy(
         return _copy_mccli(token, hpc_host, ssh_port, local_path, remote_path, timeout=timeout)
 
     logger.info(
-        "Deploying HPC stack to %s (wstunnel → wss://%s:%s)",
-        hpc_host, wstunnel_server, wstunnel_port,
+        "Deploying HPC stack to %s (wstunnel → wss://%s:%s, plugin=%s)",
+        hpc_host, wstunnel_server, wstunnel_port, plugin,
     )
 
     steps = [
@@ -394,7 +402,7 @@ def deploy(
         ("install_wstunnel",       lambda: install_wstunnel(runner, cfg)),
         ("install_supervisord",    lambda: install_supervisord(runner, cfg)),
         ("copy_supervisord_conf",  lambda: copy_supervisord_conf(copier, cfg)),
-        ("install_plugin",         lambda: install_plugin(runner, cfg)),
+        ("install_plugin",         lambda: install_plugin(runner, cfg, plugin=plugin)),
         ("start_supervisord",      lambda: start_supervisord(runner)),
         ("check_status",           lambda: check_status(runner)),
     ]
@@ -601,16 +609,51 @@ def setup_directories(runner: Runner) -> dict:
     return runner(cmd, timeout=_SHORT_TIMEOUT)
 
 
-def install_plugin(runner: Runner, cfg: SetupConfig) -> dict:
+# ── Plugin definitions ──────────────────────────────────────────────────────
+
+# Mapping of plugin name → pip-installable package URL/reference.
+# The "echo" plugin is a minimal test plugin that echoes job requests.
+# "docker" and "slurm" are placeholders — update the URLs when packages are
+# published.
+_PLUGIN_PACKAGES: dict[str, str] = {
+    "echo": "https://github.com/chbrandt/interlink-echo-plugin/archive/refs/tags/v0.1.0.tar.gz",
+    "docker": "interlink-docker-plugin",   # placeholder — update when published
+    "slurm": "interlink-slurm-plugin",     # placeholder — update when published
+}
+
+_VALID_PLUGINS = tuple(_PLUGIN_PACKAGES.keys())
+_DEFAULT_PLUGIN = "echo"
+
+
+def install_plugin(runner: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PLUGIN) -> dict:
     """
-    Install interLink plugin
+    Install the specified interLink plugin on the remote HPC node.
+
+    Parameters
+    ----------
+    runner : callable that executes a remote shell command via mccli.
+    cfg    : :class:`SetupConfig` — provides base directory paths.
+    plugin : Name of the plugin to install.  Allowed values: ``"echo"``,
+             ``"docker"``, ``"slurm"`` (default: ``"echo"``).
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
     """
-    plugin_version = "v0.1.0"
-    _url = f"https://github.com/chbrandt/interlink-echo-plugin/archive/refs/tags/{plugin_version}.tar.gz"
+    if plugin not in _VALID_PLUGINS:
+        logger.warning(
+            "Unknown plugin '%s'; falling back to '%s'. Valid options: %s",
+            plugin, _DEFAULT_PLUGIN, _VALID_PLUGINS,
+        )
+        plugin = _DEFAULT_PLUGIN
+
+    package_ref = _PLUGIN_PACKAGES[plugin]
+    logger.info("Installing interLink plugin '%s' from %s", plugin, package_ref)
 
     cmd = (
         f"source {_BASE_DIR}/bin/activate"
-        f" && pip install --quiet {_url}"
+        f" && pip install --quiet {package_ref}"
+        f" && echo 'Plugin {plugin} installed'"
     )
 
     return runner(cmd, timeout=_LONG_TIMEOUT)

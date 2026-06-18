@@ -209,3 +209,123 @@ class TestLoadHelpers:
     def test_def_chart_is_singleton_false(self):
         with patch.object(sd, "_load_charts_config", return_value=FAKE_CHARTS_CONFIG):
             assert sd.def_chart_is_singleton("bitnami/nginx") is False
+
+
+# ---------------------------------------------------------------------------
+# seed_hpc_defaults
+# ---------------------------------------------------------------------------
+
+FAKE_HPC_CONFIG = {
+    "default_hpc_configs": [
+        {
+            "kind": "hpc",
+            "label": "My Test HPC",
+            "hpc_host": "login.myhpc.example.org",
+            "ssh_port": 22,
+            "plugin": "echo",
+            "description": "Test HPC node",
+        }
+    ],
+}
+
+FAKE_HPC_CONFIG_INVALID_PLUGIN = {
+    "default_hpc_configs": [
+        {
+            "kind": "hpc",
+            "label": "Bad Plugin HPC",
+            "hpc_host": "login.bad.example.org",
+            "ssh_port": 22,
+            "plugin": "nonexistent",
+            "description": "HPC with invalid plugin",
+        }
+    ],
+}
+
+
+class TestSeedHpcDefaults:
+    NS = "user-abcdef1234567890"
+
+    @pytest.fixture(autouse=True)
+    def patch_hpc_config(self):
+        with patch.object(sd, "_load_hpc_config", return_value=FAKE_HPC_CONFIG):
+            yield
+
+    def test_seed_inserts_default_hpc_config(self):
+        sd.seed_hpc_defaults(self.NS)
+        configs = sd.list_configs(self.NS, kind="hpc")
+        assert len(configs) == 1
+        assert configs[0]["hpc_host"] == "login.myhpc.example.org"
+
+    def test_seed_is_idempotent(self):
+        sd.seed_hpc_defaults(self.NS)
+        sd.seed_hpc_defaults(self.NS)
+        assert len(sd.list_configs(self.NS, kind="hpc")) == 1
+
+    def test_seed_stores_correct_fields(self):
+        sd.seed_hpc_defaults(self.NS)
+        entry = sd.list_configs(self.NS, kind="hpc")[0]
+        assert entry["kind"] == "hpc"
+        assert entry["label"] == "My Test HPC"
+        assert entry["ssh_port"] == 22
+        assert entry["plugin"] == "echo"
+        assert entry["description"] == "Test HPC node"
+        assert entry["is_default"] is True
+
+    def test_seed_stable_id_uses_label_slug(self):
+        sd.seed_hpc_defaults(self.NS)
+        entry = sd.list_configs(self.NS, kind="hpc")[0]
+        assert entry["id"] == "hpc-default-my-test-hpc"
+
+    def test_seed_with_no_defaults_does_nothing(self):
+        with patch.object(sd, "_load_hpc_config", return_value={}):
+            sd.seed_hpc_defaults(self.NS)
+        assert sd.list_configs(self.NS, kind="hpc") == []
+
+    def test_seed_with_invalid_plugin_falls_back_to_echo(self):
+        with patch.object(sd, "_load_hpc_config", return_value=FAKE_HPC_CONFIG_INVALID_PLUGIN):
+            sd.seed_hpc_defaults(self.NS)
+        entry = sd.list_configs(self.NS, kind="hpc")[0]
+        assert entry["plugin"] == "echo"
+
+    def test_helm_and_hpc_configs_are_isolated_by_kind(self):
+        """Seeding HPC defaults must not interfere with Helm configs in the same store."""
+        with patch.object(sd, "_load_charts_config", return_value=FAKE_CHARTS_CONFIG):
+            sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
+        sd.seed_hpc_defaults(self.NS)
+        helm_configs = sd.list_configs(self.NS, kind="helm")
+        hpc_configs = sd.list_configs(self.NS, kind="hpc")
+        assert len(helm_configs) == 1
+        assert len(hpc_configs) == 1
+
+    def test_site_config_param_accepted_for_symmetry(self):
+        """seed_hpc_defaults must accept site_config without error."""
+        sd.seed_hpc_defaults(self.NS, site_config={"cluster_domain": "test.local"})
+        assert len(sd.list_configs(self.NS, kind="hpc")) == 1
+
+
+# ---------------------------------------------------------------------------
+# load_default_hpc_configs helpers
+# ---------------------------------------------------------------------------
+
+
+class TestLoadHpcConfigHelpers:
+    def test_load_default_hpc_configs_missing_file(self):
+        with patch.object(sd, "_HPC_CONFIG", "/nonexistent/path.yaml"):
+            configs = sd.load_default_hpc_configs()
+        assert configs == []
+
+    def test_load_default_hpc_configs_returns_list(self):
+        with patch.object(sd, "_load_hpc_config", return_value=FAKE_HPC_CONFIG):
+            configs = sd.load_default_hpc_configs()
+        assert isinstance(configs, list)
+        assert len(configs) == 1
+        assert configs[0]["label"] == "My Test HPC"
+
+    def test_slugify_label_basic(self):
+        assert sd._slugify_label("My Test HPC") == "my-test-hpc"
+
+    def test_slugify_label_special_chars(self):
+        assert sd._slugify_label("HPC (echo) #1") == "hpc-echo-1"
+
+    def test_slugify_label_empty_falls_back(self):
+        assert sd._slugify_label("") == "config"

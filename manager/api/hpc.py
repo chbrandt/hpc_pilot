@@ -74,9 +74,10 @@ def hpc_deploy():
         hpc_host*            str   HPC login node hostname (required)
         ssh_port             int   SSH port (default 22)
         wstunnel_server*     str   K8s-side wstunnel server hostname (required)
-        wstunnel_port        int   wstunnel listen port (default 8420)
+        wstunnel_port        int   wstunnel listen port (default from site_config)
         wstunnel_secret*     str   Shared tunnel secret (required)
         wstunnel_local_port  int   Local port on HPC node (default = wstunnel_port)
+        plugin               str   InterLink plugin: "echo" | "docker" | "slurm" (default "echo")
     """
     claims = get_request_claims()
     token = claims["_token"]
@@ -96,10 +97,16 @@ def hpc_deploy():
     if not wstunnel_secret:
         return _err("'wstunnel_secret' is required.")
 
-    wstunnel_port = int(body.get("wstunnel_port", 
+    wstunnel_port = int(body.get("wstunnel_port",
                                  site_cfg["wstunnel"]["port"]))
-    wstunnel_local_port = int(body.get("wstunnel_local_port", 
+    wstunnel_local_port = int(body.get("wstunnel_local_port",
                                        site_cfg["wstunnel"]["local_port"]))
+
+    plugin = body.get("plugin", hpc_client._DEFAULT_PLUGIN).strip().lower()
+    if plugin not in hpc_client._VALID_PLUGINS:
+        return _err(
+            f"'plugin' must be one of: {', '.join(hpc_client._VALID_PLUGINS)}."
+        )
 
     result = hpc_client.deploy(
         token=token,
@@ -109,6 +116,7 @@ def hpc_deploy():
         wstunnel_port=wstunnel_port,
         wstunnel_secret=wstunnel_secret,
         wstunnel_local_port=wstunnel_local_port,
+        plugin=plugin,
     )
     code = 200 if result.get("success") else 500
     return _ok(result, code)

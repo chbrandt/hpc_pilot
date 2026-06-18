@@ -1,0 +1,37 @@
+# hpc_config.yaml — Global default HPC node settings for HPC Pilot Manager
+#
+# default_hpc_configs:
+#   A list of HPC node configurations that are automatically pre-saved for
+#   every user on first login.
+#
+#   Fields:
+#     kind        : "hpc" (only HPC node configs are supported here)
+#     label       : Human-readable name shown in the UI.
+#     hpc_host    : Hostname or IP of the HPC login/edge node.
+#                   Leave empty ("") to require the user to fill it in.
+#     ssh_port    : SSH port on the HPC node (default: 22).
+#     plugin      : InterLink plugin to install on the HPC node.
+#                   Allowed values: "echo", "docker", "slurm".
+#                   - echo   : Simple echo plugin for testing (default).
+#                   - docker : Docker-based job execution.
+#                   - slurm  : SLURM workload manager integration.
+#     description : Human-readable description shown in the UI.
+#
+# Note: Unlike charts_config.yaml, HPC configs do NOT support placeholder
+# tokens — the wstunnel parameters are derived from the K8s namespace and
+# site config at deploy time, not stored in the HPC config.
+
+default_hpc_configs:
+  - kind: hpc
+    label: "HPC Node (echo)"
+    hpc_host: 161.9.255.206
+    ssh_port: 3333
+    plugin: echo
+    description: "Default HPC node template using the echo plugin (for testing)"
+
+  - kind: hpc
+    label: "HPC Node (docker)"
+    hpc_host: 161.9.255.206
+    ssh_port: 3333
+    plugin: docker
+    description: "Default HPC node template using the docker plugin (for testing)"

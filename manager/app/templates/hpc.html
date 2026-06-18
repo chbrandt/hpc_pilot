@@ -25,8 +25,8 @@
         <span class="text-muted saved-item-date">{{ cfg.saved_at[:10] }}</span>
       </div>
       <div class="saved-item-meta text-mono">
-        {{ cfg.hpc_host }}:{{ cfg.ssh_port }}
-        → wss://{{ cfg.wstunnel_server }}:{{ cfg.wstunnel_port }}
+        {{ cfg.hpc_host or "(no host)" }}:{{ cfg.ssh_port }}
+        &nbsp;·&nbsp; plugin: <code>{{ cfg.plugin or "echo" }}</code>
       </div>
       <div class="saved-item-actions">
         {# Load button — pre-fills the form via JS #}
@@ -68,12 +68,25 @@
       </div>
     </div>
 
-    <div class="form-group">
-      <label for="label">Config Label</label>
-      <input type="text" id="label" name="label" placeholder="e.g. My HPC Cluster">
-      <small class="form-hint">
-        Human-friendly name stored with saved configs.
-      </small>
+    <div class="form-row">
+      <div class="form-group" style="flex:3;">
+        <label for="label">Config Label</label>
+        <input type="text" id="label" name="label" placeholder="e.g. My HPC Cluster">
+        <small class="form-hint">
+          Human-friendly name stored with saved configs.
+        </small>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label for="plugin">Plugin <span class="required">*</span></label>
+        <select id="plugin" name="plugin">
+          {% for opt in plugin_options %}
+          <option value="{{ opt }}" {% if opt==default_plugin %} selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+        <small class="form-hint">
+          InterLink plugin to install on the HPC node.
+        </small>
+      </div>
     </div>
   </fieldset>
 
@@ -149,6 +162,8 @@
         (<code>pip install --user supervisor</code>) if not already present</li>
       <li>Writes a <code>supervisord.conf</code> that manages wstunnel as a
         supervised process</li>
+      <li>Installs the selected <strong>interLink plugin</strong>
+        (<code>echo</code>, <code>docker</code>, or <code>slurm</code>)</li>
       <li>Starts supervisord, which in turn starts wstunnel and keeps it
         running</li>
     </ol>
@@ -181,6 +196,8 @@
   });
 
   /* ── Load a saved config into the form ──────────────────────────── */
+  /* Only HPC-side fields are stored in saved configs; wstunnel fields
+     keep their current (namespace-derived) defaults.                   */
   function loadHpcConfig(cfg) {
     const set = (id, val) => {
       const el = document.getElementById(id);
@@ -189,10 +206,7 @@
     set('hpc_host', cfg.hpc_host);
     set('ssh_port', cfg.ssh_port);
     set('label', cfg.label || '');
-    set('wstunnel_server', cfg.wstunnel_server);
-    set('wstunnel_port', cfg.wstunnel_port);
-    set('wstunnel_secret', cfg.wstunnel_secret);
-    set('wstunnel_local_port', cfg.wstunnel_local_port);
+    set('plugin', cfg.plugin || '{{ default_plugin }}');
     // Scroll to form
     document.getElementById('hpc-form').scrollIntoView({ behavior: 'smooth' });
   }

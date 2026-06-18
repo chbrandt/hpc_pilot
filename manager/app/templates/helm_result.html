@@ -26,7 +26,7 @@
 
 <div class="form-actions">
   <a href="{{ url_for('app_helm.releases') }}" class="btn btn-primary">📋 View Releases</a>
-  <a href="{{ url_for('app_helm.releases') }}" class="btn btn-secondary">⎈ Install Another Chart</a>
+  <a href="{{ url_for('app_helm.helm_deploy') }}" class="btn btn-secondary">⎈ Install Another Chart</a>
 </div>
 
 {% else %}
@@ -49,7 +49,7 @@
 {% endif %}
 
 <div class="form-actions">
-  <a href="{{ url_for('app_helm.releases') }}" class="btn btn-primary">⬅ Try Again</a>
+  <a href="{{ url_for('app_helm.helm_deploy') }}" class="btn btn-primary">⬅ Try Again</a>
   <a href="{{ url_for('app_helm.releases') }}" class="btn btn-secondary">📋 View Releases</a>
 </div>
 {% endif %}

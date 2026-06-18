@@ -22,6 +22,7 @@ from flask import Blueprint, flash, redirect, render_template, request, session,
 from app.auth import require_login
 from app.api_client import api_post
 from api.site_config import load_site_config
+from lib.hpc_client import _DEFAULT_PLUGIN, _VALID_PLUGINS
 from lib.saved_deployments import list_configs, save_config
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,13 @@ def hpc_page():
     namespace = session.get("namespace", "")
     saved = list_configs(namespace, kind="hpc") if namespace else []
     defaults = _default_wstunnel_config(namespace)
-    return render_template("hpc.html", saved_configs=saved, defaults=defaults)
+    return render_template(
+        "hpc.html",
+        saved_configs=saved,
+        defaults=defaults,
+        plugin_options=list(_VALID_PLUGINS),
+        default_plugin=_DEFAULT_PLUGIN,
+    )
 
 
 @hpc_bp.route("/deploy", methods=["POST"])
@@ -87,7 +94,8 @@ def hpc_deploy():
     wstunnel_local_port_str = request.form.get(
         "wstunnel_local_port", wstunnel_port_str
     ).strip()
-    label = request.form.get("label", "").strip() or hpc_host
+    label  = request.form.get("label", "").strip() or hpc_host
+    plugin = request.form.get("plugin", _DEFAULT_PLUGIN).strip().lower()
 
     if not hpc_host:
         flash("HPC hostname is required.", "error")
@@ -97,6 +105,9 @@ def hpc_deploy():
         return redirect(url_for("app_hpc.hpc_page"))
     if not wstunnel_secret:
         flash("wstunnel secret is required.", "error")
+        return redirect(url_for("app_hpc.hpc_page"))
+    if plugin not in _VALID_PLUGINS:
+        flash(f"Invalid plugin '{plugin}'. Choose one of: {', '.join(_VALID_PLUGINS)}.", "error")
         return redirect(url_for("app_hpc.hpc_page"))
 
     try:
@@ -108,8 +119,8 @@ def hpc_deploy():
         return redirect(url_for("app_hpc.hpc_page"))
 
     logger.info(
-        "HPC deploy: user=%s host=%s wstunnel_server=%s port=%s",
-        namespace, hpc_host, wstunnel_server, wstunnel_port,
+        "HPC deploy: user=%s host=%s wstunnel_server=%s port=%s plugin=%s",
+        namespace, hpc_host, wstunnel_server, wstunnel_port, plugin,
     )
 
     try:
@@ -122,6 +133,7 @@ def hpc_deploy():
                 "wstunnel_port": wstunnel_port,
                 "wstunnel_secret": wstunnel_secret,
                 "wstunnel_local_port": wstunnel_local_port,
+                "plugin": plugin,
             },
         )
     except requests.HTTPError as exc:
@@ -129,7 +141,7 @@ def hpc_deploy():
     except Exception as exc:
         result = {"success": False, "error": str(exc)}
 
-    # Auto-save config on success
+    # Auto-save HPC-side config on success (wstunnel params are not stored)
     if result.get("success"):
         try:
             save_config(
@@ -139,10 +151,7 @@ def hpc_deploy():
                     "label": label,
                     "hpc_host": hpc_host,
                     "ssh_port": ssh_port,
-                    "wstunnel_server": wstunnel_server,
-                    "wstunnel_port": wstunnel_port,
-                    "wstunnel_secret": wstunnel_secret,
-                    "wstunnel_local_port": wstunnel_local_port,
+                    "plugin": plugin,
                 },
             )
         except Exception as exc:
@@ -245,19 +254,22 @@ def hpc_stop():
 @hpc_bp.route("/<config_id>/save", methods=["POST"])
 @require_login
 def hpc_save(config_id: str):
-    """Persist (or re-persist) an HPC config to the saved_deployments store."""
-    namespace = session["namespace"]
-    defaults = _default_wstunnel_config(namespace)
+    """Persist (or re-persist) an HPC config to the saved_deployments store.
 
-    hpc_host          = request.form.get("hpc_host", "").strip()
-    ssh_port_str      = request.form.get("ssh_port", "22").strip()
-    wstunnel_server   = request.form.get("wstunnel_server", defaults["wstunnel_server"]).strip()
-    wstunnel_port_str = request.form.get("wstunnel_port", str(defaults["wstunnel_port"])).strip()
-    wstunnel_secret   = request.form.get("wstunnel_secret", "").strip()
-    wstunnel_local_port_str = request.form.get(
-        "wstunnel_local_port", wstunnel_port_str
-    ).strip()
-    label = request.form.get("label", "").strip() or hpc_host
+    Only the HPC-side fields are saved (label, hpc_host, ssh_port, plugin).
+    The wstunnel parameters are derived from the K8s namespace and site config
+    at deploy time and are therefore not persisted here.
+    """
+    namespace = session["namespace"]
+
+    hpc_host     = request.form.get("hpc_host", "").strip()
+    ssh_port_str = request.form.get("ssh_port", "22").strip()
+    label        = request.form.get("label", "").strip() or hpc_host
+    plugin       = request.form.get("plugin", _DEFAULT_PLUGIN).strip().lower()
+
+    if plugin not in _VALID_PLUGINS:
+        flash(f"Invalid plugin '{plugin}'. Choose one of: {', '.join(_VALID_PLUGINS)}.", "error")
+        return redirect(url_for("app_hpc.hpc_page"))
 
     try:
         save_config(
@@ -267,10 +279,7 @@ def hpc_save(config_id: str):
                 "label": label,
                 "hpc_host": hpc_host,
                 "ssh_port": int(ssh_port_str),
-                "wstunnel_server": wstunnel_server,
-                "wstunnel_port": int(wstunnel_port_str),
-                "wstunnel_secret": wstunnel_secret,
-                "wstunnel_local_port": int(wstunnel_local_port_str),
+                "plugin": plugin,
             },
         )
         flash(f"HPC config for '{label}' saved.", "success")

@@ -9,15 +9,18 @@ Routes
 GET  /releases                  List Helm releases
 POST /releases/<name>/delete    Uninstall the InterLink release
 POST /releases/<name>/save      Save InterLink release config
+GET  /helm                      Deploy-a-Chart form
+POST /helm/install              Submit the InterLink install form
 """
 
 import logging
 
 import requests
-from flask import Blueprint, flash, redirect, render_template, session, url_for
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from app.auth import require_login
-from app.api_client import api_delete, api_get
+from app.api_client import api_delete, api_get, api_post
+from lib.saved_deployments import list_configs
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,12 @@ def releases():
         result = api_get("/api/interlink")
         if result.get("success"):
             release_list = [{"name": "interlink", "namespace": namespace, "status": "deployed"}]
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            pass  # No release deployed yet — empty list is the correct state
+        else:
+            error = f"Cannot list Helm releases: {_api_error(exc)}"
+            logger.error(error)
     except Exception as exc:
         error = f"Cannot list Helm releases: {exc}"
         logger.error(error)
@@ -78,6 +87,46 @@ def delete_release(name):
         flash(f"Error: {exc}", "error")
 
     return redirect(url_for("app_k8s.jobs"))
+
+
+@helm_bp.route("/helm")
+@require_login
+def helm_deploy():
+    """Render the Deploy a Chart form (helm.html)."""
+    namespace = session["namespace"]
+    saved = list_configs(namespace, kind="helm") if namespace else []
+    return render_template("helm.html", saved_configs=saved)
+
+
+@helm_bp.route("/helm/install", methods=["POST"])
+@require_login
+def helm_install_route():
+    """
+    Submit the InterLink Helm install form.
+
+    Reads the release_name, chart, version and values_yaml fields from the
+    submitted form for display purposes, but always calls POST /api/interlink
+    (the only managed Helm release).  Renders helm_result.html with the
+    outcome.
+    """
+    namespace = session["namespace"]
+    # Form fields are kept for display in the result template.
+    release_name = request.form.get("release_name", "interlink").strip() or "interlink"
+    chart = request.form.get("chart", "").strip()
+    try:
+        result = api_post("/api/interlink")
+    except requests.HTTPError as exc:
+        result = {"success": False, "error": _api_error(exc), "output": ""}
+    except Exception as exc:
+        result = {"success": False, "error": str(exc), "output": ""}
+
+    return render_template(
+        "helm_result.html",
+        result=result,
+        release_name=release_name,
+        chart=chart,
+        namespace=namespace,
+    )
 
 
 @helm_bp.route("/releases/<name>/save", methods=["POST"])
