@@ -84,6 +84,7 @@ def derive_namespace(sub: str) -> str:
 ```
 
 Properties:
+
 - **Always valid**: `user-` prefix + 16 lowercase hex chars = 21 chars, matches
   RFC 1123 subdomain rules
 - **Deterministic**: same `sub` always produces the same namespace
@@ -150,11 +151,55 @@ a JavaScript countdown every second:
 
 ---
 
+## Group Access Control
+
+Access can be restricted to users who hold at least one specific EGI VO
+entitlement by setting `allowed_groups` in `site_config.yaml`.
+
+### How it works
+
+After a token is cryptographically validated, `check_group_access` inspects
+two JWT claims:
+
+| Claim | Description |
+|---|---|
+| `eduperson_entitlement` | Full RFC-format URN list, e.g. `urn:mace:egi.eu:group:vo.access.egi.eu:role=member#aai.egi.eu` |
+| `entitlements` | Alias or short-form list, same URN style |
+
+Both fields are checked together (union). An entitlement matches when it
+**contains** any of the `allowed_groups` strings as a **substring**
+(case-sensitive).
+
+### Configuration
+
+```yaml
+# manager/site_config.yaml
+allowed_groups:
+  - "vo.access.egi.eu"
+```
+
+A user whose token contains
+`urn:mace:egi.eu:group:vo.access.egi.eu:role=member#aai.egi.eu` in either
+claim field will pass the check.
+
+An empty list (or omitting the key entirely) disables the check — any
+authenticated EGI user is allowed.
+
+### Response on denial
+
+| Layer | Behaviour |
+|---|---|
+| REST API (`require_token`) | HTTP **403 Forbidden** with JSON `{"error": "...", "code": 403}` |
+| Web GUI (`/login` POST) | Flash error message, redirect back to `/login` |
+
+---
+
 ## Helper Functions (`token_auth.py`)
 
 | Function | Description |
 |---|---|
 | `validate_token(token)` | Full 6-step validation; returns claims dict or raises `ValueError` |
+| `check_group_access(claims, allowed_groups)` | Verifies group membership via entitlement substring match; raises `ValueError` on denial |
 | `derive_namespace(sub)` | Derives namespace string from subject claim |
 | `get_session_user()` | Reads Flask session; returns `{sub, namespace, exp, iss}` or `None` |
-| `require_token(f)` | Decorator: redirects to `/login` (HTML) or returns 401 (JSON/XHR) |
+| `require_token(f)` | Decorator: returns 401 (invalid token) or 403 (group denied) on failure |

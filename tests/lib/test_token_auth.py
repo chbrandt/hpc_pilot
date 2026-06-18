@@ -15,6 +15,7 @@ import pytest
 from lib.token_auth import (
     TRUSTED_ISSUERS,
     _KEY_CACHE,
+    check_group_access,
     derive_namespace,
     validate_token,
 )
@@ -184,3 +185,89 @@ class TestValidateTokenSuccess:
         ):
             with pytest.raises(ValueError, match="[Ee]xpired"):
                 validate_token("any.token.value")
+
+
+# ---------------------------------------------------------------------------
+# check_group_access
+# ---------------------------------------------------------------------------
+
+_ENTITLEMENT_ACCESS = (
+    "urn:mace:egi.eu:group:vo.access.egi.eu:role=member#aai.egi.eu"
+)
+_ENTITLEMENT_NOTEBOOKS = (
+    "urn:mace:egi.eu:group:vo.notebooks.egi.eu:role=member#aai.egi.eu"
+)
+
+
+class TestCheckGroupAccess:
+    """Tests for lib.token_auth.check_group_access (substring matching)."""
+
+    # ── Open-access cases (empty / None allowed_groups) ──────────────
+
+    def test_empty_allowed_groups_passes(self):
+        """No restrictions configured → any authenticated user is allowed."""
+        check_group_access({"sub": "user"}, [])
+
+    def test_none_allowed_groups_passes(self):
+        """None is treated the same as an empty list."""
+        check_group_access({"sub": "user"}, None)
+
+    # ── Successful match cases ────────────────────────────────────────
+
+    def test_match_in_eduperson_entitlement(self):
+        """Substring found in 'eduperson_entitlement' → passes."""
+        claims = {"eduperson_entitlement": [_ENTITLEMENT_ACCESS]}
+        check_group_access(claims, ["vo.access.egi.eu"])  # no exception
+
+    def test_match_in_entitlements_field(self):
+        """Substring found in 'entitlements' → passes."""
+        claims = {"entitlements": [_ENTITLEMENT_NOTEBOOKS]}
+        check_group_access(claims, ["vo.notebooks.egi.eu"])  # no exception
+
+    def test_match_in_either_field_is_sufficient(self):
+        """A hit in either field grants access (union semantics)."""
+        claims = {
+            "eduperson_entitlement": [_ENTITLEMENT_ACCESS],
+            "entitlements": [_ENTITLEMENT_NOTEBOOKS],
+        }
+        # required group only present in 'entitlements'
+        check_group_access(claims, ["vo.notebooks.egi.eu"])
+
+    def test_first_matching_group_is_sufficient(self):
+        """Having at least one required group is enough even if others are missing."""
+        claims = {"eduperson_entitlement": [_ENTITLEMENT_ACCESS]}
+        check_group_access(
+            claims, ["vo.missing.egi.eu", "vo.access.egi.eu"]
+        )  # second entry matches
+
+    def test_string_entitlement_value_handled(self):
+        """A bare string (not a list) in either claim field is accepted."""
+        claims = {"eduperson_entitlement": _ENTITLEMENT_ACCESS}
+        check_group_access(claims, ["vo.access.egi.eu"])
+
+    # ── Failure cases ─────────────────────────────────────────────────
+
+    def test_no_match_raises_value_error(self):
+        """No entitlement matches any required group → ValueError."""
+        claims = {"eduperson_entitlement": [_ENTITLEMENT_ACCESS]}
+        with pytest.raises(ValueError, match="[Aa]ccess denied"):
+            check_group_access(claims, ["vo.other.egi.eu"])
+
+    def test_missing_entitlement_claims_raises_value_error(self):
+        """Token has no entitlement claims at all → ValueError."""
+        claims = {"sub": "user-no-groups"}
+        with pytest.raises(ValueError, match="[Aa]ccess denied"):
+            check_group_access(claims, ["vo.access.egi.eu"])
+
+    def test_empty_entitlement_list_raises_value_error(self):
+        """Empty entitlement list with a required group → ValueError."""
+        claims = {"eduperson_entitlement": [], "entitlements": []}
+        with pytest.raises(ValueError, match="[Aa]ccess denied"):
+            check_group_access(claims, ["vo.access.egi.eu"])
+
+    def test_error_message_includes_required_groups(self):
+        """The ValueError message should mention the required groups."""
+        required = ["vo.specific.egi.eu"]
+        claims = {"eduperson_entitlement": [_ENTITLEMENT_ACCESS]}
+        with pytest.raises(ValueError, match="vo.specific.egi.eu"):
+            check_group_access(claims, required)

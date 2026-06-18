@@ -12,12 +12,17 @@ explicitly as an argument to library functions.
 | Key | Default | Description |
 |---|---|---|
 | `cluster_domain` | `dev.local` | Wildcard base domain of the Kubernetes cluster. Each user's InterLink deployment is reachable at `<namespace>.<cluster_domain>`. For a wildcard certificate `*.prod.example.com` set this to `prod.example.com`. |
+| `allowed_groups` | `[]` | Optional list of entitlement substrings. When non-empty, only users whose token contains at least one of these substrings in `eduperson_entitlement` or `entitlements` are granted access. An empty list disables the check (open access). |
 
 **Example:**
 
 ```yaml
 # site_config.yaml
 cluster_domain: prod.example.com
+
+# Restrict to members of a specific VO (substring match against entitlements)
+allowed_groups:
+  - "vo.access.egi.eu"
 ```
 
 > **Note:** `cluster_domain` was previously located inside `charts_config.yaml`

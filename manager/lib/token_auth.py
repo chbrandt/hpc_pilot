@@ -1,10 +1,13 @@
 """
-token_auth.py — EGI Check-in JWT access token validation and namespace derivation.
+token_auth.py — EGI Check-in JWT access token validation, group access
+control, and namespace derivation.
 
 Pure Python module: no web-framework dependency.
 
 Validates tokens using JWKS signature verification against the issuer's
-public keys, and provides namespace derivation helpers for Kubernetes.
+public keys, enforces optional group-membership restrictions via
+``check_group_access``, and provides namespace derivation helpers for
+Kubernetes.
 
 Flask session helpers (get_session_user, require_login) live in the
 respective web layers: app/auth.py (GUI) and api/auth.py (REST API).
@@ -183,6 +186,64 @@ def validate_token(token: str) -> dict:
 
     logger.info(f"Token validated for sub={claims.get('sub', '?')}...")
     return claims
+
+
+# ── Group access control ──────────────────────────────────────────────
+
+
+def check_group_access(claims: dict, allowed_groups: list[str]) -> None:
+    """
+    Enforce group membership by inspecting token entitlement claims.
+
+    Looks in both ``eduperson_entitlement`` and ``entitlements`` claim
+    fields (union of both lists).  An entitlement string is accepted when
+    it *contains* any of the ``allowed_groups`` strings as a substring
+    (case-sensitive).
+
+    If ``allowed_groups`` is empty or ``None`` the check is skipped,
+    granting open access to any authenticated EGI user.
+
+    Args:
+        claims: Verified JWT claims dict (output of :func:`validate_token`).
+        allowed_groups: Substrings that must appear in at least one
+            entitlement value.  Example: ``["vo.access.egi.eu"]``.
+
+    Raises:
+        ValueError: if ``allowed_groups`` is non-empty and none of the
+            required substrings are found in the token's entitlements.
+
+    Example::
+
+        claims = {
+            "eduperson_entitlement": [
+                "urn:mace:egi.eu:group:vo.access.egi.eu:role=member#aai.egi.eu"
+            ]
+        }
+        check_group_access(claims, ["vo.access.egi.eu"])  # passes
+        check_group_access(claims, ["vo.other.egi.eu"])   # raises ValueError
+    """
+    if not allowed_groups:
+        return  # open access — nothing to enforce
+
+    # Collect all entitlement strings from both claim fields (deduplicated)
+    entitlements: list[str] = []
+    for field in ("eduperson_entitlement", "entitlements"):
+        value = claims.get(field, [])
+        if isinstance(value, list):
+            entitlements.extend(value)
+        elif isinstance(value, str):
+            entitlements.append(value)
+
+    # Accept if any entitlement contains any of the required group substrings
+    for group in allowed_groups:
+        if any(group in ent for ent in entitlements):
+            logger.debug(f"Group access granted: matched '{group}'")
+            return
+
+    raise ValueError(
+        f"Access denied: your token does not contain a required group "
+        f"entitlement. Required (any of): {allowed_groups}"
+    )
 
 
 # ── Namespace derivation ──────────────────────────────────────────────

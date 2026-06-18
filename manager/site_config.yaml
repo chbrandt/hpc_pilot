@@ -17,3 +17,15 @@ cluster_domain: ngrok.dev
 wstunnel:
   port: 80
   local_port: 4000
+
+# Optional: restrict login to users who hold at least one of these
+# entitlement substrings (checked against 'eduperson_entitlement' and
+# 'entitlements' JWT claims using substring matching).
+# Leave the list empty or omit the key entirely to allow any authenticated
+# EGI Check-in user.
+#
+# Example (uncomment and edit as needed):
+# allowed_groups:
+#   - "vo.access.egi.eu"
+#   - "vo.notebooks.egi.eu"
+allowed_groups: []

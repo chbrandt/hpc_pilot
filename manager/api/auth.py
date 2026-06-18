@@ -25,7 +25,8 @@ from typing import Optional
 
 from flask import g, request
 
-from lib.token_auth import derive_namespace, validate_token
+from api.site_config import load_site_config
+from lib.token_auth import check_group_access, derive_namespace, validate_token
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,14 @@ def require_token(f):
         # Check expiry (validate_token already does this, but be explicit)
         if time.time() > claims.get("exp", 0):
             return _json_error("Token has expired.", 401)
+
+        # Group-access check (no-op when allowed_groups is empty)
+        allowed_groups = load_site_config().get("allowed_groups") or []
+        try:
+            check_group_access(claims, allowed_groups)
+        except ValueError as exc:
+            logger.warning("API group access denied: %s", exc)
+            return _json_error(str(exc), 403)
 
         # Attach enriched claims to the request context
         claims["namespace"] = derive_namespace(claims["sub"])

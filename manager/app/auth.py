@@ -16,7 +16,8 @@ from typing import Optional
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
-from lib.token_auth import derive_namespace, validate_token
+from api.site_config import load_site_config
+from lib.token_auth import check_group_access, derive_namespace, validate_token
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,15 @@ def login():
             claims = validate_token(token)
         except ValueError as exc:
             flash(f"Token validation failed: {exc}", "error")
+            return redirect(url_for("auth.login"))
+
+        # Group-access check (no-op when allowed_groups is empty)
+        allowed_groups = load_site_config().get("allowed_groups") or []
+        try:
+            check_group_access(claims, allowed_groups)
+        except ValueError as exc:
+            logger.warning("Web login group access denied: %s", exc)
+            flash(str(exc), "error")
             return redirect(url_for("auth.login"))
 
         # Derive the user's personal namespace from the sub claim
