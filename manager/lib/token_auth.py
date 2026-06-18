@@ -32,43 +32,71 @@ TRUSTED_ISSUERS = [
     "https://aai-demo.egi.eu/auth/realms/egi",
 ]
 
-# ── In-memory JWKS key cache keyed by issuer ─────────────────────────
-# Each entry: {"keys": list[dict], "fetched_at": float}
+# ── In-memory caches ──────────────────────────────────────────────────
+# OIDC config cache: {"config": dict, "fetched_at": float}
+_OIDC_CONFIG_CACHE: dict[str, dict] = {}
+# JWKS key cache: {"keys": list[dict], "fetched_at": float}
 _KEY_CACHE: dict[str, dict] = {}
 _CACHE_TTL = 3600  # seconds (1 hour)
 
 
-# ── JWKS helpers ──────────────────────────────────────────────────────
+# ── OIDC config / JWKS helpers ────────────────────────────────────────
+
+
+def _get_oidc_config(issuer: str) -> dict:
+    """
+    Return the cached OpenID Connect well-known configuration for the issuer.
+
+    Fetches and caches ``{issuer}/.well-known/openid-configuration`` for
+    ``_CACHE_TTL`` seconds.  The config dict contains fields such as
+    ``jwks_uri`` and ``userinfo_endpoint`` used by other helpers.
+
+    Args:
+        issuer: Trusted issuer URL.
+
+    Returns:
+        The parsed OIDC well-known configuration dict.
+
+    Raises:
+        ValueError: if the well-known endpoint cannot be reached or parsed.
+    """
+    cached = _OIDC_CONFIG_CACHE.get(issuer)
+    if cached and (time.time() - cached["fetched_at"]) < _CACHE_TTL:
+        return cached["config"]
+
+    well_known_url = f"{issuer}/.well-known/openid-configuration"
+    try:
+        resp = requests.get(well_known_url, timeout=10)
+        resp.raise_for_status()
+        config = resp.json()
+        logger.debug(f"Fetched OIDC configuration for issuer {issuer}")
+    except Exception as exc:
+        raise ValueError(
+            f"Cannot fetch OIDC configuration from {well_known_url}: {exc}"
+        ) from exc
+
+    _OIDC_CONFIG_CACHE[issuer] = {"config": config, "fetched_at": time.time()}
+    return config
 
 
 def _fetch_jwks(issuer: str) -> list[dict]:
     """
     Return JWKS keys for the given issuer, using a 1-hour in-memory cache.
 
-    Discovers the JWKS URI from the issuer's OpenID Connect well-known
-    configuration endpoint, then fetches and caches the key set.
+    Discovers the JWKS URI from the issuer's cached OIDC well-known
+    configuration, then fetches and caches the key set.
 
     Raises:
-        ValueError: if the well-known or JWKS endpoint cannot be reached.
+        ValueError: if the JWKS endpoint cannot be reached.
     """
     cached = _KEY_CACHE.get(issuer)
     if cached and (time.time() - cached["fetched_at"]) < _CACHE_TTL:
         return cached["keys"]
 
-    # Discover JWKS URI from .well-known configuration
-    well_known_url = f"{issuer}/.well-known/openid-configuration"
-    try:
-        resp = requests.get(well_known_url, timeout=10)
-        resp.raise_for_status()
-        oidc_config = resp.json()
-        jwks_uri = oidc_config["jwks_uri"]
-        logger.debug(f"Discovered JWKS URI: {jwks_uri}")
-    except Exception as exc:
-        raise ValueError(
-            f"Cannot fetch OIDC configuration from {well_known_url}: {exc}"
-        ) from exc
+    oidc_config = _get_oidc_config(issuer)
+    jwks_uri = oidc_config["jwks_uri"]
+    logger.debug(f"Discovered JWKS URI: {jwks_uri}")
 
-    # Fetch JWKS
     try:
         resp = requests.get(jwks_uri, timeout=10)
         resp.raise_for_status()
@@ -95,7 +123,7 @@ def _get_public_key(issuer: str, kid: str):
     matching = [k for k in keys if k.get("kid") == kid]
 
     if not matching:
-        # Key may have rotated — clear cache and retry once
+        # Key may have rotated — clear JWKS cache and retry once
         _KEY_CACHE.pop(issuer, None)
         keys = _fetch_jwks(issuer)
         matching = [k for k in keys if k.get("kid") == kid]
@@ -121,6 +149,14 @@ def validate_token(token: str) -> dict:
     5. Locate the matching public key by 'kid'.
     6. Verify the full token: signature, expiry ('exp'), and issuer.
     7. Return the verified claims dict.
+
+    Note:
+        The returned claims dict contains only the fields embedded in the
+        JWT itself.  EGI Check-in does **not** include entitlement claims
+        (``eduperson_entitlement``, ``entitlements``) in the access token.
+        Call :func:`fetch_userinfo` to obtain the full profile including
+        group membership, then pass the merged dict to
+        :func:`check_group_access`.
 
     Args:
         token: Raw JWT string (the EGI Check-in access token).
@@ -188,6 +224,66 @@ def validate_token(token: str) -> dict:
     return claims
 
 
+# ── UserInfo fetch ────────────────────────────────────────────────────
+
+
+def fetch_userinfo(token: str, issuer: str) -> dict:
+    """
+    Fetch the full user profile from the OIDC UserInfo endpoint.
+
+    EGI Check-in does **not** embed entitlement claims
+    (``eduperson_entitlement``, ``entitlements``) in the JWT access token
+    payload — they are only available by calling the UserInfo endpoint with
+    the access token as the bearer credential.
+
+    The ``userinfo_endpoint`` URL is discovered from the issuer's well-known
+    OIDC configuration, which is already cached by :func:`_get_oidc_config`.
+
+    Args:
+        token: Raw JWT access token string (used as the bearer credential).
+        issuer: Trusted issuer URL (must already have been validated by
+            :func:`validate_token`).
+
+    Returns:
+        UserInfo claims dict.  Typically includes ``sub``, ``email``,
+        ``eduperson_entitlement``, ``entitlements``, and other profile
+        fields released by the OP.
+
+    Raises:
+        ValueError: if the UserInfo endpoint cannot be reached or returns a
+            non-2xx response.
+
+    Example::
+
+        claims = validate_token(token)
+        userinfo = fetch_userinfo(token, claims["iss"])
+        merged = {**claims, **userinfo}
+        check_group_access(merged, allowed_groups)
+    """
+    oidc_config = _get_oidc_config(issuer)
+    userinfo_url = oidc_config.get("userinfo_endpoint")
+    if not userinfo_url:
+        raise ValueError(
+            f"Issuer '{issuer}' OIDC configuration does not expose a "
+            f"'userinfo_endpoint'."
+        )
+
+    try:
+        resp = requests.get(
+            userinfo_url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        userinfo = resp.json()
+        logger.debug(f"Fetched UserInfo for sub={userinfo.get('sub', '?')}")
+        return userinfo
+    except Exception as exc:
+        raise ValueError(
+            f"Cannot fetch UserInfo from {userinfo_url}: {exc}"
+        ) from exc
+
+
 # ── Group access control ──────────────────────────────────────────────
 
 
@@ -203,8 +299,15 @@ def check_group_access(claims: dict, allowed_groups: list[str]) -> None:
     If ``allowed_groups`` is empty or ``None`` the check is skipped,
     granting open access to any authenticated EGI user.
 
+    .. important::
+        EGI Check-in does not embed entitlement claims in the JWT access
+        token.  Pass a **merged** dict of JWT claims and UserInfo claims
+        (see :func:`fetch_userinfo`) to this function; do not pass the raw
+        JWT claims dict when group enforcement is needed.
+
     Args:
-        claims: Verified JWT claims dict (output of :func:`validate_token`).
+        claims: Claims dict to inspect — typically the merged result of
+            :func:`validate_token` and :func:`fetch_userinfo`.
         allowed_groups: Substrings that must appear in at least one
             entitlement value.  Example: ``["vo.access.egi.eu"]``.
 
@@ -225,7 +328,7 @@ def check_group_access(claims: dict, allowed_groups: list[str]) -> None:
     if not allowed_groups:
         return  # open access — nothing to enforce
 
-    # Collect all entitlement strings from both claim fields (deduplicated)
+    # Collect all entitlement strings from both claim fields
     entitlements: list[str] = []
     for field in ("eduperson_entitlement", "entitlements"):
         value = claims.get(field, [])
@@ -233,6 +336,11 @@ def check_group_access(claims: dict, allowed_groups: list[str]) -> None:
             entitlements.extend(value)
         elif isinstance(value, str):
             entitlements.append(value)
+
+    logger.debug(
+        f"Checking group access — required: {allowed_groups}, "
+        f"found entitlements: {entitlements}"
+    )
 
     # Accept if any entitlement contains any of the required group substrings
     for group in allowed_groups:

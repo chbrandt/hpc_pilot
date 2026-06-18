@@ -26,7 +26,12 @@ from typing import Optional
 from flask import g, request
 
 from api.site_config import load_site_config
-from lib.token_auth import check_group_access, derive_namespace, validate_token
+from lib.token_auth import (
+    check_group_access,
+    derive_namespace,
+    fetch_userinfo,
+    validate_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,16 +87,30 @@ def require_token(f):
 
         try:
             claims = validate_token(token)
+            logger.debug(f"Token claims: {claims}")
         except ValueError as exc:
             logger.warning("API token validation failed: %s", exc)
             return _json_error(f"Token validation failed: {exc}", 401)
 
         # Check expiry (validate_token already does this, but be explicit)
         if time.time() > claims.get("exp", 0):
+            logger.debug("Token has expired.")
             return _json_error("Token has expired.", 401)
 
         # Group-access check (no-op when allowed_groups is empty)
         allowed_groups = load_site_config().get("allowed_groups") or []
+        if allowed_groups:
+            # Entitlements are not in the JWT — fetch them from the UserInfo endpoint
+            try:
+                userinfo = fetch_userinfo(token, claims["iss"])
+                claims = {**claims, **userinfo}
+            except ValueError as exc:
+                logger.warning("UserInfo fetch failed: %s", exc)
+                return _json_error(
+                    f"Could not verify group membership "
+                    f"(UserInfo endpoint unavailable): {exc}",
+                    503,
+                )
         try:
             check_group_access(claims, allowed_groups)
         except ValueError as exc:

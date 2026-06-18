@@ -15,8 +15,10 @@ import pytest
 from lib.token_auth import (
     TRUSTED_ISSUERS,
     _KEY_CACHE,
+    _OIDC_CONFIG_CACHE,
     check_group_access,
     derive_namespace,
+    fetch_userinfo,
     validate_token,
 )
 
@@ -271,3 +273,96 @@ class TestCheckGroupAccess:
         claims = {"eduperson_entitlement": [_ENTITLEMENT_ACCESS]}
         with pytest.raises(ValueError, match="vo.specific.egi.eu"):
             check_group_access(claims, required)
+
+
+# ---------------------------------------------------------------------------
+# fetch_userinfo
+# ---------------------------------------------------------------------------
+
+_FAKE_USERINFO = {
+    "sub": FAKE_CLAIMS["sub"],
+    "email": "user@example.egi.eu",
+    "eduperson_entitlement": [_ENTITLEMENT_ACCESS],
+    "entitlements": [_ENTITLEMENT_NOTEBOOKS],
+}
+
+_FAKE_OIDC_CONFIG = {
+    "jwks_uri": "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/certs",
+    "userinfo_endpoint": "https://aai.egi.eu/auth/realms/egi/protocol/openid-connect/userinfo",
+}
+
+
+class TestFetchUserinfo:
+    """Tests for lib.token_auth.fetch_userinfo."""
+
+    def _mock_oidc_config(self):
+        """Seed _OIDC_CONFIG_CACHE so no real HTTP is needed."""
+        _OIDC_CONFIG_CACHE[TRUSTED_ISSUER] = {
+            "config": _FAKE_OIDC_CONFIG,
+            "fetched_at": time.time(),
+        }
+
+    def setup_method(self):
+        """Clear caches before each test."""
+        _OIDC_CONFIG_CACHE.clear()
+
+    def test_returns_userinfo_dict_on_success(self):
+        """Happy path: mocked HTTP 200 returns the userinfo dict."""
+        self._mock_oidc_config()
+        mock_response = MagicMock()
+        mock_response.json.return_value = _FAKE_USERINFO
+        mock_response.raise_for_status.return_value = None
+
+        with patch("lib.token_auth.requests.get", return_value=mock_response):
+            result = fetch_userinfo("fake-token", TRUSTED_ISSUER)
+
+        assert result["sub"] == FAKE_CLAIMS["sub"]
+        assert "eduperson_entitlement" in result
+        assert "entitlements" in result
+
+    def test_bearer_token_sent_in_header(self):
+        """The raw token must be forwarded as Authorization: Bearer."""
+        self._mock_oidc_config()
+        mock_response = MagicMock()
+        mock_response.json.return_value = _FAKE_USERINFO
+        mock_response.raise_for_status.return_value = None
+
+        with patch("lib.token_auth.requests.get", return_value=mock_response) as mock_get:
+            fetch_userinfo("my-raw-token", TRUSTED_ISSUER)
+
+        _call_kwargs = mock_get.call_args
+        headers = _call_kwargs[1]["headers"]
+        assert headers["Authorization"] == "Bearer my-raw-token"
+
+    def test_http_error_raises_value_error(self):
+        """A non-2xx response from the UserInfo endpoint raises ValueError."""
+        self._mock_oidc_config()
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = Exception("401 Unauthorized")
+
+        with patch("lib.token_auth.requests.get", return_value=mock_response):
+            with pytest.raises(ValueError, match="[Cc]annot fetch UserInfo"):
+                fetch_userinfo("bad-token", TRUSTED_ISSUER)
+
+    def test_missing_userinfo_endpoint_raises_value_error(self):
+        """If the OIDC config has no userinfo_endpoint, raise ValueError."""
+        _OIDC_CONFIG_CACHE[TRUSTED_ISSUER] = {
+            "config": {"jwks_uri": "https://example.com/certs"},  # no userinfo_endpoint
+            "fetched_at": time.time(),
+        }
+        with pytest.raises(ValueError, match="userinfo_endpoint"):
+            fetch_userinfo("any-token", TRUSTED_ISSUER)
+
+    def test_uses_cached_oidc_config(self):
+        """UserInfo endpoint is resolved from the cached OIDC config (no extra HTTP call)."""
+        self._mock_oidc_config()
+        mock_response = MagicMock()
+        mock_response.json.return_value = _FAKE_USERINFO
+        mock_response.raise_for_status.return_value = None
+
+        with patch("lib.token_auth.requests.get", return_value=mock_response) as mock_get:
+            fetch_userinfo("token", TRUSTED_ISSUER)
+
+        # Only one HTTP call should have been made (the UserInfo request itself)
+        assert mock_get.call_count == 1
+        assert _FAKE_OIDC_CONFIG["userinfo_endpoint"] in mock_get.call_args[0]

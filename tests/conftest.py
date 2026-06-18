@@ -75,5 +75,7 @@ def auth_headers(app):
     with (
         patch("api.auth.validate_token", return_value=fake_claims),
         patch("api.auth.derive_namespace", return_value=fake_ns),
+        # Bypass group-access check: tests cover API logic, not authn/authz rules
+        patch("api.auth.load_site_config", return_value={}),
     ):
         yield {"Authorization": "Bearer fake-test-token"}, fake_ns

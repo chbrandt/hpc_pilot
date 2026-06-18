@@ -159,10 +159,16 @@ class TestPublicHelpers:
         assert result["success"] is True
 
     def test_undeploy_failure_on_remove_step(self):
-        """undeploy() propagates failure when the rm -rf step fails."""
-        stop_ok = {"success": True, "output": "stopped", "error": ""}
+        """undeploy() propagates failure when the rm -rf step fails.
+
+        undeploy() runs three sequential steps — stop_services,
+        stop_supervisord, remove_installation — each of which calls
+        _run_mccli once.  Provide three responses so that only the final
+        remove_installation step fails.
+        """
+        ok = {"success": True, "output": "done", "error": ""}
         remove_fail = {"success": False, "output": "", "error": "permission denied"}
-        responses = [stop_ok, remove_fail]
+        responses = [ok, ok, remove_fail]
         with patch("lib.hpc_client._run_mccli", side_effect=responses):
             result = hpc.undeploy(FAKE_TOKEN, FAKE_HOST, FAKE_PORT)
         assert result["success"] is False

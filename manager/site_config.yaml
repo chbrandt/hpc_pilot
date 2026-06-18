@@ -23,9 +23,11 @@ wstunnel:
 # 'entitlements' JWT claims using substring matching).
 # Leave the list empty or omit the key entirely to allow any authenticated
 # EGI Check-in user.
+# If allowed_groups is empty, access is unrestricted.
 #
 # Example (uncomment and edit as needed):
-# allowed_groups:
-#   - "vo.access.egi.eu"
-#   - "vo.notebooks.egi.eu"
-allowed_groups: []
+# allowed_groups: []
+allowed_groups:
+  # - "vo.access.egi.eu"
+  # - "vo.notebooks.egi.eu"
+  - "hpc-wg"

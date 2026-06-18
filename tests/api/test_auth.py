@@ -117,6 +117,7 @@ class TestRequireToken:
         with (
             patch("api.auth.validate_token", return_value=valid_claims),
             patch("api.auth.derive_namespace", return_value="user-testns"),
+            patch("api.auth.load_site_config", return_value={}),
         ):
             resp = mini_client.get(
                 "/protected", headers={"Authorization": "Bearer validtoken"}
@@ -147,6 +148,7 @@ class TestRequireToken:
         with (
             patch("api.auth.validate_token", return_value=valid_claims),
             patch("api.auth.derive_namespace", return_value="user-derived-ns"),
+            patch("api.auth.load_site_config", return_value={}),
         ):
             mini_client.get(
                 "/claims-check", headers={"Authorization": "Bearer tok"}
