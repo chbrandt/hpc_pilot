@@ -32,7 +32,7 @@ security:
 
 tags:
   - name: Kubernetes
-    description: Container deployment operations (Kubernetes)
+    description: Container job operations (Kubernetes + InterLink)
   - name: Helm
     description: Helm chart operations
   - name: HPC
@@ -70,80 +70,28 @@ components:
           type: string
           description: Present only when success is false
 
-    # ── Kubernetes ────────────────────────────────────────────────────────────
+    # ── Kubernetes / Jobs ─────────────────────────────────────────────────────
 
-    Port:
+    JobRequest:
       type: object
-      required: [number]
-      properties:
-        number:
-          type: integer
-          minimum: 1
-          maximum: 65535
-          example: 80
-        name:
-          type: string
-          example: http
-        protocol:
-          type: string
-          enum: [TCP, UDP]
-          default: TCP
-
-    IngressSpec:
-      type: object
-      properties:
-        host:
-          type: string
-          description: Ingress hostname (empty string matches all)
-          example: myapp.example.com
-        path:
-          type: string
-          default: /
-          example: /
-        port:
-          oneOf:
-            - type: integer
-            - type: string
-          description: Target port number or name
-          example: 80
-        class:
-          type: string
-          description: Ingress class name
-          example: nginx
-
-    DeploymentRequest:
-      type: object
-      required: [name, image]
+      required: [name, image, node_name]
       properties:
         name:
           type: string
-          description: Deployment name (RFC 1123, max 63 chars)
-          example: my-nginx
+          description: |
+            Job name — must be a valid RFC 1123 DNS label (lowercase alphanumeric
+            and hyphens, max 63 characters).
+          example: my-ubuntu-job
         image:
           type: string
           description: Container image reference
-          example: nginx:latest
-        replicas:
-          type: integer
-          minimum: 1
-          default: 1
-          example: 1
-        cpu_request:
+          example: ubuntu:22.04
+        node_name:
           type: string
-          description: Kubernetes CPU request
-          example: "100m"
-        cpu_limit:
-          type: string
-          description: Kubernetes CPU limit
-          example: "500m"
-        mem_request:
-          type: string
-          description: Kubernetes memory request
-          example: "64Mi"
-        mem_limit:
-          type: string
-          description: Kubernetes memory limit
-          example: "256Mi"
+          description: |
+            Name of the InterLink virtual-kubelet node on which the job must run.
+            Sets `spec.nodeSelector["kubernetes.io/hostname"]` on the pod template.
+          example: vk-node-1
         env_vars:
           type: object
           description: Environment variables as key/value pairs
@@ -152,87 +100,124 @@ components:
           example:
             MY_VAR: hello
             ANOTHER: world
-        ports:
-          type: array
-          items:
-            $ref: "#/components/schemas/Port"
-          example:
-            - number: 80
-              name: http
-              protocol: TCP
         command:
           type: string
           description: Shell command override (runs as `/bin/sh -c "<command>"`)
           example: "echo hello && sleep infinity"
-        ingress:
-          $ref: "#/components/schemas/IngressSpec"
 
-    DeploymentResult:
+    JobResult:
       allOf:
         - $ref: "#/components/schemas/OperationResult"
         - type: object
           properties:
-            name:
+            job_name:
               type: string
+              description: Name of the created Kubernetes Deployment
+              example: my-ubuntu-job
             namespace:
               type: string
+              example: user-a3f1b2c4d5e6f7a8
+            image:
+              type: string
+              example: ubuntu:22.04
+            node_name:
+              type: string
+              description: InterLink virtual-kubelet node the pod is pinned to
+              example: vk-node-1
+            status:
+              type: string
+              enum: [progressing, available, unknown]
+              example: progressing
 
-    DeploymentSummary:
+    JobSummary:
       type: object
       properties:
         name:
           type: string
+          example: my-ubuntu-job
         namespace:
           type: string
+          example: user-a3f1b2c4d5e6f7a8
         image:
           type: string
-        replicas:
-          type: integer
-        ready_replicas:
-          type: integer
+          example: ubuntu:22.04
+        node_name:
+          type: string
+          description: InterLink virtual-kubelet node the pod is pinned to
+          example: vk-node-1
         status:
           type: string
           enum: [available, progressing, unknown]
+          example: available
         created:
           type: string
           format: date-time
-        service_ports:
-          type: array
-          items:
-            $ref: "#/components/schemas/Port"
+
+    JobSpec:
+      type: object
+      description: |
+        Full job specification as stored in the cluster — mirrors the parameters
+        accepted by `POST /api/jobs` and can be used to re-submit the job.
+      properties:
+        name:
+          type: string
+          example: my-ubuntu-job
+        image:
+          type: string
+          example: ubuntu:22.04
+        node_name:
+          type: string
+          example: vk-node-1
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
           nullable: true
-        ingress_url:
+        command:
           type: string
           nullable: true
 
-    DeploymentStatus:
+    JobStatus:
       type: object
       properties:
+        name:
+          type: string
+          example: my-ubuntu-job
+        namespace:
+          type: string
+          example: user-a3f1b2c4d5e6f7a8
         status:
           type: string
           enum: [available, progressing, unknown]
+          example: available
         replicas_status:
           type: string
-          description: "Ready/total replicas, e.g. '2/2'"
-          example: "2/2"
+          description: "Ready/total replicas, e.g. '1/1'"
+          example: "1/1"
         ready_replicas:
           type: integer
-          example: 2
+          example: 1
+        available_replicas:
+          type: integer
+          example: 1
+        updated_replicas:
+          type: integer
+          example: 1
         replicas:
           type: integer
-          example: 2
+          example: 1
+        image:
+          type: string
+          example: ubuntu:22.04
+        created:
+          type: string
+          format: date-time
 
-    DeleteDeploymentResult:
+    DeleteJobResult:
       type: object
       properties:
-        deployment:
+        job:
           $ref: "#/components/schemas/OperationResult"
-        service:
-          $ref: "#/components/schemas/OperationResult"
-          nullable: true
-        ingress:
-          $ref: "#/components/schemas/OperationResult"
-          nullable: true
 
     # ── Helm ─────────────────────────────────────────────────────────────────
 
@@ -386,7 +371,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
           example:
-            error: "'release_name' is required."
+            error: "'node_name' is required."
 
     NotFound:
       description: The requested resource was not found.
@@ -395,7 +380,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
           example:
-            error: "Deployment 'my-nginx' not found in namespace 'user-abc123'."
+            error: "Job 'my-ubuntu-job' not found in namespace 'user-abc123'."
 
     InternalError:
       description: Unexpected server-side error.
@@ -407,14 +392,14 @@ components:
             error: "connection refused"
 
   parameters:
-    DeploymentName:
+    JobName:
       name: name
       in: path
       required: true
-      description: Deployment name
+      description: Job name (Kubernetes Deployment name)
       schema:
         type: string
-      example: my-nginx
+      example: my-ubuntu-job
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
@@ -464,23 +449,60 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # ── Kubernetes: Deployments ───────────────────────────────────────────────
+  # ── Kubernetes: InterLink nodes ──────────────────────────────────────────
 
-  /api/deployments:
+  /api/nodes/interlink:
     get:
       tags: [Kubernetes]
-      summary: List deployments
-      description: List all container deployments in the authenticated user's namespace.
-      operationId: listDeployments
+      summary: List InterLink virtual-kubelet nodes
+      description: |
+        Return the names of cluster nodes that carry the
+        `virtual-node.interlink/no-schedule` taint — these are the nodes that
+        forward pods to HPC batch jobs via InterLink.
+
+        Use the returned names as the `node_name` value when submitting a job.
+      operationId: listInterlinkNodes
       responses:
         "200":
-          description: Array of deployment summaries
+          description: List of InterLink node names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: string
+                    example: ["vk-node-1", "vk-node-2"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── Kubernetes: Jobs ─────────────────────────────────────────────────────
+
+  /api/jobs:
+    get:
+      tags: [Kubernetes]
+      summary: List jobs
+      description: |
+        List all container jobs in the authenticated user's namespace.
+
+        Jobs are Kubernetes Deployments whose pod template is pinned to an
+        InterLink virtual-kubelet node.  InterLink translates each pod into an
+        HPC batch job.  Replica counts, resource requests/limits, container
+        ports, and Ingress are not supported.
+      operationId: listJobs
+      responses:
+        "200":
+          description: Array of job summaries
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/DeploymentSummary"
+                  $ref: "#/components/schemas/JobSummary"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -488,51 +510,50 @@ paths:
 
     post:
       tags: [Kubernetes]
-      summary: Create a deployment
+      summary: Submit a job
       description: |
-        Create a Kubernetes Deployment, and optionally a Service and Ingress,
-        in the authenticated user's namespace (auto-created if absent).
-      operationId: createDeployment
+        Create a Kubernetes Deployment whose pod is scheduled on the specified
+        InterLink virtual-kubelet node.
+
+        The pod template always sets:
+        - `spec.nodeSelector["kubernetes.io/hostname"]` = `node_name`
+        - `spec.tolerations` = `[{key: virtual-node.interlink/no-schedule, operator: Exists}]`
+
+        InterLink translates the pod into an HPC batch job; therefore replica
+        counts, CPU/memory resource requests and limits, container port
+        definitions, and Ingress are **not supported** and are not accepted by
+        this endpoint.
+      operationId: createJob
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DeploymentRequest"
+              $ref: "#/components/schemas/JobRequest"
             examples:
               minimal:
-                summary: Minimal — just name and image
+                summary: Minimal — name, image, and node
                 value:
-                  name: my-nginx
-                  image: nginx:latest
-              full:
-                summary: Full — resources, env vars, ports, ingress
+                  name: my-ubuntu-job
+                  image: ubuntu:22.04
+                  node_name: vk-node-1
+              with_env_and_command:
+                summary: With environment variables and command override
                 value:
-                  name: my-app
-                  image: myorg/myapp:1.2.3
-                  replicas: 2
-                  cpu_request: "100m"
-                  cpu_limit: "500m"
-                  mem_request: "64Mi"
-                  mem_limit: "256Mi"
+                  name: my-sim
+                  image: myorg/simulation:1.0
+                  node_name: vk-node-1
                   env_vars:
-                    ENV: production
-                  ports:
-                    - number: 8080
-                      name: http
-                      protocol: TCP
-                  ingress:
-                    host: myapp.example.com
-                    path: /
-                    port: 8080
-                    class: nginx
+                    THREADS: "8"
+                    DATA_PATH: /scratch/data
+                  command: "python run.py --threads $THREADS"
       responses:
         "201":
-          description: Deployment created successfully
+          description: Job submitted successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeploymentResult"
+                $ref: "#/components/schemas/JobResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -540,26 +561,25 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /api/deployments/{name}/status:
+  /api/jobs/{name}:
     get:
       tags: [Kubernetes]
-      summary: Get deployment status
-      description: Return the current rollout status for a single deployment.
-      operationId: getDeploymentStatus
+      summary: Get job spec
+      description: |
+        Return the full specification of a single job as stored in the cluster.
+
+        The returned object mirrors the `POST /api/jobs` request body and can
+        be used to re-submit the same job.
+      operationId: getJob
       parameters:
-        - $ref: "#/components/parameters/DeploymentName"
+        - $ref: "#/components/parameters/JobName"
       responses:
         "200":
-          description: Deployment status
+          description: Job specification
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeploymentStatus"
-              example:
-                status: available
-                replicas_status: "2/2"
-                ready_replicas: 2
-                replicas: 2
+                $ref: "#/components/schemas/JobSpec"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -567,26 +587,66 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /api/deployments/{name}:
     delete:
       tags: [Kubernetes]
-      summary: Delete a deployment
+      summary: Delete a job
       description: |
-        Delete a Deployment and its associated Service and Ingress (if they exist).
-      operationId: deleteDeployment
+        Delete the Kubernetes Deployment for this job.
+
+        Only the Deployment is deleted; no Service or Ingress is created by
+        the job API, so none needs to be removed.
+      operationId: deleteJob
       parameters:
-        - $ref: "#/components/parameters/DeploymentName"
+        - $ref: "#/components/parameters/JobName"
       responses:
         "200":
-          description: Deletion result per resource
+          description: Deletion result
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeleteDeploymentResult"
+                $ref: "#/components/schemas/DeleteJobResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/jobs/{name}/status:
+    get:
+      tags: [Kubernetes]
+      summary: Get job status
+      description: |
+        Return the current rollout status for a single job.
+
+        The `status` field maps Kubernetes Deployment conditions to display states:
+        - `available` — `Available=True`
+        - `progressing` — `Progressing=True` and not yet available
+        - `unknown` — no recognised condition
+      operationId: getJobStatus
+      parameters:
+        - $ref: "#/components/parameters/JobName"
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+              example:
+                name: my-ubuntu-job
+                namespace: user-a3f1b2c4d5e6f7a8
+                status: available
+                replicas_status: "1/1"
+                ready_replicas: 1
+                available_replicas: 1
+                updated_replicas: 1
+                replicas: 1
+                image: ubuntu:22.04
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 

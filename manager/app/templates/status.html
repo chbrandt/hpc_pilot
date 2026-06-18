@@ -1,167 +1,83 @@
 {% extends "base.html" %}
 
-{% block title %}Deployment Result — HPC Pilot{% endblock %}
+{% block title %}Job Result — HPC Pilot{% endblock %}
 
 {% block content %}
-<h1>Deployment Result</h1>
+<h1>Job Result</h1>
 
 {% if result.success %}
-    <div class="status-card status-success">
-        <div class="status-icon">✅</div>
-        <h2>Deployment Created Successfully!</h2>
+<div class="status-card status-success">
+  <div class="status-icon">✅</div>
+  <h2>Job Submitted Successfully!</h2>
 
-        <table class="info-table">
-            <tr>
-                <th>Name</th>
-                <td>{{ result.deployment_name }}</td>
-            </tr>
-            <tr>
-                <th>Namespace</th>
-                <td>{{ result.namespace }}</td>
-            </tr>
-            <tr>
-                <th>Image</th>
-                <td>{{ result.image }}</td>
-            </tr>
-            <tr>
-                <th>Replicas</th>
-                <td>{{ result.replicas }}</td>
-            </tr>
-            <tr>
-                <th>Ready</th>
-                <td>
-                    <span class="badge badge-{{ result.status }}" id="dep-status">
-                        <span id="dep-replicas">0/{{ result.replicas }}</span>
-                        &nbsp;({{ result.status }})
-                    </span>
-                </td>
-            </tr>
-        </table>
-
-        {# ── NodePort Service ── #}
-        {% if result.service %}
-            <div class="service-info">
-                <h3>🔌 NodePort Service</h3>
-                {% if result.service.success %}
-                    <p class="service-name text-muted">Service: <strong>{{ result.service.service_name }}</strong></p>
-                    <table class="ports-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Container Port</th>
-                                <th>NodePort</th>
-                                <th>Protocol</th>
-                                <th>External URL</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for p in result.service.ports %}
-                            <tr>
-                                <td>{{ p.name }}</td>
-                                <td>{{ p.port }}</td>
-                                <td><strong>{{ p.node_port }}</strong></td>
-                                <td>{{ p.protocol }}</td>
-                                <td>
-                                    <a href="{{ p.external_url }}" target="_blank" class="external-link">
-                                        {{ p.external_url }}
-                                    </a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                {% else %}
-                    <div class="alert alert-error">
-                        Service creation failed: {{ result.service.error }}
-                    </div>
-                {% endif %}
-            </div>
-        {% endif %}
-
-        {# ── Ingress ── #}
-        {% if result.ingress %}
-            <div class="service-info">
-                <h3>🌐 Ingress</h3>
-                {% if result.ingress.success %}
-                    <table class="info-table">
-                        <tr>
-                            <th>Ingress Name</th>
-                            <td>{{ result.ingress.ingress_name }}</td>
-                        </tr>
-                        <tr>
-                            <th>Host</th>
-                            <td>{{ result.ingress.host }}</td>
-                        </tr>
-                        <tr>
-                            <th>Path</th>
-                            <td>{{ result.ingress.path }}</td>
-                        </tr>
-                        <tr>
-                            <th>URL</th>
-                            <td>
-                                <a href="{{ result.ingress.url }}" target="_blank" class="external-link">
-                                    {{ result.ingress.url }}
-                                </a>
-                            </td>
-                        </tr>
-                    </table>
-                {% else %}
-                    <div class="alert alert-error">
-                        Ingress creation failed: {{ result.ingress.error }}
-                    </div>
-                {% endif %}
-            </div>
-        {% endif %}
-
-    </div>
+  <table class="info-table">
+    <tr>
+      <th>Name</th>
+      <td>{{ result.job_name }}</td>
+    </tr>
+    <tr>
+      <th>Namespace</th>
+      <td>{{ result.namespace }}</td>
+    </tr>
+    <tr>
+      <th>Image</th>
+      <td>{{ result.image }}</td>
+    </tr>
+    <tr>
+      <th>Node</th>
+      <td>{{ result.node_name }}</td>
+    </tr>
+    <tr>
+      <th>Status</th>
+      <td>
+        <span class="badge badge-{{ result.status }}" id="job-status-badge">
+          <span id="job-status-text">{{ result.status }}</span>
+        </span>
+      </td>
+    </tr>
+  </table>
+</div>
 {% else %}
-    <div class="status-card status-error">
-        <div class="status-icon">❌</div>
-        <h2>Deployment Failed</h2>
-        <div class="error-detail">
-            <pre>{{ result.error }}</pre>
-        </div>
-    </div>
+<div class="status-card status-error">
+  <div class="status-icon">❌</div>
+  <h2>Job Submission Failed</h2>
+  <div class="error-detail">
+    <pre>{{ result.error }}</pre>
+  </div>
+</div>
 {% endif %}
 
 <div class="form-actions">
-    <a href="{{ url_for('app_k8s.index') }}" class="btn btn-secondary">← Deploy Another</a>
-    <a href="{{ url_for('app_k8s.deployments') }}" class="btn btn-primary">View All Deployments</a>
+  <a href="{{ url_for('app_k8s.index') }}" class="btn btn-secondary">← Submit Another</a>
+  <a href="{{ url_for('app_k8s.jobs') }}" class="btn btn-primary">View All Jobs</a>
 </div>
 
 {% if result.success %}
-<!-- Auto-refresh deployment status until Available -->
+<!-- Auto-refresh job status until Available -->
 <script>
-    const depName = "{{ result.deployment_name }}";
-    const namespace = "{{ result.namespace }}";
-    const statusEl = document.getElementById('dep-status');
-    const replicasEl = document.getElementById('dep-replicas');
+  const jobName = "{{ result.job_name }}";
+  const namespace = "{{ result.namespace }}";
+  const statusBadge = document.getElementById('job-status-badge');
+  const statusText = document.getElementById('job-status-text');
 
-    function refreshStatus() {
-        fetch(`/deployments/${namespace}/${depName}/status`)
-            .then(r => r.json())
-            .then(data => {
-                if (data.replicas_status) {
-                    replicasEl.textContent = data.replicas_status;
-                }
-                if (data.status) {
-                    statusEl.className = 'badge badge-' + data.status;
-                    // Update the text node after the replicas span
-                    const textNode = statusEl.lastChild;
-                    if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-                        textNode.textContent = '\u00a0(' + data.status + ')';
-                    }
-                }
-                // Keep polling until Available
-                if (data.status && data.status !== 'available') {
-                    setTimeout(refreshStatus, 3000);
-                }
-            })
-            .catch(() => {});
-    }
+  function refreshStatus() {
+    fetch(`/jobs/${namespace}/${jobName}/status`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.status) {
+          statusBadge.className = 'badge badge-' + data.status;
+          statusText.textContent = data.status;
+        }
+        // Keep polling until available
+        if (data.status && data.status !== 'available') {
+          setTimeout(refreshStatus, 3000);
+        }
+      })
+      .catch(() => { });
+  }
 
-    // Start polling after 2 seconds
-    setTimeout(refreshStatus, 2000);
+  // Start polling after 2 seconds
+  setTimeout(refreshStatus, 2000);
 </script>
 {% endif %}
 {% endblock %}

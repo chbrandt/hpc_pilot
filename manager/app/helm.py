@@ -77,7 +77,7 @@ def delete_release(name):
     except Exception as exc:
         flash(f"Error: {exc}", "error")
 
-    return redirect(url_for("app_k8s.deployments"))
+    return redirect(url_for("app_k8s.jobs"))
 
 
 @helm_bp.route("/releases/<name>/save", methods=["POST"])
@@ -110,4 +110,4 @@ def save_release(name):
         logger.error("Save release failed: %s", exc)
         flash(f"Failed to save release configuration: {exc}", "error")
 
-    return redirect(url_for("app_k8s.deployments"))
+    return redirect(url_for("app_k8s.jobs"))

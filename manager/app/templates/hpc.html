@@ -34,7 +34,8 @@
           📋 Load
         </button>
         {# Delete saved config #}
-        <form method="post" action="{{ url_for('app_saved.delete_saved_config', config_id=cfg.id) }}" style="display:inline;"
+        <form method="post" action="{{ url_for('app_saved.delete_saved_config', config_id=cfg.id) }}"
+          style="display:inline;"
           onsubmit="return confirm('Remove saved config \'{{ cfg.label or cfg.hpc_host }}\'?');">
           <button type="submit" class="btn btn-small btn-danger">🗑 Delete</button>
         </form>
@@ -123,8 +124,8 @@
     <button type="submit" class="btn btn-primary">
       🚀 Deploy to HPC
     </button>
-    <a href="{{ url_for('app_k8s.deployments') }}" class="btn btn-secondary">
-      📋 View Deployments
+    <a href="{{ url_for('app_k8s.jobs') }}" class="btn btn-secondary">
+      📋 View Jobs
     </a>
   </div>
 </form>

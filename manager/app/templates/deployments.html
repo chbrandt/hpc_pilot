@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Workloads — HPC Pilot{% endblock %}
+{% block title %}Jobs — HPC Pilot{% endblock %}
 
 {% block content %}
 <div class="page-header">
-  <h1>Workloads</h1>
+  <h1>Jobs</h1>
   <p class="text-muted">
     Namespace: <code class="namespace-badge-inline">{{ namespace }}</code>
   </p>
@@ -21,10 +21,9 @@
       <th>Name</th>
       <th>Type</th>
       <th>Details</th>
+      <th>Node</th>
       <th>Status</th>
       <th>Created / Updated</th>
-      <th>NodePorts</th>
-      <th>Ingress</th>
       <th>Actions</th>
     </tr>
   </thead>
@@ -47,48 +46,18 @@
       {# ── Detail (image / chart) ── #}
       <td class="text-mono">{{ w.detail }}</td>
 
+      {# ── Node ── #}
+      <td class="text-mono">{{ w.node_name or '—' }}</td>
+
       {# ── Status badge ── #}
       <td>
         <span class="badge badge-{{ w.status }}">
-          {{ w.status_label or w.status }}
+          {{ w.status }}
         </span>
       </td>
 
       {# ── Created / Updated timestamp ── #}
       <td>{{ w.created }}</td>
-
-      {# ── NodePorts (containers only) ── #}
-      <td>
-        {% if w.service_ports %}
-        <ul class="port-list">
-          {% for p in w.service_ports %}
-          <li>
-            {% if p.name %}<span class="port-name">{{ p.name }}</span>{% endif %}
-            {% if p.external_url %}
-            <a href="{{ p.external_url }}" target="_blank" class="external-link">
-              :{{ p.node_port }}
-            </a>
-            {% else %}
-            :{{ p.node_port }}
-            {% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <span class="text-muted">—</span>
-        {% endif %}
-      </td>
-
-      {# ── Ingress URL (containers only) ── #}
-      <td>
-        {% if w.ingress_url %}
-        <a href="{{ w.ingress_url }}" target="_blank" class="external-link">
-          {{ w.ingress_url }}
-        </a>
-        {% else %}
-        <span class="text-muted">—</span>
-        {% endif %}
-      </td>
 
       {# ── Actions ── #}
       <td style="white-space:nowrap;">
@@ -103,14 +72,14 @@
           <button type="submit" class="btn btn-small btn-danger" title="Uninstall release">🗑️ Uninstall</button>
         </form>
         {% else %}
-        <form method="post" action="{{ url_for('app_k8s.save_deployment', namespace=w.namespace, name=w.name) }}"
+        <form method="post" action="{{ url_for('app_k8s.save_job', namespace=w.namespace, name=w.name) }}"
           style="display:inline;">
-          <button type="submit" class="btn btn-small btn-secondary" title="Save deployment config for re-deployment">💾
+          <button type="submit" class="btn btn-small btn-secondary" title="Save job config for re-submission">💾
             Save</button>
         </form>
-        <form method="post" action="{{ url_for('app_k8s.delete_deployment', namespace=w.namespace, name=w.name) }}"
-          onsubmit="return confirm('Delete deployment {{ w.name }}?');" style="display:inline;">
-          <button type="submit" class="btn btn-small btn-danger" title="Delete deployment">🗑️ Delete</button>
+        <form method="post" action="{{ url_for('app_k8s.delete_job', namespace=w.namespace, name=w.name) }}"
+          onsubmit="return confirm('Delete job {{ w.name }}?');" style="display:inline;">
+          <button type="submit" class="btn btn-small btn-danger" title="Delete job">🗑️ Delete</button>
         </form>
         {% endif %}
       </td>
@@ -120,9 +89,9 @@
 </table>
 {% else %}
 <div class="empty-state">
-  <p>No workloads in your namespace yet.</p>
+  <p>No jobs in your namespace yet.</p>
   <div style="display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap;">
-    <a href="{{ url_for('app_k8s.index') }}" class="btn btn-primary">🐳 Deploy a Container</a>
+    <a href="{{ url_for('app_k8s.index') }}" class="btn btn-primary">🐳 Submit a Job</a>
     <a href="{{ url_for('app_helm.releases') }}" class="btn btn-secondary">⎈ Deploy a Chart</a>
   </div>
 </div>

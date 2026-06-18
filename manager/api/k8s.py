@@ -1,5 +1,5 @@
 """
-api/k8s.py — REST endpoints for Kubernetes container deployments.
+api/k8s.py — REST endpoints for Kubernetes job management.
 
 All routes are JSON-only and protected by Bearer-token auth.
 
@@ -12,21 +12,21 @@ POST /api/namespaces/ensure
 GET  /api/nodes/interlink
     Return the list of InterLink virtual-kubelet node names available in the cluster.
 
-GET  /api/deployments
-    List all container deployments in the user's namespace.
+GET  /api/jobs
+    List all jobs in the user's namespace.
 
-POST /api/deployments
-    Create a new container deployment.
-    JSON body mirrors the parameters of lib.k8s_client.K8sClient.create_deployment.
+POST /api/jobs
+    Create a new job.
+    JSON body mirrors the parameters of lib.k8s_client.K8sClient.create_job.
 
-GET  /api/deployments/<name>
-    Return the full spec of a single deployment (for saving / re-deploying).
+GET  /api/jobs/<name>
+    Return the full spec of a single job (for saving / re-submitting).
 
-GET  /api/deployments/<name>/status
-    Get detailed status for a single deployment.
+GET  /api/jobs/<name>/status
+    Get detailed status for a single job.
 
-DELETE /api/deployments/<name>
-    Delete a deployment and its associated service / ingress.
+DELETE /api/jobs/<name>
+    Delete a job.
 """
 
 import json
@@ -109,40 +109,36 @@ def list_interlink_nodes():
         return _err(str(exc), 500)
 
 
-@k8s_bp.route("/deployments", methods=["GET"])
+@k8s_bp.route("/jobs", methods=["GET"])
 @require_token
-def list_deployments():
-    """List all container deployments in the user's namespace."""
+def list_jobs():
+    """List all jobs in the user's namespace."""
     claims = get_request_claims()
     namespace = claims["namespace"]
     try:
         k8s = _get_k8s()
-        deployments = k8s.list_deployments(namespace=namespace)
-        return _ok(deployments)
+        jobs = k8s.list_jobs(namespace=namespace)
+        return _ok(jobs)
     except Exception as exc:
-        logger.error("list_deployments failed: %s", exc)
+        logger.error("list_jobs failed: %s", exc)
         return _err(str(exc), 500)
 
 
-@k8s_bp.route("/deployments", methods=["POST"])
+@k8s_bp.route("/jobs", methods=["POST"])
 @require_token
-def create_deployment():
+def create_job():
     """
-    Create a container deployment.
+    Create a job targeting an InterLink virtual-kubelet node.
+
+    InterLink maps the pod to an HPC batch job, so replica counts, resource
+    requests/limits, container ports, and ingress are not supported.
 
     JSON body keys (all optional unless marked required):
-        name*         str   deployment name (required)
+        name*         str   job name (required)
         image*        str   container image (required)
         node_name*    str   InterLink virtual-kubelet node name (required)
-        replicas      int   number of replicas (default 1)
-        cpu_request   str   e.g. "100m"
-        cpu_limit     str
-        mem_request   str   e.g. "64Mi"
-        mem_limit     str
         env_vars      dict  {"KEY": "value", ...}
-        ports         list  [{"number": 80, "name": "http", "protocol": "TCP"}, ...]
-        command       str   shell command override
-        ingress       dict  {"host": "...", "path": "/", "port": 80, "class": "nginx"}
+        command       str   shell command override (run as /bin/sh -c)
     """
     claims = get_request_claims()
     namespace = claims["namespace"]
@@ -168,78 +164,69 @@ def create_deployment():
             if not ns_result["success"]:
                 return _err(f"Failed to prepare namespace: {ns_result['error']}", 500)
 
-        result = k8s.create_deployment(
+        result = k8s.create_job(
             name=name,
             image=image,
             node_name=node_name,
             namespace=namespace,
-            replicas=body.get("replicas", 1),
-            cpu_request=body.get("cpu_request"),
-            cpu_limit=body.get("cpu_limit"),
-            mem_request=body.get("mem_request"),
-            mem_limit=body.get("mem_limit"),
             env_vars=body.get("env_vars"),
-            ports=body.get("ports"),
             command=body.get("command"),
-            ingress=body.get("ingress"),
         )
         code = 201 if result.get("success") else 400
         return _ok(result, code)
 
     except Exception as exc:
-        logger.error("create_deployment failed: %s", exc)
+        logger.error("create_job failed: %s", exc)
         return _err(str(exc), 500)
 
 
-@k8s_bp.route("/deployments/<name>", methods=["GET"])
+@k8s_bp.route("/jobs/<name>", methods=["GET"])
 @require_token
-def get_deployment(name: str):
-    """Return the full spec of a single deployment (for saving / re-deploying)."""
+def get_job(name: str):
+    """Return the full spec of a single job (for saving / re-submitting)."""
     claims = get_request_claims()
     namespace = claims["namespace"]
     try:
         k8s = _get_k8s()
-        spec = k8s.get_deployment_spec(name=name, namespace=namespace)
+        spec = k8s.get_job_spec(name=name, namespace=namespace)
         if "error" in spec:
             return _err(spec["error"], 404)
         return _ok(spec)
     except Exception as exc:
-        logger.error("get_deployment failed: %s", exc)
+        logger.error("get_job failed: %s", exc)
         return _err(str(exc), 500)
 
 
-@k8s_bp.route("/deployments/<name>/status", methods=["GET"])
+@k8s_bp.route("/jobs/<name>/status", methods=["GET"])
 @require_token
-def deployment_status(name: str):
-    """Get detailed status for a single deployment."""
+def job_status(name: str):
+    """Get detailed status for a single job."""
     claims = get_request_claims()
     namespace = claims["namespace"]
     try:
         k8s = _get_k8s()
-        status = k8s.get_deployment_status(name=name, namespace=namespace)
+        status = k8s.get_job_status(name=name, namespace=namespace)
         if "error" in status:
             return _err(status["error"], 404)
         return _ok(status)
     except Exception as exc:
-        logger.error("deployment_status failed: %s", exc)
+        logger.error("job_status failed: %s", exc)
         return _err(str(exc), 500)
 
 
-@k8s_bp.route("/deployments/<name>", methods=["DELETE"])
+@k8s_bp.route("/jobs/<name>", methods=["DELETE"])
 @require_token
-def delete_deployment(name: str):
-    """Delete a deployment and its service / ingress."""
+def delete_job(name: str):
+    """Delete a job."""
     claims = get_request_claims()
     namespace = claims["namespace"]
     try:
         k8s = _get_k8s()
-        result = k8s.delete_deployment(name=name, namespace=namespace)
-        if result["deployment"] and result["deployment"]["success"]:
+        result = k8s.delete_job(name=name, namespace=namespace)
+        if result["job"] and result["job"]["success"]:
             return _ok(result)
-        error = (
-            result["deployment"]["error"] if result["deployment"] else "Unknown error"
-        )
+        error = result["job"]["error"] if result["job"] else "Unknown error"
         return _err(error, 400)
     except Exception as exc:
-        logger.error("delete_deployment failed: %s", exc)
+        logger.error("delete_job failed: %s", exc)
         return _err(str(exc), 500)

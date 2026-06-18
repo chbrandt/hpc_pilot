@@ -1,8 +1,12 @@
 """
 Kubernetes client wrapper for Deployment management.
 
-Handles cluster connection via kubeconfig and provides methods
-for namespace management, Deployment creation, service exposure, and ingress.
+Handles cluster connection via kubeconfig and provides methods for namespace
+management and Deployment creation targeting InterLink virtual-kubelet nodes.
+
+Pod deployments are forwarded by InterLink to HPC batch jobs; consequently,
+replica counts, CPU/memory resource requests and limits, container ports, and
+Ingress resources are not supported and are intentionally absent from the API.
 """
 
 import json
@@ -31,7 +35,6 @@ class K8sClient:
         self._load_config()
         self.core_v1 = client.CoreV1Api()
         self.apps_v1 = client.AppsV1Api()
-        self.networking_v1 = client.NetworkingV1Api()
 
     def _load_config(self):
         """Load Kubernetes configuration from kubeconfig file."""
@@ -92,391 +95,7 @@ class K8sClient:
         except ApiException:
             return False
 
-    # ── Deployment operations ─────────────────────────────────────────
-
-    def create_deployment(
-        self,
-        name: str,
-        image: str,
-        node_name: str,
-        namespace: str = "default",
-        replicas: int = 1,
-        cpu_request: Optional[str] = None,
-        cpu_limit: Optional[str] = None,
-        mem_request: Optional[str] = None,
-        mem_limit: Optional[str] = None,
-        env_vars: Optional[dict[str, str]] = None,
-        ports: Optional[list[dict]] = None,
-        command: Optional[str] = None,
-        ingress: Optional[dict] = None,
-    ) -> dict:
-        """
-        Create a Deployment in the cluster.
-
-        A Deployment manages a ReplicaSet which keeps the desired number of
-        pod replicas running and handles self-healing and rolling updates.
-
-        The pod template is always pinned to the InterLink virtual-kubelet node
-        identified by *node_name*:
-
-        * ``spec.nodeSelector["kubernetes.io/hostname"]`` is set to *node_name*.
-        * A toleration for ``virtual-node.interlink/no-schedule`` (operator
-          ``Exists``) is added so the pod is accepted by the tainted node.
-
-        Args:
-            name: Deployment (and container) name.
-            image: Container image (e.g. "nginx:latest").
-            node_name: Name of the InterLink virtual-kubelet node on which pods
-                must be scheduled (e.g. "vk-node").
-            namespace: Target namespace.
-            replicas: Number of pod replicas (default 1).
-            cpu_request: CPU request (e.g. "100m").
-            cpu_limit: CPU limit (e.g. "500m").
-            mem_request: Memory request (e.g. "64Mi").
-            mem_limit: Memory limit (e.g. "256Mi").
-            env_vars: Dict of environment variable key-value pairs.
-            ports: List of port dicts, each with keys:
-                   "number" (int), "name" (str, optional),
-                   "protocol" (str, default "TCP").
-            command: Override command (shell string).
-            ingress: Optional dict with keys:
-                     "host" (str), "path" (str),
-                     "port" (int or str), "class" (str, optional).
-
-        Returns:
-            dict with success status, deployment info, service info, and optional ingress info.
-        """
-        # Build container spec
-        container = client.V1Container(
-            name=name,
-            image=image,
-            image_pull_policy="IfNotPresent",
-        )
-
-        # Resources
-        requests = {}
-        limits = {}
-        if cpu_request:
-            requests["cpu"] = cpu_request
-        if mem_request:
-            requests["memory"] = mem_request
-        if cpu_limit:
-            limits["cpu"] = cpu_limit
-        if mem_limit:
-            limits["memory"] = mem_limit
-        if requests or limits:
-            container.resources = client.V1ResourceRequirements(
-                requests=requests or None,
-                limits=limits or None,
-            )
-
-        # Environment variables
-        if env_vars:
-            container.env = [
-                client.V1EnvVar(name=k, value=v) for k, v in env_vars.items()
-            ]
-
-        # Ports
-        if ports:
-            container.ports = [
-                client.V1ContainerPort(
-                    container_port=p["number"],
-                    name=p.get("name") or None,
-                    protocol=p.get("protocol", "TCP"),
-                )
-                for p in ports
-            ]
-
-        # Command override
-        if command:
-            container.command = ["/bin/sh", "-c", command]
-
-        # Pod template used by the Deployment's ReplicaSet.
-        # Always pin to the interlink virtual-kubelet node and add the
-        # matching toleration so the pod is accepted by the tainted node.
-        pod_template = client.V1PodTemplateSpec(
-            metadata=client.V1ObjectMeta(
-                labels={
-                    "app": name,
-                    "created-by": "hpc-pilot-webapp",
-                },
-            ),
-            spec=client.V1PodSpec(
-                containers=[container],
-                node_selector={"kubernetes.io/hostname": node_name},
-                tolerations=[
-                    client.V1Toleration(
-                        key="virtual-node.interlink/no-schedule",
-                        operator="Exists",
-                    )
-                ],
-            ),
-        )
-
-        # Deployment object
-        deployment = client.V1Deployment(
-            api_version="apps/v1",
-            kind="Deployment",
-            metadata=client.V1ObjectMeta(
-                name=name,
-                namespace=namespace,
-                labels={
-                    "app": name,
-                    "created-by": "hpc-pilot-webapp",
-                },
-            ),
-            spec=client.V1DeploymentSpec(
-                replicas=replicas,
-                selector=client.V1LabelSelector(
-                    match_labels={"app": name},
-                ),
-                template=pod_template,
-            ),
-        )
-
-        try:
-            created = self.apps_v1.create_namespaced_deployment(
-                namespace=namespace, body=deployment
-            )
-            result = {
-                "success": True,
-                "deployment_name": created.metadata.name,
-                "namespace": namespace,
-                "image": image,
-                "replicas": replicas,
-                "status": "progressing",
-            }
-
-            # If ports were specified, create a NodePort service
-            if ports:
-                svc_result = self._create_nodeport_service(
-                    name=name,
-                    namespace=namespace,
-                    ports=ports,
-                )
-                result["service"] = svc_result
-
-                # If ingress config was provided, create an Ingress resource
-                if ingress and svc_result.get("success"):
-                    ing_result = self._create_ingress(
-                        name=name,
-                        namespace=namespace,
-                        service_name=f"{name}-svc",
-                        ports=ports,
-                        ingress_config=ingress,
-                    )
-                    result["ingress"] = ing_result
-
-            return result
-
-        except ApiException as e:
-            logger.error(f"Failed to create deployment: {e}")
-            error_msg = e.body if hasattr(e, "body") else str(e)
-            try:
-                error_body = json.loads(error_msg)
-                error_msg = error_body.get("message", str(e))
-            except (json.JSONDecodeError, TypeError):
-                pass
-            return {"success": False, "error": error_msg}
-
-    def _create_nodeport_service(
-        self,
-        name: str,
-        namespace: str,
-        ports: list[dict],
-    ) -> dict:
-        """
-        Create a NodePort service exposing one or more container ports externally.
-
-        Args:
-            name: Deployment name (used to derive service name and label selector).
-            namespace: Namespace.
-            ports: List of port dicts with "number", "name", "protocol".
-
-        Returns:
-            dict with service details, including per-port node ports.
-        """
-        svc_name = f"{name}-svc"
-
-        svc_ports = []
-        for p in ports:
-            port_num = p["number"]
-            port_name = p.get("name") or f"port-{port_num}"
-            protocol = p.get("protocol", "TCP")
-            svc_ports.append(
-                client.V1ServicePort(
-                    name=port_name,
-                    port=port_num,
-                    target_port=port_num,
-                    protocol=protocol,
-                )
-            )
-
-        service = client.V1Service(
-            api_version="v1",
-            kind="Service",
-            metadata=client.V1ObjectMeta(
-                name=svc_name,
-                namespace=namespace,
-                labels={
-                    "app": name,
-                    "created-by": "hpc-pilot-webapp",
-                },
-            ),
-            spec=client.V1ServiceSpec(
-                type="NodePort",
-                selector={"app": name},
-                ports=svc_ports,
-            ),
-        )
-
-        try:
-            created = self.core_v1.create_namespaced_service(
-                namespace=namespace, body=service
-            )
-
-            node_ip = self._get_node_ip()
-
-            # Build per-port details
-            port_details = []
-            for svc_port in created.spec.ports:
-                detail = {
-                    "name": svc_port.name,
-                    "port": svc_port.port,
-                    "node_port": svc_port.node_port,
-                    "protocol": svc_port.protocol,
-                }
-                if node_ip:
-                    detail["external_url"] = f"http://{node_ip}:{svc_port.node_port}"
-                else:
-                    detail["external_url"] = f"http://<node-ip>:{svc_port.node_port}"
-                port_details.append(detail)
-
-            return {
-                "success": True,
-                "service_name": svc_name,
-                "node_ip": node_ip,
-                "ports": port_details,
-            }
-
-        except ApiException as e:
-            logger.error(f"Failed to create service: {e}")
-            return {"success": False, "error": str(e)}
-
-    def _create_ingress(
-        self,
-        name: str,
-        namespace: str,
-        service_name: str,
-        ports: list[dict],
-        ingress_config: dict,
-    ) -> dict:
-        """
-        Create a Kubernetes Ingress resource to expose the service via HTTP hostname/path.
-
-        Args:
-            name: Deployment/app name (used for ingress name and labels).
-            namespace: Namespace.
-            service_name: The backing Service name.
-            ports: List of port dicts (to resolve the target port).
-            ingress_config: Dict with optional keys:
-                "host"  – hostname (default: "" → matches all hosts)
-                "path"  – URL path prefix (default: "/")
-                "port"  – target port number or name (default: first port)
-                "class" – IngressClass name (default: None → cluster default)
-
-        Returns:
-            dict with ingress details.
-        """
-        ingress_name = f"{name}-ingress"
-        host = ingress_config.get("host", "")
-        path = ingress_config.get("path", "/") or "/"
-        ingress_class = ingress_config.get("class") or None
-
-        # Resolve target port
-        target_port_raw = ingress_config.get("port")
-        if target_port_raw:
-            try:
-                target_port = client.V1ServiceBackendPort(number=int(target_port_raw))
-            except (ValueError, TypeError):
-                # Treat as named port
-                target_port = client.V1ServiceBackendPort(name=str(target_port_raw))
-        else:
-            # Default: first defined port
-            first_port = ports[0]
-            if first_port.get("name"):
-                target_port = client.V1ServiceBackendPort(name=first_port["name"])
-            else:
-                target_port = client.V1ServiceBackendPort(number=first_port["number"])
-
-        backend = client.V1IngressBackend(
-            service=client.V1IngressServiceBackend(
-                name=service_name,
-                port=target_port,
-            )
-        )
-
-        http_rule = client.V1HTTPIngressRuleValue(
-            paths=[
-                client.V1HTTPIngressPath(
-                    path=path,
-                    path_type="Prefix",
-                    backend=backend,
-                )
-            ]
-        )
-
-        rule = client.V1IngressRule(
-            host=host or None,
-            http=http_rule,
-        )
-
-        metadata = client.V1ObjectMeta(
-            name=ingress_name,
-            namespace=namespace,
-            labels={
-                "app": name,
-                "created-by": "hpc-pilot-webapp",
-            },
-        )
-        if ingress_class:
-            annotations = {
-                "kubernetes.io/ingress.class": ingress_class,
-            }
-            # nginx ingress controller requires rewrite-target annotation
-            # when routing to a backend that serves on "/"
-            if ingress_class.lower() == "nginx":
-                annotations["nginx.ingress.kubernetes.io/rewrite-target"] = "/"
-            metadata.annotations = annotations
-
-        spec = client.V1IngressSpec(
-            rules=[rule],
-        )
-        if ingress_class:
-            spec.ingress_class_name = ingress_class
-
-        ingress_body = client.V1Ingress(
-            api_version="networking.k8s.io/v1",
-            kind="Ingress",
-            metadata=metadata,
-            spec=spec,
-        )
-
-        try:
-            created = self.networking_v1.create_namespaced_ingress(
-                namespace=namespace, body=ingress_body
-            )
-            url = f"http://{host}{path}" if host else f"http://<ingress-ip>{path}"
-            return {
-                "success": True,
-                "ingress_name": ingress_name,
-                "host": host or "*",
-                "path": path,
-                "url": url,
-            }
-        except ApiException as e:
-            logger.error(f"Failed to create ingress: {e}")
-            return {"success": False, "error": str(e)}
+    # ── InterLink node discovery ──────────────────────────────────────
 
     def list_interlink_nodes(self) -> list[str]:
         """
@@ -502,35 +121,136 @@ class K8sClient:
             logger.error(f"Failed to list interlink nodes: {e}")
             return []
 
-    def _get_node_ip(self) -> Optional[str]:
-        """Try to get an external or internal IP of a cluster node."""
-        try:
-            nodes = self.core_v1.list_node()
-            if not nodes.items:
-                return None
-            # Prefer ExternalIP, fall back to InternalIP
-            for addr in nodes.items[0].status.addresses:
-                if addr.type == "ExternalIP":
-                    return addr.address
-            for addr in nodes.items[0].status.addresses:
-                if addr.type == "InternalIP":
-                    return addr.address
-        except ApiException:
-            pass
-        return None
+    # ── Deployment operations ─────────────────────────────────────────
 
-    # ── Deployment listing / status ───────────────────────────────────
-
-    def list_deployments(self, namespace: Optional[str] = None) -> list[dict]:
+    def create_job(
+        self,
+        name: str,
+        image: str,
+        node_name: str,
+        namespace: str = "default",
+        env_vars: Optional[dict[str, str]] = None,
+        command: Optional[str] = None,
+    ) -> dict:
         """
-        List Deployments, optionally filtered by namespace.
+        Create a Deployment (job) whose pod is scheduled on an InterLink virtual-kubelet node.
+
+        InterLink translates the pod spec into an HPC batch job, so replica
+        counts, resource requests/limits, container ports, and Ingress are not
+        applicable and are not accepted as parameters.
+
+        The pod template is always pinned to the InterLink virtual-kubelet node
+        identified by *node_name*:
+
+        * ``spec.nodeSelector["kubernetes.io/hostname"]`` is set to *node_name*.
+        * A toleration for ``virtual-node.interlink/no-schedule`` (operator
+          ``Exists``) is added so the pod is accepted by the tainted node.
 
         Args:
-            namespace: If set, list deployments in this namespace only.
+            name: Deployment (and container) name.
+            image: Container image (e.g. "ubuntu:22.04").
+            node_name: Name of the InterLink virtual-kubelet node on which the
+                pod must be scheduled (e.g. "vk-node").
+            namespace: Target namespace.
+            env_vars: Dict of environment variable key-value pairs.
+            command: Override command (shell string, run as /bin/sh -c).
+
+        Returns:
+            dict with success status and deployment info.
+        """
+        # Build container spec
+        container = client.V1Container(
+            name=name,
+            image=image,
+            image_pull_policy="IfNotPresent",
+        )
+
+        # Environment variables
+        if env_vars:
+            container.env = [
+                client.V1EnvVar(name=k, value=v) for k, v in env_vars.items()
+            ]
+
+        # Command override
+        if command:
+            container.command = ["/bin/sh", "-c", command]
+
+        # Pod template — pinned to the interlink virtual-kubelet node.
+        pod_template = client.V1PodTemplateSpec(
+            metadata=client.V1ObjectMeta(
+                labels={
+                    "app": name,
+                    "created-by": "hpc-pilot-webapp",
+                },
+            ),
+            spec=client.V1PodSpec(
+                containers=[container],
+                node_selector={"kubernetes.io/hostname": node_name},
+                tolerations=[
+                    client.V1Toleration(
+                        key="virtual-node.interlink/no-schedule",
+                        operator="Exists",
+                    )
+                ],
+            ),
+        )
+
+        # Deployment object — a single replica is always used because InterLink
+        # maps one pod to one HPC job.
+        deployment = client.V1Deployment(
+            api_version="apps/v1",
+            kind="Deployment",
+            metadata=client.V1ObjectMeta(
+                name=name,
+                namespace=namespace,
+                labels={
+                    "app": name,
+                    "created-by": "hpc-pilot-webapp",
+                },
+            ),
+            spec=client.V1DeploymentSpec(
+                replicas=1,
+                selector=client.V1LabelSelector(
+                    match_labels={"app": name},
+                ),
+                template=pod_template,
+            ),
+        )
+
+        try:
+            created = self.apps_v1.create_namespaced_deployment(
+                namespace=namespace, body=deployment
+            )
+            return {
+                "success": True,
+                "job_name": created.metadata.name,
+                "namespace": namespace,
+                "image": image,
+                "node_name": node_name,
+                "status": "progressing",
+            }
+        except ApiException as e:
+            logger.error(f"Failed to create deployment: {e}")
+            error_msg = e.body if hasattr(e, "body") else str(e)
+            try:
+                error_body = json.loads(error_msg)
+                error_msg = error_body.get("message", str(e))
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return {"success": False, "error": error_msg}
+
+    # ── Job listing / status ──────────────────────────────────────────
+
+    def list_jobs(self, namespace: Optional[str] = None) -> list[dict]:
+        """
+        List jobs (Deployments), optionally filtered by namespace.
+
+        Args:
+            namespace: If set, list jobs in this namespace only.
                        Use "__all__" or None to list across all namespaces.
 
         Returns:
-            List of deployment info dicts.
+            List of job info dicts.
         """
         try:
             if namespace and namespace != "__all__":
@@ -547,66 +267,24 @@ class K8sClient:
             for dep in deployments.items:
                 desired = dep.spec.replicas or 0
                 ready = dep.status.ready_replicas or 0
+                node_selector = dep.spec.template.spec.node_selector or {}
 
-                dep_info = {
-                    "name": dep.metadata.name,
-                    "namespace": dep.metadata.namespace,
-                    "image": dep.spec.template.spec.containers[0].image
-                    if dep.spec.template.spec.containers
-                    else "?",
-                    "replicas": desired,
-                    "ready_replicas": ready,
-                    "replicas_status": f"{ready}/{desired}",
-                    "status": "available" if ready >= desired > 0 else "progressing",
-                    "created": dep.metadata.creation_timestamp.strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    )
-                    if dep.metadata.creation_timestamp
-                    else "?",
-                    "service_ports": [],
-                    "ingress_url": None,
-                }
-
-                # Fetch associated NodePort service
-                try:
-                    svc = self.core_v1.read_namespaced_service(
-                        name=f"{dep.metadata.name}-svc",
-                        namespace=dep.metadata.namespace,
-                    )
-                    node_ip = self._get_node_ip()
-                    for svc_port in svc.spec.ports or []:
-                        detail = {
-                            "name": svc_port.name,
-                            "port": svc_port.port,
-                            "node_port": svc_port.node_port,
-                        }
-                        if node_ip and svc_port.node_port:
-                            detail["external_url"] = (
-                                f"http://{node_ip}:{svc_port.node_port}"
-                            )
-                        dep_info["service_ports"].append(detail)
-                except ApiException:
-                    pass
-
-                # Fetch associated Ingress
-                try:
-                    ing = self.networking_v1.read_namespaced_ingress(
-                        name=f"{dep.metadata.name}-ingress",
-                        namespace=dep.metadata.namespace,
-                    )
-                    if ing.spec.rules:
-                        rule = ing.spec.rules[0]
-                        host = rule.host or "<ingress-ip>"
-                        path = (
-                            rule.http.paths[0].path
-                            if rule.http and rule.http.paths
-                            else "/"
+                result.append(
+                    {
+                        "name": dep.metadata.name,
+                        "namespace": dep.metadata.namespace,
+                        "image": dep.spec.template.spec.containers[0].image
+                        if dep.spec.template.spec.containers
+                        else "?",
+                        "node_name": node_selector.get("kubernetes.io/hostname"),
+                        "status": "available" if ready >= desired > 0 else "progressing",
+                        "created": dep.metadata.creation_timestamp.strftime(
+                            "%Y-%m-%d %H:%M:%S"
                         )
-                        dep_info["ingress_url"] = f"http://{host}{path}"
-                except ApiException:
-                    pass
-
-                result.append(dep_info)
+                        if dep.metadata.creation_timestamp
+                        else "?",
+                    }
+                )
 
             return result
 
@@ -614,18 +292,16 @@ class K8sClient:
             logger.error(f"Failed to list deployments: {e}")
             return []
 
-    def get_deployment_spec(self, name: str, namespace: str = "default") -> dict:
+    def get_job_spec(self, name: str, namespace: str = "default") -> dict:
         """
-        Read back the full deployment spec from the cluster, suitable for saving
+        Read back the full job spec from the cluster, suitable for saving
         as a reusable configuration template.
 
         Returns
         -------
         dict
-            A dict mirroring the parameters accepted by :meth:`create_deployment`:
-            ``name``, ``image``, ``node_name``, ``replicas``, ``cpu_request``,
-            ``cpu_limit``, ``mem_request``, ``mem_limit``, ``env_vars``,
-            ``ports``, ``command``.
+            A dict mirroring the parameters accepted by :meth:`create_job`:
+            ``name``, ``image``, ``node_name``, ``env_vars``, ``command``.
             Returns ``{"error": "..."}`` on failure.
         """
         try:
@@ -640,16 +316,6 @@ class K8sClient:
             if not container:
                 return {"error": "No containers found in deployment spec"}
 
-            # ── Resources ────────────────────────────────────────────
-            cpu_request = cpu_limit = mem_request = mem_limit = None
-            if container.resources:
-                req = container.resources.requests or {}
-                lim = container.resources.limits or {}
-                cpu_request = req.get("cpu")
-                mem_request = req.get("memory")
-                cpu_limit = lim.get("cpu")
-                mem_limit = lim.get("memory")
-
             # ── Environment variables ─────────────────────────────────
             env_vars = {}
             if container.env:
@@ -657,18 +323,6 @@ class K8sClient:
                     # Only capture plain key=value pairs (skip valueFrom refs)
                     if ev.value is not None:
                         env_vars[ev.name] = ev.value
-
-            # ── Ports ─────────────────────────────────────────────────
-            ports = []
-            if container.ports:
-                for p in container.ports:
-                    ports.append(
-                        {
-                            "number": p.container_port,
-                            "name": p.name or "",
-                            "protocol": p.protocol or "TCP",
-                        }
-                    )
 
             # ── Command ───────────────────────────────────────────────
             command = None
@@ -691,22 +345,16 @@ class K8sClient:
                 "name": dep.metadata.name,
                 "image": container.image,
                 "node_name": node_name,
-                "replicas": dep.spec.replicas or 1,
-                "cpu_request": cpu_request,
-                "cpu_limit": cpu_limit,
-                "mem_request": mem_request,
-                "mem_limit": mem_limit,
                 "env_vars": env_vars,
-                "ports": ports,
                 "command": command,
             }
 
         except ApiException as e:
-            logger.error(f"Failed to get deployment spec: {e}")
+            logger.error(f"Failed to get job spec: {e}")
             return {"error": str(e)}
 
-    def get_deployment_status(self, name: str, namespace: str = "default") -> dict:
-        """Get detailed status for a single Deployment."""
+    def get_job_status(self, name: str, namespace: str = "default") -> dict:
+        """Get detailed status for a single job (Deployment)."""
         try:
             dep = self.apps_v1.read_namespaced_deployment(
                 name=name, namespace=namespace
@@ -744,36 +392,13 @@ class K8sClient:
             }
 
         except ApiException as e:
-            logger.error(f"Failed to get deployment status: {e}")
+            logger.error(f"Failed to get job status: {e}")
             return {"error": str(e)}
 
-    def delete_deployment(self, name: str, namespace: str = "default") -> dict:
-        """Delete a Deployment and its associated service and ingress."""
-        results = {"deployment": None, "service": None, "ingress": None}
-
-        # Delete the deployment
+    def delete_job(self, name: str, namespace: str = "default") -> dict:
+        """Delete a job (Deployment)."""
         try:
             self.apps_v1.delete_namespaced_deployment(name=name, namespace=namespace)
-            results["deployment"] = {"success": True, "name": name}
+            return {"job": {"success": True, "name": name}}
         except ApiException as e:
-            results["deployment"] = {"success": False, "error": str(e)}
-
-        # Try to delete associated NodePort service
-        svc_name = f"{name}-svc"
-        try:
-            self.core_v1.delete_namespaced_service(name=svc_name, namespace=namespace)
-            results["service"] = {"success": True, "name": svc_name}
-        except ApiException:
-            pass  # Service may not exist — that's fine
-
-        # Try to delete associated Ingress
-        ingress_name = f"{name}-ingress"
-        try:
-            self.networking_v1.delete_namespaced_ingress(
-                name=ingress_name, namespace=namespace
-            )
-            results["ingress"] = {"success": True, "name": ingress_name}
-        except ApiException:
-            pass  # Ingress may not exist — that's fine
-
-        return results
+            return {"job": {"success": False, "error": str(e)}}

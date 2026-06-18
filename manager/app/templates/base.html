@@ -16,14 +16,14 @@
         {% if current_user %}
         <div class="nav-links">
           <a href="{{ url_for('app_k8s.index') }}"
-            class="{% if request.endpoint == 'app_k8s.index' %}active{% endif %}">Deploy</a>
+            class="{% if request.endpoint == 'app_k8s.index' %}active{% endif %}">Submit Job</a>
           <a href="{{ url_for('app_helm.releases') }}"
             class="{% if request.endpoint == 'app_helm.releases' %}active{% endif %}">Deploy
             Chart</a>
           <a href="{{ url_for('app_hpc.hpc_page') }}"
             class="{% if request.endpoint and request.endpoint.startswith('hpc.') %}active{% endif %}">🖥 Deploy HPC</a>
-          <a href="{{ url_for('app_k8s.deployments') }}"
-            class="{% if request.endpoint == 'app_k8s.deployments' %}active{% endif %}">Deployments</a>
+          <a href="{{ url_for('app_k8s.jobs') }}"
+            class="{% if request.endpoint == 'app_k8s.jobs' %}active{% endif %}">Jobs</a>
         </div>
         {% endif %}
       </div>

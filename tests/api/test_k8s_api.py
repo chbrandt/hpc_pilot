@@ -5,7 +5,6 @@ Uses the Flask test client from conftest + patches K8sClient so no real
 Kubernetes cluster is needed.
 """
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,22 +27,22 @@ def _mock_k8s(**kwargs):
     m.list_interlink_nodes.return_value = kwargs.get(
         "list_interlink_nodes", ["vk-node"]
     )
-    m.list_deployments.return_value = kwargs.get("list_deployments", [])
-    m.create_deployment.return_value = kwargs.get(
-        "create_deployment",
-        {"success": True, "deployment_name": "myapp", "namespace": "user-testns"},
+    m.list_jobs.return_value = kwargs.get("list_jobs", [])
+    m.create_job.return_value = kwargs.get(
+        "create_job",
+        {"success": True, "job_name": "myapp", "namespace": "user-testns"},
     )
-    m.get_deployment_spec.return_value = kwargs.get(
-        "get_deployment_spec",
-        {"name": "myapp", "image": "nginx:latest", "node_name": "vk-node", "replicas": 1},
+    m.get_job_spec.return_value = kwargs.get(
+        "get_job_spec",
+        {"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"},
     )
-    m.get_deployment_status.return_value = kwargs.get(
-        "get_deployment_status",
+    m.get_job_status.return_value = kwargs.get(
+        "get_job_status",
         {"name": "myapp", "status": "available"},
     )
-    m.delete_deployment.return_value = kwargs.get(
-        "delete_deployment",
-        {"deployment": {"success": True, "name": "myapp"}, "service": None, "ingress": None},
+    m.delete_job.return_value = kwargs.get(
+        "delete_job",
+        {"job": {"success": True, "name": "myapp"}},
     )
     return m
 
@@ -131,20 +130,21 @@ class TestListInterlinkNodes:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/deployments
+# GET /api/jobs
 # ---------------------------------------------------------------------------
 
 
-class TestListDeployments:
-    URL = "/api/deployments"
+class TestListJobs:
+    URL = "/api/jobs"
 
     def test_requires_auth(self, client):
         assert client.get(self.URL).status_code == 401
 
-    def test_returns_deployment_list(self, client, auth_headers):
+    def test_returns_job_list(self, client, auth_headers):
         headers, ns = auth_headers
-        dep_list = [{"name": "app1", "namespace": ns, "status": "available"}]
-        k8s = _mock_k8s(list_deployments=dep_list)
+        job_list = [{"name": "app1", "namespace": ns, "status": "available",
+                     "node_name": "vk-node"}]
+        k8s = _mock_k8s(list_jobs=job_list)
         with patch(K8S_PATCH, return_value=k8s):
             resp = client.get(self.URL, headers=headers)
         assert resp.status_code == 200
@@ -155,26 +155,26 @@ class TestListDeployments:
     def test_exception_returns_500(self, client, auth_headers):
         headers, _ = auth_headers
         k8s = MagicMock()
-        k8s.list_deployments.side_effect = RuntimeError("k8s down")
+        k8s.list_jobs.side_effect = RuntimeError("k8s down")
         with patch(K8S_PATCH, return_value=k8s):
             resp = client.get(self.URL, headers=headers)
         assert resp.status_code == 500
 
 
 # ---------------------------------------------------------------------------
-# POST /api/deployments
+# POST /api/jobs
 # ---------------------------------------------------------------------------
 
 
-class TestCreateDeployment:
-    URL = "/api/deployments"
+class TestCreateJob:
+    URL = "/api/jobs"
 
     def test_requires_auth(self, client):
         assert client.post(self.URL, json={}).status_code == 401
 
     def test_missing_name_returns_400(self, client, auth_headers):
         headers, _ = auth_headers
-        resp = client.post(self.URL, json={"image": "nginx"}, headers=headers)
+        resp = client.post(self.URL, json={"image": "ubuntu:22.04"}, headers=headers)
         assert resp.status_code == 400
         assert "name" in resp.get_json(force=True)["error"].lower()
 
@@ -188,7 +188,7 @@ class TestCreateDeployment:
         headers, _ = auth_headers
         resp = client.post(
             self.URL,
-            json={"name": "myapp", "image": "nginx:latest"},
+            json={"name": "myapp", "image": "ubuntu:22.04"},
             headers=headers,
         )
         assert resp.status_code == 400
@@ -198,128 +198,192 @@ class TestCreateDeployment:
         headers, ns = auth_headers
         k8s = _mock_k8s(
             namespace_exists=True,
-            create_deployment={"success": True, "deployment_name": "myapp"},
+            create_job={"success": True, "job_name": "myapp"},
         )
         with patch(K8S_PATCH, return_value=k8s):
             resp = client.post(
                 self.URL,
-                json={"name": "myapp", "image": "nginx:latest", "node_name": "vk-node"},
+                json={"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"},
                 headers=headers,
             )
         assert resp.status_code == 201
 
-    def test_node_name_is_forwarded_to_k8s_client(self, client, auth_headers):
-        """node_name must be passed through to K8sClient.create_deployment."""
+    def test_response_contains_job_name(self, client, auth_headers):
+        """Response must use 'job_name', not 'deployment_name'."""
         headers, _ = auth_headers
         k8s = _mock_k8s(
             namespace_exists=True,
-            create_deployment={"success": True, "deployment_name": "myapp"},
+            create_job={"success": True, "job_name": "myapp"},
+        )
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.post(
+                self.URL,
+                json={"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"},
+                headers=headers,
+            )
+        data = resp.get_json(force=True)
+        assert "job_name" in data
+        assert "deployment_name" not in data
+
+    def test_node_name_is_forwarded_to_k8s_client(self, client, auth_headers):
+        """node_name must be passed through to K8sClient.create_job."""
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            create_job={"success": True, "job_name": "myapp"},
         )
         with patch(K8S_PATCH, return_value=k8s):
             client.post(
                 self.URL,
-                json={"name": "myapp", "image": "nginx:latest", "node_name": "vk-node"},
+                json={"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"},
                 headers=headers,
             )
-        call_kwargs = k8s.create_deployment.call_args
+        call_kwargs = k8s.create_job.call_args
         assert call_kwargs[1].get("node_name") == "vk-node"
+
+    def test_unsupported_fields_are_ignored(self, client, auth_headers):
+        """Sending replicas/ports/resources must not cause an error — they're silently ignored."""
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            create_job={"success": True, "job_name": "myapp"},
+        )
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.post(
+                self.URL,
+                json={
+                    "name": "myapp",
+                    "image": "ubuntu:22.04",
+                    "node_name": "vk-node",
+                    "replicas": 3,
+                    "cpu_request": "100m",
+                    "ports": [{"number": 80}],
+                    "ingress": {"host": "example.com"},
+                },
+                headers=headers,
+            )
+        assert resp.status_code == 201
+        # replicas/ports/resources must NOT be forwarded to K8sClient
+        call_kwargs = k8s.create_job.call_args
+        for unsupported in ("replicas", "cpu_request", "ports", "ingress"):
+            assert unsupported not in (call_kwargs[1] or {}), \
+                f"'{unsupported}' must not be forwarded to K8sClient"
 
     def test_k8s_failure_returns_400(self, client, auth_headers):
         headers, _ = auth_headers
         k8s = _mock_k8s(
             namespace_exists=True,
-            create_deployment={"success": False, "error": "already exists"},
+            create_job={"success": False, "error": "already exists"},
         )
         with patch(K8S_PATCH, return_value=k8s):
             resp = client.post(
                 self.URL,
-                json={"name": "myapp", "image": "nginx:latest", "node_name": "vk-node"},
+                json={"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"},
                 headers=headers,
             )
         assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
-# GET /api/deployments/<name>
+# GET /api/jobs/<name>
 # ---------------------------------------------------------------------------
 
 
-class TestGetDeployment:
+class TestGetJob:
     def test_requires_auth(self, client):
-        assert client.get("/api/deployments/myapp").status_code == 401
+        assert client.get("/api/jobs/myapp").status_code == 401
 
     def test_found_returns_200_with_spec(self, client, auth_headers):
         headers, _ = auth_headers
-        spec = {"name": "myapp", "image": "nginx:latest", "replicas": 1}
-        k8s = _mock_k8s(get_deployment_spec=spec)
+        spec = {"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"}
+        k8s = _mock_k8s(get_job_spec=spec)
         with patch(K8S_PATCH, return_value=k8s):
-            resp = client.get("/api/deployments/myapp", headers=headers)
+            resp = client.get("/api/jobs/myapp", headers=headers)
         assert resp.status_code == 200
         assert resp.get_json(force=True)["name"] == "myapp"
 
+    def test_spec_does_not_contain_removed_fields(self, client, auth_headers):
+        headers, _ = auth_headers
+        spec = {"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"}
+        k8s = _mock_k8s(get_job_spec=spec)
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.get("/api/jobs/myapp", headers=headers)
+        data = resp.get_json(force=True)
+        for removed in ("replicas", "cpu_request", "cpu_limit",
+                        "mem_request", "mem_limit", "ports"):
+            assert removed not in data
+
     def test_not_found_returns_404(self, client, auth_headers):
         headers, _ = auth_headers
-        k8s = _mock_k8s(get_deployment_spec={"error": "not found"})
+        k8s = _mock_k8s(get_job_spec={"error": "not found"})
         with patch(K8S_PATCH, return_value=k8s):
-            resp = client.get("/api/deployments/missing", headers=headers)
+            resp = client.get("/api/jobs/missing", headers=headers)
         assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# GET /api/deployments/<name>/status
+# GET /api/jobs/<name>/status
 # ---------------------------------------------------------------------------
 
 
-class TestDeploymentStatus:
+class TestJobStatus:
     def test_requires_auth(self, client):
-        assert client.get("/api/deployments/myapp/status").status_code == 401
+        assert client.get("/api/jobs/myapp/status").status_code == 401
 
     def test_found_returns_200(self, client, auth_headers):
         headers, _ = auth_headers
-        k8s = _mock_k8s(get_deployment_status={"name": "myapp", "status": "available"})
+        k8s = _mock_k8s(get_job_status={"name": "myapp", "status": "available"})
         with patch(K8S_PATCH, return_value=k8s):
-            resp = client.get("/api/deployments/myapp/status", headers=headers)
+            resp = client.get("/api/jobs/myapp/status", headers=headers)
         assert resp.status_code == 200
 
     def test_error_key_returns_404(self, client, auth_headers):
         headers, _ = auth_headers
-        k8s = _mock_k8s(get_deployment_status={"error": "not found"})
+        k8s = _mock_k8s(get_job_status={"error": "not found"})
         with patch(K8S_PATCH, return_value=k8s):
-            resp = client.get("/api/deployments/missing/status", headers=headers)
+            resp = client.get("/api/jobs/missing/status", headers=headers)
         assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# DELETE /api/deployments/<name>
+# DELETE /api/jobs/<name>
 # ---------------------------------------------------------------------------
 
 
-class TestDeleteDeployment:
+class TestDeleteJob:
     def test_requires_auth(self, client):
-        assert client.delete("/api/deployments/myapp").status_code == 401
+        assert client.delete("/api/jobs/myapp").status_code == 401
 
     def test_success_returns_200(self, client, auth_headers):
         headers, _ = auth_headers
         k8s = _mock_k8s(
-            delete_deployment={
-                "deployment": {"success": True, "name": "myapp"},
-                "service": None,
-                "ingress": None,
-            }
+            delete_job={"job": {"success": True, "name": "myapp"}}
         )
         with patch(K8S_PATCH, return_value=k8s):
-            resp = client.delete("/api/deployments/myapp", headers=headers)
+            resp = client.delete("/api/jobs/myapp", headers=headers)
         assert resp.status_code == 200
+
+    def test_response_uses_job_key_not_deployment_key(self, client, auth_headers):
+        """Response must use 'job', not 'deployment'."""
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            delete_job={"job": {"success": True, "name": "myapp"}}
+        )
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.delete("/api/jobs/myapp", headers=headers)
+        data = resp.get_json(force=True)
+        assert "job" in data
+        assert "deployment" not in data
+        assert "service" not in data
+        assert "ingress" not in data
 
     def test_failure_returns_400(self, client, auth_headers):
         headers, _ = auth_headers
         k8s = _mock_k8s(
-            delete_deployment={
-                "deployment": {"success": False, "error": "not found"},
-                "service": None,
-                "ingress": None,
+            delete_job={
+                "job": {"success": False, "error": "not found"},
             }
         )
         with patch(K8S_PATCH, return_value=k8s):
-            resp = client.delete("/api/deployments/myapp", headers=headers)
+            resp = client.delete("/api/jobs/myapp", headers=headers)
         assert resp.status_code == 400
