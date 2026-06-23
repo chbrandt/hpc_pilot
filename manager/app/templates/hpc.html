@@ -30,7 +30,7 @@
       </div>
       <div class="saved-item-actions">
         {# Load button — pre-fills the form via JS #}
-        <button type="button" class="btn btn-small btn-secondary" onclick="loadHpcConfig({{ cfg | tojson }})">
+        <button type="button" class="btn btn-small btn-secondary" onclick='loadHpcConfig({{ cfg | tojson }})'>
           📋 Load
         </button>
         {# Delete saved config #}

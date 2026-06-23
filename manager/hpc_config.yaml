@@ -23,14 +23,14 @@
 
 default_hpc_configs:
   - kind: hpc
-    label: "HPC Node (echo)"
+    label: "IM-VM (echo)"
     hpc_host: 161.9.255.206
     ssh_port: 3333
     plugin: echo
     description: "Default HPC node template using the echo plugin (for testing)"
 
   - kind: hpc
-    label: "HPC Node (docker)"
+    label: "IM-VM (docker)"
     hpc_host: 161.9.255.206
     ssh_port: 3333
     plugin: docker

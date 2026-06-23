@@ -25,7 +25,7 @@ default_charts:
     singleton: true
     description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
     values_yaml: |
-      nodeName: vk-node
+      nodeName: virtual-node-__NAMESPACE_HASH__
 
       interlink:
         enabled: true
