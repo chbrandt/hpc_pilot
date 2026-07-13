@@ -1,0 +1,12 @@
+[program:wstunnel]
+command={{wstunnel_bin}} client
+    --http-upgrade-path-prefix '{{wstunnel_secret}}'
+    -R tcp://{{wstunnel_local_port}}:localhost:{{wstunnel_local_port}}
+    {{wstunnel_protocol}}://{{wstunnel_server_addr}}:{{wstunnel_server_port}}
+priority=1
+autostart=true
+autorestart=true
+startretries=5
+startsecs=3
+stdout_logfile=%(here)s/log/wstunnel.stdout
+stderr_logfile=%(here)s/log/wstunnel.stderr

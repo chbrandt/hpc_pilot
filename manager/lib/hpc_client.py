@@ -399,10 +399,11 @@ def deploy(
 
     steps = [
         ("setup_directories",      lambda: setup_directories(runner)),
-        ("install_wstunnel",       lambda: install_wstunnel(runner, cfg)),
         ("install_supervisord",    lambda: install_supervisord(runner, cfg)),
         ("copy_supervisord_conf",  lambda: copy_supervisord_conf(copier, cfg)),
+        ("install_wstunnel",       lambda: install_wstunnel(runner, cfg)),
         ("install_plugin",         lambda: install_plugin(runner, cfg, plugin=plugin)),
+        ("copy_plugin_conf",       lambda: copy_plugin_conf(copier, cfg, plugin=plugin)),
         ("start_supervisord",      lambda: start_supervisord(runner)),
         ("check_status",           lambda: check_status(runner)),
     ]
@@ -524,9 +525,35 @@ hpc = {
                 "hpc", "pilot","supervisord.conf.jinja"
             )
         }
+    },
+    "plugins": {
+        "echo": {
+            "config_template": os.path.join(
+                os.path.dirname(__file__), "..", 
+                "hpc", "plugins", "echo", "InterLinkConfig.yaml"
+            )
+        },
+        "docker": {
+            "config_template": os.path.join(
+                os.path.dirname(__file__), "..", 
+                "hpc", "plugins", "docker", "InterLinkConfig.yaml"
+            )
+        },
+        "slurm": {
+            "config_template": os.path.join(
+                os.path.dirname(__file__), "..", 
+                "hpc", "plugins", "slurm", "InterLinkConfig.yaml"
+            )
+        }
     }
 }
+
 SUPERVISOR_CONF_TEMPLATE = hpc["pilot"]["supervisord_conf"]["template"]
+PLUGIN_CONFIG_TEMPLATES = {
+    "echo": hpc["plugins"]["echo"]["config_template"],
+    "docker": hpc["plugins"]["docker"]["config_template"],
+    "slurm": hpc["plugins"]["slurm"]["config_template"]
+}
 
 # ── Remote path constants ──────────────────────────────────────────────────────
 # All paths use shell variable $HOME so they expand correctly on the remote node
@@ -615,14 +642,24 @@ def setup_directories(runner: Runner) -> dict:
 # The "echo" plugin is a minimal test plugin that echoes job requests.
 # "docker" and "slurm" are placeholders — update the URLs when packages are
 # published.
-_PLUGIN_PACKAGES: dict[str, str] = {
-    "echo": "https://github.com/chbrandt/interlink-echo-plugin/archive/refs/tags/v0.1.0.tar.gz",
-    "docker": "interlink-docker-plugin",   # placeholder — update when published
-    "slurm": "interlink-slurm-plugin",     # placeholder — update when published
+_PLUGIN_PACKAGES: dict[str, dict[str, str]] = {
+    "echo": {
+        "type": "pip",
+        "url": "https://github.com/chbrandt/interlink-echo-plugin/archive/refs/tags/v0.2.1.tar.gz"
+        },
+    "docker": {
+        "type": "binary",
+        "url": "https://github.com/chbrandt/interlink-docker-plugin/releases/download/v0.0.3/docker-plugin_Linux_x86_64"
+        },
+    "slurm": {
+        "type": "binary",
+        "url": "https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.6.2-pre5/interlink-sidecar-slurm_Linux_x86_64" # placeholder — update when published
+        },     
 }
 
 _VALID_PLUGINS = tuple(_PLUGIN_PACKAGES.keys())
-_DEFAULT_PLUGIN = "echo"
+# _DEFAULT_PLUGIN = "echo"
+_DEFAULT_PLUGIN = "docker"
 
 
 def install_plugin(runner: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PLUGIN) -> dict:
@@ -647,16 +684,73 @@ def install_plugin(runner: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PLUG
         )
         plugin = _DEFAULT_PLUGIN
 
-    package_ref = _PLUGIN_PACKAGES[plugin]
-    logger.info("Installing interLink plugin '%s' from %s", plugin, package_ref)
+    pkg_conf = _PLUGIN_PACKAGES[plugin]
+    logger.info("Installing interLink plugin '%s'", plugin)
 
-    cmd = (
-        f"source {_BASE_DIR}/bin/activate"
-        f" && pip install --quiet {package_ref}"
-        f" && echo 'Plugin {plugin} installed'"
-    )
+    assert isinstance(pkg_conf, dict)
+    if plugin == "echo":
+        package_url = pkg_conf["url"]
+        cmd = (
+            f"source {_BASE_DIR}/bin/activate"
+            f" && pip install --quiet {package_url}"
+            f" && ln -sf {_BIN_DIR}/interlink-echo-plugin {_BIN_DIR}/plugin"
+            f" && chmod +x {_BIN_DIR}/plugin"
+            f" && echo 'Plugin {plugin} installed'"
+        )
+    elif plugin == "docker":
+        package_url = pkg_conf["url"]
+        cmd = (
+            f"curl --fail --silent --show-error -L -o {_BIN_DIR}/plugin {package_url}"
+            f" && chmod +x {_BIN_DIR}/plugin"
+            f" && echo 'Plugin {plugin} installed'"
+        )
+    elif plugin == "slurm":
+        package_url = pkg_conf["url"]
+        cmd = (
+            f"curl --fail --silent --show-error -L -o {_BIN_DIR}/plugin {package_url}"
+            f" && chmod +x {_BIN_DIR}/plugin"
+            f" && echo 'Plugin {plugin} installed'"
+        )
+    else:
+        cmd = (
+            f"echo 'Unknown plugin {plugin}; no installation performed'"
+        ) 
 
     return runner(cmd, timeout=_LONG_TIMEOUT)
+
+
+def copy_plugin_conf(copier: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PLUGIN) -> dict:
+    """
+    Copy the plugin configuration file to the remote HPC node.
+
+    Parameters
+    ----------
+    copier : callable that copies a local file to the remote node via mccli.
+    cfg    : :class:`SetupConfig` — provides configuration values for the plugin.
+    plugin : Name of the plugin whose config to copy.  Allowed values: ``"echo"``,
+             ``"docker"``, ``"slurm"`` (default: ``"echo"``).
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
+    """
+    if plugin not in _VALID_PLUGINS:
+        logger.warning(
+            "Unknown plugin '%s'; falling back to '%s'. Valid options: %s",
+            plugin, _DEFAULT_PLUGIN, _VALID_PLUGINS,
+        )
+        plugin = _DEFAULT_PLUGIN
+
+    result_copy = _copy_jinja_template(copier, 
+        {
+            "sidecar_port": cfg.wstunnel_local_port,
+            "plugin_data_root": os.path.join(_BASE_DIR, "data"),
+        },
+        PLUGIN_CONFIG_TEMPLATES[plugin],
+        os.path.join(_BASE_DIR, f"InterLinkConfig.yaml")
+    )
+
+    return result_copy
 
 
 def install_wstunnel(runner: Runner, cfg: SetupConfig, force: bool = False) -> dict:
@@ -718,15 +812,6 @@ def install_supervisord(runner: Runner, force: bool = False) -> dict:
         f" && echo supervisord installed in virtualenv '{_BASE_DIR}'"
     )
 
-    # if not force:
-    #     cmd = (
-    #         f"if [ ! -x {_SUPERVISORD_BIN} ]; then "
-    #         f"{cmd}"
-    #         f"; else "
-    #         f"echo supervisord already installed: `{_SUPERVISORD_BIN} --version`"
-    #         f"; fi"
-    #     )
-
     return runner(cmd, timeout=_LONG_TIMEOUT)
 
 
@@ -744,21 +829,75 @@ def copy_supervisord_conf(copier: Runner, cfg: SetupConfig) -> dict:
     dict  ``{success, output, error}``
     """
 
-    rendered_conf = _render_template(SUPERVISOR_CONF_TEMPLATE, {
-        "wstunnel_bin": cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
+    # rendered_conf = _render_template(SUPERVISOR_CONF_TEMPLATE, {
+    #     "wstunnel_bin": cfg.wstunnel_bin.replace("$HOME", "%(ENV_HOME)s"),
+    #     "wstunnel_server_addr": cfg.wstunnel_server_addr,
+    #     "wstunnel_local_port": cfg.wstunnel_local_port,
+    #     "wstunnel_server_port": cfg.wstunnel_server_port,
+    #     "wstunnel_secret": cfg.wstunnel_secret,
+    #     "interlink_plugin_cmd": f"{_BASE_DIR}/bin/interlink-echo-plugin --port {cfg.wstunnel_local_port}".replace("$HOME", "%(ENV_HOME)s"),
+    # })
+
+    # #TODO: Delete the temporary file after copying, or use a context manager that does it automatically.
+    # rendered_tempfile = _write_to_tempfile(rendered_conf)
+
+    # logger.info("Copying supervisord.conf to remote node via mccli")
+    # result_copy = copier(local_path=rendered_tempfile.name, 
+    #                 remote_path=_SUPERVISOR_CONF.replace("$HOME", "~"), 
+    #                 timeout=_SHORT_TIMEOUT)
+    
+    conf_values = {
+        "wstunnel_bin": cfg.wstunnel_bin,
         "wstunnel_server_addr": cfg.wstunnel_server_addr,
         "wstunnel_local_port": cfg.wstunnel_local_port,
         "wstunnel_server_port": cfg.wstunnel_server_port,
         "wstunnel_secret": cfg.wstunnel_secret,
-        "interlink_plugin_cmd": f"{_BASE_DIR}/bin/interlink-echo-plugin --port {cfg.wstunnel_local_port}".replace("$HOME", "%(ENV_HOME)s"),
-    })
+        "wstunnel_protocol": "wss" if cfg.wstunnel_server_port == 443 else "ws",
+        # "interlink_plugin_cmd": f"{_BASE_DIR}/bin/plugin --port {cfg.wstunnel_local_port}",
+        "plugin_bin": f"{_BASE_DIR}/bin/plugin",
+        "plugin_conf": f"{_BASE_DIR}/plugin_config.yaml",
+    } 
+
+    result_copy = _copy_jinja_template(copier, 
+        conf_values,
+        SUPERVISOR_CONF_TEMPLATE, 
+        _SUPERVISOR_CONF
+    )
+
+    return result_copy
+
+
+def _copy_jinja_template(copier: Runner, cfg: dict, templ_orig: str, templ_dest: str) -> dict:
+    """
+    Copy Jinja2 template from origin to destiny, substitute variables from cfg.
+
+    Parameters
+    ----------
+    copier : callable that copies a local file to the remote node via mccli.
+    cfg    : provides configuration values for the supervisord.conf file.
+    templ_orig : path to the original Jinja2 template file.
+    templ_dest : path to the destination file on the remote node.
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
+    """
+
+    vals = {}
+    for key, value in cfg.items():
+        if isinstance(value, str):
+            vals[key] = value.replace("$HOME", "%(ENV_HOME)s")
+        else:
+            vals[key] = value
+
+    rendered_conf = _render_template(templ_orig, vals)
 
     #TODO: Delete the temporary file after copying, or use a context manager that does it automatically.
     rendered_tempfile = _write_to_tempfile(rendered_conf)
 
-    logger.info("Copying supervisord.conf to remote node via mccli")
+    logger.info(f"Copying Jinja2 template '{templ_orig}' to remote node via mccli")
     result_copy = copier(local_path=rendered_tempfile.name, 
-                    remote_path=_SUPERVISOR_CONF.replace("$HOME", "~"), 
+                    remote_path=templ_dest.replace("$HOME", "~"), 
                     timeout=_SHORT_TIMEOUT)
     
     return result_copy

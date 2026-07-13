@@ -1,0 +1,7 @@
+SidecarPort: "{{sidecar_port}}"
+ExportPodData: true
+DataRootFolder: "{{plugin_data_root}}"
+Namespace: "vk"
+BashPath: /bin/bash
+VerboseLogging: true
+ErrorsOnlyLogging: false
