@@ -1,7 +1,6 @@
 tmp/
 manager/data/
 __pycache__/
-charts/interlink-helm-chart
 charts/interlink/interlink-helm-chart
 .DS_Store
 .venv/
