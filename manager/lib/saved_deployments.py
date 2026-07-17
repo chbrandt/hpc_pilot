@@ -204,7 +204,7 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
         resolve ``__CLUSTER_DOMAIN__``.  Falls back to ``"dev.local"`` when
         the key is absent.
     """
-    cluster_domain = site_config.get("cluster_domain") #, "dev.local")
+    cluster_domain = site_config.get("cluster_domain", "dev.local")
     # Strip the "user-" prefix to get just the hash; fall back to the full
     # namespace string if the expected prefix is absent.
     namespace_hash = namespace.removeprefix("user-")
