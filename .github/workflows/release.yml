@@ -1,0 +1,71 @@
+name: Release
+
+# Release workflow for production artifact publishing.
+# Required GitHub settings:
+#   - GITHUB_TOKEN: provided automatically by GitHub Actions
+#   - permissions: contents: read, packages: write
+#   - allows pushing to ghcr.io for the manager image
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: hpc-pilot-manager
+      IMAGE_REPO: ghcr.io/${{ github.repository_owner }}/hpc-pilot-manager
+      CHART_DIR: charts/manager
+      CHART_DEST: dist
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set release version
+        id: release_vars
+        run: |
+          echo "tag=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v5
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push manager Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPO }}:${{ steps.release_vars.outputs.tag }}
+            ${{ env.IMAGE_REPO }}:latest
+
+      - name: Package manager Helm chart
+        run: |
+          mkdir -p $CHART_DEST
+          helm package $CHART_DIR --destination $CHART_DEST \
+            --version "${{ steps.release_vars.outputs.tag }}" \
+            --app-version "${{ steps.release_vars.outputs.tag }}"
+
+      - name: Publish release chart artifact
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: "Automated release generated from tag ${{ github.ref_name }}."
+          files: $CHART_DEST/*.tgz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
