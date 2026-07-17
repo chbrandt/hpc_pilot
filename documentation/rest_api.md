@@ -332,34 +332,66 @@ curl -s -X DELETE \
 
 ## HPC Node Operations — `/api/hpc`
 
-All HPC endpoints accept a JSON body identifying the target HPC node.
+All HPC endpoints accept a JSON body identifying the target HPC node by
+its **name** — a short identifier that maps to a config file in
+`manager/hpc/<name>.yaml` containing the hostname, SSH port, and plugin.
 The raw Bearer token is forwarded to `mccli` for SSH authentication.
 
 **Common body fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `hpc_host` | string | ✓ | HPC login node hostname or IP |
-| `ssh_port` | int | — | SSH port (default `22`) |
+| `hpc_name` | string | ✓ | HPC node name (matches `manager/hpc/<name>.yaml`) |
+
+---
+
+### `GET /api/hpc/nodes` — List available HPC nodes
+
+Returns all HPC nodes defined by config files in `manager/hpc/*.yaml`.
+
+```{code-block} bash
+curl -s \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/hpc/nodes | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{
+  "nodes": [
+    {
+      "name": "test-echo",
+      "hostname": "161.9.255.206",
+      "ssh_port": 3333,
+      "plugin": "echo"
+    },
+    {
+      "name": "test-docker",
+      "hostname": "161.9.255.233",
+      "ssh_port": 22,
+      "plugin": "docker"
+    }
+  ]
+}
+```
 
 ---
 
 ### `POST /api/hpc/deploy` — Deploy wstunnel on HPC node
 
-Uploads and runs `setup.sh` on the remote node, installing wstunnel and
-supervisord, then starts the tunnel pointing at the Kubernetes-side server.
+Installs wstunnel and supervisord on the remote node, then starts the
+tunnel pointing at the Kubernetes-side server.  The HPC node's hostname,
+SSH port, and plugin are read from the config file.  The wstunnel
+parameters (server, port, secret, local port) are computed internally
+from the authenticated user's namespace and the site config — they are
+**not** supplied by the caller.
 
 ```{code-block} bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "hpc_host": "hpc-login.example.org",
-    "ssh_port": 22,
-    "wstunnel_server": "user-a3f1b2c4d5e6f7a8.k8s.example.org",
-    "wstunnel_port": 8420,
-    "wstunnel_secret": "my-shared-secret"
-  }' \
+  -d '{"hpc_name": "test-echo"}' \
   https://manager.example.org/api/hpc/deploy | jq .
 ```
 
@@ -367,12 +399,7 @@ curl -s -X POST \
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `hpc_host` | string | ✓ | HPC login node hostname |
-| `ssh_port` | int | — | SSH port (default `22`) |
-| `wstunnel_server` | string | ✓ | K8s-side wstunnel server hostname |
-| `wstunnel_port` | int | — | wstunnel listen port (default `8420`) |
-| `wstunnel_secret` | string | ✓ | Shared tunnel secret |
-| `wstunnel_local_port` | int | — | Local port on HPC node (default = `wstunnel_port`) |
+| `hpc_name` | string | ✓ | HPC node name (matches `manager/hpc/<name>.yaml`) |
 
 ```{note}
 This call may take up to **5 minutes** while the setup script runs on the
@@ -397,7 +424,7 @@ This is the inverse of `POST /api/hpc/deploy`.
 curl -s -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"hpc_host": "hpc-login.example.org"}' \
+  -d '{"hpc_name": "test-echo"}' \
   https://manager.example.org/api/hpc/deploy | jq .
 ```
 
@@ -405,8 +432,7 @@ curl -s -X DELETE \
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `hpc_host` | string | ✓ | HPC login node hostname |
-| `ssh_port` | int | — | SSH port (default `22`) |
+| `hpc_name` | string | ✓ | HPC node name |
 
 **Response `200`:**
 
@@ -424,7 +450,7 @@ Calls `supervisorctl status` on the remote node.
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"hpc_host": "hpc-login.example.org"}' \
+  -d '{"hpc_name": "test-echo"}' \
   https://manager.example.org/api/hpc/status | jq .
 ```
 
@@ -446,7 +472,7 @@ curl -s -X POST \
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"hpc_host": "hpc-login.example.org"}' \
+  -d '{"hpc_name": "test-echo"}' \
   https://manager.example.org/api/hpc/start | jq .
 ```
 
@@ -464,7 +490,7 @@ curl -s -X POST \
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"hpc_host": "hpc-login.example.org"}' \
+  -d '{"hpc_name": "test-echo"}' \
   https://manager.example.org/api/hpc/stop | jq .
 ```
 
@@ -529,6 +555,7 @@ print(resp.json())
 | `GET` | `/api/releases` | List Helm releases |
 | `POST` | `/api/helm/install` | Install a Helm chart |
 | `DELETE` | `/api/releases/<name>` | Uninstall a Helm release |
+| `GET` | `/api/hpc/nodes` | List available HPC nodes |
 | `POST` | `/api/hpc/deploy` | Deploy wstunnel on HPC node |
 | `DELETE` | `/api/hpc/deploy` | Stop & uninstall HPC deployment |
 | `POST` | `/api/hpc/status` | Query HPC service status |

@@ -7,128 +7,42 @@
   <h1>🖥 Deploy to HPC</h1>
   <p class="text-muted">
     Connect to a remote HPC node via
-    <a href="https://github.com/dciangot/mccli" target="_blank" rel="noreferrer">mccli</a>
+    <a href="https://github.com/dianagudu/mccli" target="_blank" rel="noreferrer">mccli</a>
     (motley-cue / EGI Check-in) and install
     <strong>wstunnel</strong> + <strong>supervisord</strong>.
   </p>
 </div>
-
-{# ── Saved configs ──────────────────────────────────────────────────── #}
-{% if saved_configs %}
-<section class="saved-configs">
-  <h2>Saved HPC Configs</h2>
-  <div class="saved-list">
-    {% for cfg in saved_configs %}
-    <div class="saved-item">
-      <div class="saved-item-header">
-        <strong>{{ cfg.label or cfg.hpc_host or "(unnamed)" }}</strong>
-        <span class="text-muted saved-item-date">{{ cfg.saved_at[:10] }}</span>
-      </div>
-      <div class="saved-item-meta text-mono">
-        {{ cfg.hpc_host or "(no host)" }}:{{ cfg.ssh_port }}
-        &nbsp;·&nbsp; plugin: <code>{{ cfg.plugin or "echo" }}</code>
-      </div>
-      <div class="saved-item-actions">
-        {# Load button — pre-fills the form via JS #}
-        <button type="button" class="btn btn-small btn-secondary" onclick='loadHpcConfig({{ cfg | tojson }})'>
-          📋 Load
-        </button>
-        {# Delete saved config #}
-        <form method="post" action="{{ url_for('app_saved.delete_saved_config', config_id=cfg.id) }}"
-          style="display:inline;"
-          onsubmit="return confirm('Remove saved config \'{{ cfg.label or cfg.hpc_host }}\'?');">
-          <button type="submit" class="btn btn-small btn-danger">🗑 Delete</button>
-        </form>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</section>
-<hr>
-{% endif %}
 
 {# ── Deployment form ────────────────────────────────────────────────── #}
 <form method="post" action="{{ url_for('app_hpc.hpc_deploy') }}" id="hpc-form">
 
   {# ── Section: HPC connection ─────────────────────────────────── #}
   <fieldset>
-    <legend>HPC Connection</legend>
+    <legend>HPC Node</legend>
 
-    <div class="form-row">
+    <div class="form-column">
       <div class="form-group" style="flex:3;">
-        <label for="hpc_host">HPC Hostname / IP <span class="required">*</span></label>
-        <input type="text" id="hpc_host" name="hpc_host" placeholder="login.myhpc.example.org" required>
-        <small class="form-hint">
-          The HPC login node reachable via mccli (motley-cue SSH).
-        </small>
-      </div>
-      <div class="form-group" style="flex:1;">
-        <label for="ssh_port">SSH Port</label>
-        <input type="number" id="ssh_port" name="ssh_port" value="22" min="1" max="65535">
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group" style="flex:3;">
-        <label for="label">Config Label</label>
-        <input type="text" id="label" name="label" placeholder="e.g. My HPC Cluster">
-        <small class="form-hint">
-          Human-friendly name stored with saved configs.
-        </small>
-      </div>
-      <div class="form-group" style="flex:1;">
-        <label for="plugin">Plugin <span class="required">*</span></label>
-        <select id="plugin" name="plugin">
-          {% for opt in plugin_options %}
-          <option value="{{ opt }}" {% if opt==default_plugin %} selected{% endif %}>{{ opt }}</option>
+        <label for="hpc_name">HPC Node <span class="required">*</span></label>
+        <select id="hpc_name" name="hpc_name" required>
+          <option value="" disabled selected>— Select an HPC node —</option>
+          {% for node in hpc_nodes %}
+          <option value="{{ node.name }}" data-hostname="{{ node.hostname }}" data-ssh-port="{{ node.ssh_port }}"
+            data-plugin="{{ node.plugin }}">
+            {{ node.name }} ({{ node.hostname }}:{{ node.ssh_port }})
+          </option>
           {% endfor %}
         </select>
         <small class="form-hint">
-          InterLink plugin to install on the HPC node.
-        </small>
-      </div>
-    </div>
-  </fieldset>
-
-  {# ── Section: wstunnel ──────────────────────────────────────── #}
-  <fieldset>
-    <legend>wstunnel Configuration</legend>
-    <p class="text-muted" style="margin-bottom:0.75rem;">
-      These values must match the wstunnel server deployed in your
-      Kubernetes namespace (via the <em>interlink</em> Helm chart).
-    </p>
-
-    <div class="form-row">
-      <div class="form-group" style="flex:3;">
-        <label for="wstunnel_server">wstunnel Server Hostname <span class="required">*</span></label>
-        <input type="text" id="wstunnel_server" name="wstunnel_server" value="{{ defaults.wstunnel_server }}"
-          placeholder="{{ defaults.wstunnel_server }}" required>
-        <small class="form-hint">
-          The public hostname of the K8s-side wstunnel server
-          (e.g. <code>{{ defaults.wstunnel_server }}</code>).
+          HPC nodes are defined by config files in <code>manager/hpc/*.yaml</code>.
         </small>
       </div>
       <div class="form-group" style="flex:1;">
-        <label for="wstunnel_port">Server Port</label>
-        <input type="number" id="wstunnel_port" name="wstunnel_port" value="{{ defaults.wstunnel_port }}" min="1"
-          max="65535" oninput="syncLocalPort(this.value)">
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group" style="flex:3;">
-        <label for="wstunnel_secret">Tunnel Secret / Bearer Token <span class="required">*</span></label>
-        <input type="text" id="wstunnel_secret" name="wstunnel_secret" value="{{ defaults.wstunnel_secret }}"
-          placeholder="{{ defaults.wstunnel_secret }}" required>
+        <label for="plugin_info">Plugin</label>
+        <input type="text" id="plugin_info" value="—" readonly
+          style="background:var(--bg-secondary, #f0f0f0); color:var(--text-muted, #999);">
         <small class="form-hint">
-          Must match <code>wstunnel.secret</code> in the Helm chart values.
+          Determined by the selected HPC node's config.
         </small>
-      </div>
-      <div class="form-group" style="flex:1;">
-        <label for="wstunnel_local_port">Local Port (HPC)</label>
-        <input type="number" id="wstunnel_local_port" name="wstunnel_local_port"
-          value="{{ defaults.wstunnel_local_port }}" min="1" max="65535">
-        <small class="form-hint">TCP port exposed on the HPC node.</small>
       </div>
     </div>
   </fieldset>
@@ -183,32 +97,16 @@
 
 {% block scripts %}
 <script>
-  /* ── Sync local port with server port by default ────────────────── */
-  function syncLocalPort(value) {
-    const lp = document.getElementById('wstunnel_local_port');
-    if (lp && lp.dataset.userModified !== '1') {
-      lp.value = value;
+  /* ── Show plugin info when an HPC node is selected ──────────────── */
+  document.getElementById('hpc_name').addEventListener('change', function () {
+    const selected = this.options[this.selectedIndex];
+    const plugin = selected ? selected.dataset.plugin : null;
+    const pluginInfo = document.getElementById('plugin_info');
+    if (plugin) {
+      pluginInfo.value = plugin;
+    } else {
+      pluginInfo.value = '—';
     }
-  }
-
-  document.getElementById('wstunnel_local_port').addEventListener('input', function () {
-    this.dataset.userModified = '1';
   });
-
-  /* ── Load a saved config into the form ──────────────────────────── */
-  /* Only HPC-side fields are stored in saved configs; wstunnel fields
-     keep their current (namespace-derived) defaults.                   */
-  function loadHpcConfig(cfg) {
-    const set = (id, val) => {
-      const el = document.getElementById(id);
-      if (el && val !== undefined && val !== null) el.value = val;
-    };
-    set('hpc_host', cfg.hpc_host);
-    set('ssh_port', cfg.ssh_port);
-    set('label', cfg.label || '');
-    set('plugin', cfg.plugin || '{{ default_plugin }}');
-    // Scroll to form
-    document.getElementById('hpc-form').scrollIntoView({ behavior: 'smooth' });
-  }
 </script>
 {% endblock %}

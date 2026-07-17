@@ -7,9 +7,8 @@ Endpoints
 ---------
 POST /api/saved/seed
     Idempotently seed the default Helm chart configs (from ``charts_config.yaml``)
-    and the default HPC node configs (from ``hpc_config.yaml``) into the
-    authenticated user's saved-config store.  Safe to call on every login —
-    entries already present (by stable ID) are left untouched.
+    into the authenticated user's saved-config store.  Safe to call on every
+    login — entries already present (by stable ID) are left untouched.
 """
 
 import json
@@ -19,7 +18,7 @@ from flask import Blueprint
 
 from api.auth import get_request_claims, require_token
 from api.site_config import load_site_config
-from lib.saved_deployments import seed_defaults, seed_hpc_defaults
+from lib.saved_deployments import seed_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +39,7 @@ def seed_saved_defaults():
     """
     Idempotently seed the default configs for the authenticated user.
 
-    Seeds both Helm chart defaults (from ``charts_config.yaml``) and HPC node
-    defaults (from ``hpc_config.yaml``) in a single call.
+    Seeds Helm chart defaults (from ``charts_config.yaml``) in a single call.
 
     Reads the default lists and the site-level settings from
     ``site_config.yaml``, then inserts any missing default entries into the
@@ -55,7 +53,6 @@ def seed_saved_defaults():
     try:
         site_cfg = load_site_config()
         seed_defaults(namespace, site_cfg)
-        seed_hpc_defaults(namespace, site_cfg)
         return _ok({"seeded": True, "namespace": namespace})
     except Exception as exc:
         logger.error("seed_saved_defaults failed for %s: %s", namespace, exc)

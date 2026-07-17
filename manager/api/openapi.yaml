@@ -295,45 +295,40 @@ components:
 
     # ── HPC ──────────────────────────────────────────────────────────────────
 
-    HpcHostBody:
+    HpcNameBody:
       type: object
-      required: [hpc_host]
+      required: [hpc_name]
       properties:
-        hpc_host:
+        hpc_name:
+          type: string
+          description: |
+            HPC node name — matches a config file in `manager/hpc/<name>.yaml`.
+            The hostname, SSH port, and plugin are read from that file.
+          example: test-echo
+
+    HpcNode:
+      type: object
+      properties:
+        name:
+          type: string
+          description: HPC node name (filename stem of the config file)
+          example: test-echo
+        hostname:
           type: string
           description: HPC login node hostname or IP
-          example: hpc.example.ac.uk
+          example: 161.9.255.206
         ssh_port:
           type: integer
           description: SSH port on the HPC login node
-          default: 22
           example: 3333
+        plugin:
+          type: string
+          description: InterLink plugin to install on the HPC node
+          enum: [echo, docker, slurm]
+          example: echo
 
     HpcDeployRequest:
-      allOf:
-        - $ref: "#/components/schemas/HpcHostBody"
-        - type: object
-          required: [wstunnel_server, wstunnel_secret]
-          properties:
-            wstunnel_server:
-              type: string
-              description: Kubernetes-side wstunnel server hostname
-              example: wstunnel.k8s.example.com
-            wstunnel_port:
-              type: integer
-              description: Port the wstunnel server listens on
-              default: 80
-              example: 80
-            wstunnel_secret:
-              type: string
-              description: Shared tunnel secret
-              example: my-super-secret
-            wstunnel_local_port:
-              type: integer
-              description: |
-                Local port on the HPC node that wstunnel binds to.
-                Defaults to the value of `wstunnel_port`.
-              example: 4000
+      $ref: "#/components/schemas/HpcNameBody"
 
     HpcOperationResult:
       allOf:
@@ -343,8 +338,6 @@ components:
             output:
               type: string
               description: stdout/stderr captured from the remote command
-            hpc_host:
-              type: string
 
   responses:
     Unauthorized:
@@ -735,6 +728,33 @@ paths:
 
   # ── HPC ──────────────────────────────────────────────────────────────────
 
+  /api/hpc/nodes:
+    get:
+      tags: [HPC]
+      summary: List available HPC nodes
+      description: |
+        Return all HPC nodes defined by config files in `manager/hpc/*.yaml`.
+
+        Each entry includes the node name, hostname, SSH port, and plugin.
+        Use the `name` field as the `hpc_name` parameter in other HPC endpoints.
+      operationId: listHpcNodes
+      responses:
+        "200":
+          description: List of available HPC nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HpcNode"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/hpc/deploy:
     post:
       tags: [HPC]
@@ -742,8 +762,10 @@ paths:
       description: |
         Install wstunnel and supervisord on a remote HPC login node over SSH.
 
-        The Bearer token is forwarded to the HPC node so that `motley_cue` /
-        `ssh-oidc` can authenticate the SSH connection.
+        The HPC node's hostname, SSH port, and plugin are read from the
+        config file `manager/hpc/<hpc_name>.yaml`.  The Bearer token is
+        forwarded to the HPC node so that `motley_cue` / `ssh-oidc` can
+        authenticate the SSH connection.
       operationId: hpcDeploy
       requestBody:
         required: true
@@ -752,11 +774,7 @@ paths:
             schema:
               $ref: "#/components/schemas/HpcDeployRequest"
             example:
-              hpc_host: hpc.example.ac.uk
-              ssh_port: 22
-              wstunnel_server: wstunnel.k8s.example.com
-              wstunnel_port: 80
-              wstunnel_secret: my-super-secret
+              hpc_name: test-echo
       responses:
         "200":
           description: Deployment succeeded
@@ -791,10 +809,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/HpcHostBody"
+              $ref: "#/components/schemas/HpcNameBody"
             example:
-              hpc_host: hpc.example.ac.uk
-              ssh_port: 22
+              hpc_name: test-echo
       responses:
         "200":
           description: Uninstallation succeeded
@@ -824,9 +841,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/HpcHostBody"
+              $ref: "#/components/schemas/HpcNameBody"
             example:
-              hpc_host: hpc.example.ac.uk
+              hpc_name: test-echo
       responses:
         "200":
           description: Status retrieved successfully
@@ -852,9 +869,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/HpcHostBody"
+              $ref: "#/components/schemas/HpcNameBody"
             example:
-              hpc_host: hpc.example.ac.uk
+              hpc_name: test-echo
       responses:
         "200":
           description: Services started successfully
@@ -880,9 +897,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/HpcHostBody"
+              $ref: "#/components/schemas/HpcNameBody"
             example:
-              hpc_host: hpc.example.ac.uk
+              hpc_name: test-echo
       responses:
         "200":
           description: Services stopped successfully

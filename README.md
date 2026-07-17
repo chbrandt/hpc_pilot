@@ -106,3 +106,26 @@ Where:
 
 Check-in provides authN/authZ for EGI communities, here used to manage user
 access to both the Manager app and the HPC edge-node.
+
+## Continuous Integration
+
+This repository includes GitHub Actions workflows for the following flows:
+
+- `release.yml` — publishes production artifacts from semantic version tags (`v*.*.*`). It also supports manual triggers via `workflow_dispatch` for ad hoc releases.
+- `test-branch.yml` — validates the `test` branch, builds a test Docker image, packages the Helm chart, and uploads chart artifacts for homologation.
+- `pr.yml` — runs unit tests, Helm linting, and a Docker build validation for pull requests, without publishing artifacts.
+
+### Required GitHub settings
+
+- Repository secrets:
+  - `GITHUB_TOKEN` (provided automatically by GitHub Actions)
+
+- Recommended workflow permissions:
+  - `contents: read`
+  - `packages: write` (for image push and registry login on release/test workflows)
+
+### Notes
+
+- The release workflow logs in to `ghcr.io` using `GITHUB_TOKEN` and pushes the manager image.
+- The `test` branch workflow builds and pushes a `test-<sha>` image tag and uploads a packaged Helm chart artifact.
+- The PR workflow validates the codebase without publishing any Docker or Helm artifacts.

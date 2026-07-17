@@ -5,26 +5,28 @@ All routes are JSON-only and protected by Bearer-token auth.
 
 Endpoints
 ---------
+GET  /api/hpc/nodes
+    List all available HPC nodes defined in ``manager/hpc/*.yaml``.
+
 POST /api/hpc/deploy
     Install wstunnel + supervisord on the remote HPC node.
-    JSON body: hpc_host, ssh_port (opt), wstunnel_server, wstunnel_port (opt),
-               wstunnel_secret, wstunnel_local_port (opt).
+    JSON body: hpc_name.
 
 DELETE /api/hpc/deploy
     Stop all services and remove the HPC Pilot installation from the remote node.
-    JSON body: hpc_host, ssh_port (opt).
+    JSON body: hpc_name.
 
 POST /api/hpc/status
     Query supervisorctl status on the remote HPC node.
-    JSON body: hpc_host, ssh_port (opt).
+    JSON body: hpc_name.
 
 POST /api/hpc/start
     Start all supervisord-managed services.
-    JSON body: hpc_host, ssh_port (opt).
+    JSON body: hpc_name.
 
 POST /api/hpc/stop
     Stop all supervisord-managed services.
-    JSON body: hpc_host, ssh_port (opt).
+    JSON body: hpc_name.
 """
 
 import json
@@ -35,6 +37,7 @@ from flask import Blueprint, request
 from api.auth import get_request_claims, require_token
 from api.site_config import load_site_config
 from lib import hpc_client
+from lib.hpc_config import list_hpc_nodes, load_hpc_config
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +55,63 @@ def _err(message: str, code: int = 400):
     return json.dumps({"error": message}), code, {"Content-Type": "application/json"}
 
 
-def _parse_host(body: dict) -> tuple[str, int]:
-    """Extract and validate hpc_host and ssh_port from a request body."""
-    hpc_host = body.get("hpc_host", "").strip()
-    if not hpc_host:
-        raise ValueError("'hpc_host' is required.")
-    ssh_port = int(body.get("ssh_port", 22))
-    return hpc_host, ssh_port
+def _resolve_hpc(body: dict) -> dict:
+    """
+    Resolve ``hpc_name`` from the request body to a full HPC config dict.
+
+    Returns
+    -------
+    dict
+        A dict with keys ``name``, ``hostname``, ``ssh_port``, and ``plugin``.
+
+    Raises
+    ------
+    ValueError
+        If ``hpc_name`` is missing or the config file cannot be loaded.
+    """
+    hpc_name = body.get("hpc_name", "").strip()
+    if not hpc_name:
+        raise ValueError("'hpc_name' is required.")
+    return load_hpc_config(hpc_name)
+
+
+def _wstunnel_config(namespace: str) -> dict:
+    """
+    Compute wstunnel parameters from the user's namespace and site config.
+
+    The wstunnel server hostname is derived from the namespace and
+    ``cluster_domain``; the secret is the namespace hash; ports come from
+    ``site_config.yaml``.
+
+    Returns
+    -------
+    dict
+        Keys: ``wstunnel_server``, ``wstunnel_port``, ``wstunnel_secret``,
+        ``wstunnel_local_port``.
+    """
+    site_cfg = load_site_config()
+    cluster_domain = site_cfg.get("cluster_domain", "dev.local")
+    wstunnel_port = site_cfg["wstunnel"]["port"]
+    wstunnel_server = f"{namespace}.{cluster_domain}"
+    wstunnel_local_port = site_cfg["wstunnel"]["local_port"]
+    namespace_hash = namespace.removeprefix("user-")
+    return {
+        "wstunnel_server": wstunnel_server,
+        "wstunnel_port": wstunnel_port,
+        "wstunnel_secret": namespace_hash,
+        "wstunnel_local_port": wstunnel_local_port,
+    }
 
 
 # ── Routes ────────────────────────────────────────────────────────────
+
+
+@hpc_bp.route("/nodes", methods=["GET"])
+@require_token
+def hpc_nodes():
+    """List all available HPC nodes defined in ``manager/hpc/*.yaml``."""
+    nodes = list_hpc_nodes()
+    return _ok({"nodes": nodes})
 
 
 @hpc_bp.route("/deploy", methods=["POST"])
@@ -71,52 +121,35 @@ def hpc_deploy():
     Install the HPC Pilot stack (wstunnel + supervisord) on the remote node.
 
     JSON body keys:
-        hpc_host*            str   HPC login node hostname (required)
-        ssh_port             int   SSH port (default 22)
-        wstunnel_server*     str   K8s-side wstunnel server hostname (required)
-        wstunnel_port        int   wstunnel listen port (default from site_config)
-        wstunnel_secret*     str   Shared tunnel secret (required)
-        wstunnel_local_port  int   Local port on HPC node (default = wstunnel_port)
-        plugin               str   InterLink plugin: "echo" | "docker" | "slurm" (default "echo")
+        hpc_name*  str   HPC node name (matches a config file in
+                         ``manager/hpc/<name>.yaml``) (required)
+
+    The ``ssh_port`` and ``plugin`` values are read from the HPC config file.
+    The wstunnel parameters (server, port, secret, local port) are computed
+    internally from the authenticated user's namespace and the site config.
+    None of these are accepted from the request body.
     """
     claims = get_request_claims()
     token = claims["_token"]
-
-    site_cfg = load_site_config()
+    namespace = claims["namespace"]
 
     body = request.get_json(silent=True) or {}
     try:
-        hpc_host, ssh_port = _parse_host(body)
+        hpc_cfg = _resolve_hpc(body)
     except ValueError as exc:
         return _err(str(exc))
 
-    wstunnel_server = body.get("wstunnel_server", "").strip()
-    wstunnel_secret = body.get("wstunnel_secret", "").strip()
-    if not wstunnel_server:
-        return _err("'wstunnel_server' is required.")
-    if not wstunnel_secret:
-        return _err("'wstunnel_secret' is required.")
-
-    wstunnel_port = int(body.get("wstunnel_port",
-                                 site_cfg["wstunnel"]["port"]))
-    wstunnel_local_port = int(body.get("wstunnel_local_port",
-                                       site_cfg["wstunnel"]["local_port"]))
-
-    plugin = body.get("plugin", hpc_client._DEFAULT_PLUGIN).strip().lower()
-    if plugin not in hpc_client._VALID_PLUGINS:
-        return _err(
-            f"'plugin' must be one of: {', '.join(hpc_client._VALID_PLUGINS)}."
-        )
+    wst_cfg = _wstunnel_config(namespace)
 
     result = hpc_client.deploy(
         token=token,
-        hpc_host=hpc_host,
-        ssh_port=ssh_port,
-        wstunnel_server=wstunnel_server,
-        wstunnel_port=wstunnel_port,
-        wstunnel_secret=wstunnel_secret,
-        wstunnel_local_port=wstunnel_local_port,
-        plugin=plugin,
+        hpc_host=hpc_cfg["hostname"],
+        ssh_port=hpc_cfg["ssh_port"],
+        wstunnel_server=wst_cfg["wstunnel_server"],
+        wstunnel_port=wst_cfg["wstunnel_port"],
+        wstunnel_secret=wst_cfg["wstunnel_secret"],
+        wstunnel_local_port=wst_cfg["wstunnel_local_port"],
+        plugin=hpc_cfg["plugin"],
     )
     code = 200 if result.get("success") else 500
     return _ok(result, code)
@@ -132,19 +165,22 @@ def hpc_undeploy():
     services, shuts down supervisord, and removes the ``~/.pilot`` directory.
 
     JSON body keys:
-        hpc_host*  str   HPC login node hostname (required)
-        ssh_port   int   SSH port (default 22)
+        hpc_name*  str   HPC node name (required)
     """
     claims = get_request_claims()
     token = claims["_token"]
 
     body = request.get_json(silent=True) or {}
     try:
-        hpc_host, ssh_port = _parse_host(body)
+        hpc_cfg = _resolve_hpc(body)
     except ValueError as exc:
         return _err(str(exc))
 
-    result = hpc_client.undeploy(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
+    result = hpc_client.undeploy(
+        token=token,
+        hpc_host=hpc_cfg["hostname"],
+        ssh_port=hpc_cfg["ssh_port"],
+    )
     code = 200 if result.get("success") else 500
     return _ok(result, code)
 
@@ -158,11 +194,15 @@ def hpc_status():
 
     body = request.get_json(silent=True) or {}
     try:
-        hpc_host, ssh_port = _parse_host(body)
+        hpc_cfg = _resolve_hpc(body)
     except ValueError as exc:
         return _err(str(exc))
 
-    result = hpc_client.get_status(token=token, hpc_host=hpc_host, ssh_port=ssh_port)
+    result = hpc_client.get_status(
+        token=token,
+        hpc_host=hpc_cfg["hostname"],
+        ssh_port=hpc_cfg["ssh_port"],
+    )
     code = 200 if result.get("success") else 500
     return _ok(result, code)
 
@@ -176,12 +216,14 @@ def hpc_start():
 
     body = request.get_json(silent=True) or {}
     try:
-        hpc_host, ssh_port = _parse_host(body)
+        hpc_cfg = _resolve_hpc(body)
     except ValueError as exc:
         return _err(str(exc))
 
     result = hpc_client.start_services(
-        token=token, hpc_host=hpc_host, ssh_port=ssh_port
+        token=token,
+        hpc_host=hpc_cfg["hostname"],
+        ssh_port=hpc_cfg["ssh_port"],
     )
     code = 200 if result.get("success") else 500
     return _ok(result, code)
@@ -196,12 +238,14 @@ def hpc_stop():
 
     body = request.get_json(silent=True) or {}
     try:
-        hpc_host, ssh_port = _parse_host(body)
+        hpc_cfg = _resolve_hpc(body)
     except ValueError as exc:
         return _err(str(exc))
 
     result = hpc_client.stop_services(
-        token=token, hpc_host=hpc_host, ssh_port=ssh_port
+        token=token,
+        hpc_host=hpc_cfg["hostname"],
+        ssh_port=hpc_cfg["ssh_port"],
     )
     code = 200 if result.get("success") else 500
     return _ok(result, code)

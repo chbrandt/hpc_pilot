@@ -4,3 +4,4 @@ __pycache__/
 charts/interlink/interlink-helm-chart
 .DS_Store
 .venv/
+.clinerules

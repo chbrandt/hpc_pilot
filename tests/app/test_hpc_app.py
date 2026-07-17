@@ -5,8 +5,8 @@ Patches:
 - ``app.auth.get_session_user`` so ``require_login`` passes without a real session.
 - ``app.hpc.api_post`` to avoid real HTTP calls (patched in ``app.hpc``'s namespace
   because it is imported via ``from app.api_client import …``).
-- ``app.hpc.list_configs`` / ``app.hpc.save_config`` to avoid touching the filesystem.
 - ``app.hpc.load_site_config`` to avoid reading site_config.yaml.
+- ``app.hpc.list_hpc_nodes`` to avoid reading HPC config files.
 
 No real mccli, SSH, or HPC nodes are required.
 """
@@ -23,9 +23,8 @@ import requests
 
 GET_SESSION_USER_PATCH = "app.auth.get_session_user"
 API_POST_PATCH = "app.hpc.api_post"
-LIST_CONFIGS_PATCH = "app.hpc.list_configs"
-SAVE_CONFIG_PATCH = "app.hpc.save_config"
 LOAD_SITE_CONFIG_PATCH = "app.hpc.load_site_config"
+LIST_HPC_NODES_PATCH = "app.hpc.list_hpc_nodes"
 
 FAKE_NAMESPACE = "user-testhpcnamespace1234"
 FAKE_USER = {
@@ -38,6 +37,20 @@ FAKE_SITE_CFG = {
     "cluster_domain": "test.local",
     "wstunnel": {"port": 80, "local_port": 4000},
 }
+FAKE_HPC_NODES = [
+    {
+        "name": "test-echo",
+        "hostname": "161.9.255.206",
+        "ssh_port": 3333,
+        "plugin": "echo",
+    },
+    {
+        "name": "test-docker",
+        "hostname": "161.9.255.233",
+        "ssh_port": 22,
+        "plugin": "docker",
+    },
+]
 
 _SUCCESS = {"success": True, "output": "ok", "error": ""}
 _FAILURE = {"success": False, "output": "", "error": "connection refused"}
@@ -77,7 +90,7 @@ class TestHpcPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_CONFIGS_PATCH, return_value=[]),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
         ):
             resp = client.get(self.URL)
@@ -85,47 +98,21 @@ class TestHpcPage:
         assert resp.status_code == 200
         html = resp.data.decode()
         assert "Deploy to HPC" in html
-        assert "hpc_host" in html
+        assert "hpc_name" in html
 
-    def test_plugin_select_rendered(self, client):
-        """The plugin <select> element must be present in the form."""
+    def test_hpc_node_dropdown_rendered(self, client):
+        """The HPC node <select> element must be present in the form."""
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_CONFIGS_PATCH, return_value=[]),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
         ):
             resp = client.get(self.URL)
 
-        assert b'name="plugin"' in resp.data
-        assert b"echo" in resp.data
-        assert b"slurm" in resp.data
-        assert b"docker" in resp.data
-
-    def test_saved_configs_shown(self, client):
-        """Saved HPC configs should appear in the page."""
-        saved = [
-            {
-                "id": "abc123",
-                "kind": "hpc",
-                "label": "My Cluster",
-                "hpc_host": "login.myhpc.org",
-                "ssh_port": 22,
-                "plugin": "echo",
-                "saved_at": "2026-06-01T00:00:00",
-            }
-        ]
-        _logged_in_client(client)
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_CONFIGS_PATCH, return_value=saved),
-            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
-        ):
-            resp = client.get(self.URL)
-
-        assert resp.status_code == 200
-        assert b"My Cluster" in resp.data
-        assert b"login.myhpc.org" in resp.data
+        assert b'name="hpc_name"' in resp.data
+        assert b"test-echo" in resp.data
+        assert b"test-docker" in resp.data
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +123,7 @@ class TestHpcPage:
 class TestHpcDeploy:
     URL = "/hpc/deploy"
     FORM = {
-        "hpc_host": "login.myhpc.example.org",
-        "ssh_port": "22",
-        "wstunnel_server": "user-ns.test.local",
-        "wstunnel_port": "80",
-        "wstunnel_secret": "mysecret",
-        "wstunnel_local_port": "4000",
-        "label": "My HPC",
-        "plugin": "echo",
+        "hpc_name": "test-echo",
     }
 
     def test_redirects_when_not_logged_in(self, client):
@@ -151,19 +131,9 @@ class TestHpcDeploy:
         assert resp.status_code == 302
         assert "/login" in resp.headers["Location"]
 
-    def test_missing_hpc_host_redirects(self, client):
+    def test_missing_hpc_name_redirects(self, client):
         _logged_in_client(client)
-        form = {**self.FORM, "hpc_host": ""}
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
-        ):
-            resp = client.post(self.URL, data=form, follow_redirects=False)
-        assert resp.status_code == 302
-
-    def test_invalid_plugin_redirects(self, client):
-        _logged_in_client(client)
-        form = {**self.FORM, "plugin": "badplugin"}
+        form = {**self.FORM, "hpc_name": ""}
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
@@ -178,7 +148,6 @@ class TestHpcDeploy:
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
             patch(API_POST_PATCH, return_value=_SUCCESS),
-            patch(SAVE_CONFIG_PATCH),
         ):
             resp = client.post(self.URL, data=self.FORM)
 
@@ -186,40 +155,17 @@ class TestHpcDeploy:
         html = resp.data.decode()
         assert "deploy" in html.lower()
 
-    def test_successful_deploy_auto_saves_hpc_side_fields_only(self, client):
-        """On success, save_config must be called with HPC-side fields only."""
-        _logged_in_client(client)
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
-            patch(API_POST_PATCH, return_value=_SUCCESS),
-            patch(SAVE_CONFIG_PATCH) as mock_save,
-        ):
-            client.post(self.URL, data=self.FORM)
-
-        assert mock_save.called
-        call_kwargs = mock_save.call_args
-        # config arg must contain plugin
-        saved_config = call_kwargs.kwargs.get("config") or call_kwargs.args[2]
-        assert "plugin" in saved_config
-        assert saved_config["plugin"] == "echo"
-        # wstunnel_server must NOT be persisted in the HPC config
-        assert "wstunnel_server" not in saved_config
-        assert "wstunnel_secret" not in saved_config
-
-    def test_failed_deploy_does_not_auto_save(self, client):
-        """When the deploy fails, save_config must not be called."""
+    def test_failed_deploy_renders_result(self, client):
+        """A failed deploy should render the failure page gracefully."""
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
             patch(API_POST_PATCH, return_value=_FAILURE),
-            patch(SAVE_CONFIG_PATCH) as mock_save,
         ):
             resp = client.post(self.URL, data=self.FORM)
 
         assert resp.status_code == 200
-        mock_save.assert_not_called()
 
     def test_api_http_error_renders_failure(self, client):
         """An HTTPError from the API should render the failure page gracefully."""
@@ -228,14 +174,13 @@ class TestHpcDeploy:
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
             patch(API_POST_PATCH, side_effect=_http_error(500)),
-            patch(SAVE_CONFIG_PATCH),
         ):
             resp = client.post(self.URL, data=self.FORM)
 
         assert resp.status_code == 200
 
-    def test_plugin_forwarded_to_api(self, client):
-        """The plugin choice must be included in the API payload."""
+    def test_hpc_name_forwarded_to_api(self, client):
+        """The hpc_name must be included in the API payload."""
         _logged_in_client(client)
         captured = {}
 
@@ -247,11 +192,10 @@ class TestHpcDeploy:
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
             patch(API_POST_PATCH, side_effect=fake_api_post),
-            patch(SAVE_CONFIG_PATCH),
         ):
-            client.post(self.URL, data={**self.FORM, "plugin": "slurm"})
+            client.post(self.URL, data={**self.FORM, "hpc_name": "test-docker"})
 
-        assert captured.get("plugin") == "slurm"
+        assert captured.get("hpc_name") == "test-docker"
 
 
 # ---------------------------------------------------------------------------
@@ -263,14 +207,14 @@ class TestHpcStatus:
     URL = "/hpc/status"
 
     def test_redirects_when_not_logged_in(self, client):
-        resp = client.post(self.URL, data={"hpc_host": "hpc.example.org"})
+        resp = client.post(self.URL, data={"hpc_name": "test-echo"})
         assert resp.status_code == 302
         assert "/login" in resp.headers["Location"]
 
-    def test_missing_hpc_host_redirects(self, client):
+    def test_missing_hpc_name_redirects(self, client):
         _logged_in_client(client)
         with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
-            resp = client.post(self.URL, data={"hpc_host": ""}, follow_redirects=False)
+            resp = client.post(self.URL, data={"hpc_name": ""}, follow_redirects=False)
         assert resp.status_code == 302
 
     def test_success_renders_result(self, client):
@@ -279,7 +223,7 @@ class TestHpcStatus:
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(API_POST_PATCH, return_value=_SUCCESS),
         ):
-            resp = client.post(self.URL, data={"hpc_host": "hpc.example.org", "ssh_port": "22"})
+            resp = client.post(self.URL, data={"hpc_name": "test-echo"})
         assert resp.status_code == 200
 
     def test_failure_renders_result(self, client):
@@ -288,7 +232,7 @@ class TestHpcStatus:
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(API_POST_PATCH, return_value=_FAILURE),
         ):
-            resp = client.post(self.URL, data={"hpc_host": "hpc.example.org"})
+            resp = client.post(self.URL, data={"hpc_name": "test-echo"})
         assert resp.status_code == 200
 
 
@@ -298,8 +242,8 @@ class TestHpcStatus:
 
 
 class TestHpcStartStop:
-    def _post(self, client, url, hpc_host="hpc.example.org"):
-        return client.post(url, data={"hpc_host": hpc_host, "ssh_port": "22"})
+    def _post(self, client, url, hpc_name="test-echo"):
+        return client.post(url, data={"hpc_name": hpc_name})
 
     def test_start_redirects_when_not_logged_in(self, client):
         resp = self._post(client, "/hpc/start")
@@ -326,63 +270,3 @@ class TestHpcStartStop:
         ):
             resp = self._post(client, "/hpc/stop")
         assert resp.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# POST /hpc/<config_id>/save
-# ---------------------------------------------------------------------------
-
-
-class TestHpcSave:
-    URL = "/hpc/test-id-123/save"
-    FORM = {
-        "hpc_host": "login.myhpc.org",
-        "ssh_port": "22",
-        "label": "My Saved HPC",
-        "plugin": "slurm",
-    }
-
-    def test_redirects_when_not_logged_in(self, client):
-        resp = client.post(self.URL, data=self.FORM)
-        assert resp.status_code == 302
-        assert "/login" in resp.headers["Location"]
-
-    def test_save_stores_hpc_side_fields(self, client):
-        """save_config must be called with label, hpc_host, ssh_port, plugin."""
-        _logged_in_client(client)
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(SAVE_CONFIG_PATCH) as mock_save,
-        ):
-            client.post(self.URL, data=self.FORM)
-
-        assert mock_save.called
-        call_kwargs = mock_save.call_args.kwargs
-        saved = call_kwargs.get("config") or mock_save.call_args.args[2]
-        assert saved["hpc_host"] == "login.myhpc.org"
-        assert saved["ssh_port"] == 22
-        assert saved["plugin"] == "slurm"
-        assert saved["label"] == "My Saved HPC"
-        # wstunnel fields must NOT be stored
-        assert "wstunnel_server" not in saved
-        assert "wstunnel_secret" not in saved
-
-    def test_save_with_invalid_plugin_redirects(self, client):
-        _logged_in_client(client)
-        form = {**self.FORM, "plugin": "badplugin"}
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(SAVE_CONFIG_PATCH),
-        ):
-            resp = client.post(self.URL, data=form, follow_redirects=False)
-        assert resp.status_code == 302
-
-    def test_successful_save_redirects_to_hpc_page(self, client):
-        _logged_in_client(client)
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(SAVE_CONFIG_PATCH),
-        ):
-            resp = client.post(self.URL, data=self.FORM, follow_redirects=False)
-        assert resp.status_code == 302
-        assert "/hpc/" in resp.headers["Location"]
