@@ -14,7 +14,7 @@
 #     values_yaml : Default values passed to `helm install --values -` (raw YAML string).
 #                   The following placeholder tokens are substituted per-user at seed time:
 #                     __NAMESPACE__       → the user's Kubernetes namespace (e.g. user-a3f1b2c4d5e6f7a8)
-#                     __CLUSTER_DOMAIN__  → site_config.cluster_domain (e.g. dev.local)
+#                     __HOSTNAME__  → site_config.hostname (e.g. dev.local)
 #                     __NAMESPACE_HASH__  → the hex digest part of the namespace (e.g. a3f1b2c4d5e6f7a8)
 
 default_charts:
@@ -40,6 +40,7 @@ default_charts:
       wstunnel:
         enabled: true
         port: 8420
-        host: __NAMESPACE__.__CLUSTER_DOMAIN__
+        ingress:
+          host: __HOSTNAME__
         logLevel: debug
         secret: "__NAMESPACE_HASH__"

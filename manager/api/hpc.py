@@ -90,15 +90,15 @@ def _wstunnel_config(namespace: str) -> dict:
         ``wstunnel_local_port``.
     """
     site_cfg = load_site_config()
-    cluster_domain = site_cfg.get("cluster_domain", "dev.local")
+    hostname = site_cfg.get("hostname", "dev.local")
     wstunnel_port = site_cfg["wstunnel"]["port"]
-    wstunnel_server = f"{namespace}.{cluster_domain}"
+    wstunnel_server = hostname
     wstunnel_local_port = site_cfg["wstunnel"]["local_port"]
-    namespace_hash = namespace.removeprefix("user-")
+    # namespace_hash = namespace.removeprefix("user-")
     return {
         "wstunnel_server": wstunnel_server,
         "wstunnel_port": wstunnel_port,
-        "wstunnel_secret": namespace_hash,
+        "wstunnel_secret": namespace,
         "wstunnel_local_port": wstunnel_local_port,
     }
 

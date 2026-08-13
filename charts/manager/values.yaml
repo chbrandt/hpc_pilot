@@ -33,9 +33,7 @@ flask:
 # ── Site configuration (written into site_config.yaml ConfigMap) ───────────────
 siteConfig:
   # Wildcard base domain of the Kubernetes cluster.
-  rootDomain: hpc-pilot.test.fedcloud.eu
-  # Subdomain. The manager/app will be served at <subdomain>.<rootDomain>.
-  subDomain: app
+  hostname: app.hpc-pilot.test.fedcloud.eu
   # Note: each user's InterLink wstunnel server will be reachable at
   # <user-namespace>.<rootDomain> via the nginx Ingress wildcard rule.
 
@@ -47,8 +45,9 @@ interlinkConfig:
   wstunnel:
     server:
       logLevel: debug
-      # Hostname that the wstunnel client uses to connect to the server.
-      host: __NAMESPACE__.__CLUSTER_DOMAIN__
+      ingress:
+        # Hostname that the wstunnel client uses to connect to the server.
+        host: __HOSTNAME__
       # Port on which the Ingress will route traffic to the wstunnel server.
       externalPort: 80
       # Port on which the wstunnel server in the InterLink pod listens.
@@ -131,7 +130,7 @@ ingress:
     - secretName: manager-tls
       hosts:
         - app.hpc-pilot.test.fedcloud.eu
-        - "*.hpc-pilot.test.fedcloud.eu"
+        # - "*.hpc-pilot.test.fedcloud.eu"
 
 # ── Resource limits ────────────────────────────────────────────────────────────
 resources:

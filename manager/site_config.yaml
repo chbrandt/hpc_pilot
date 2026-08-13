@@ -6,13 +6,11 @@
 #
 # Fields
 # ------
-# cluster_domain : str
-#     Wildcard base domain of the Kubernetes cluster.
-#     Each user's InterLink deployment will be reachable at
-#     "<user-namespace>.<cluster_domain>".
-#     Example: for a wildcard certificate "*.dev.local" set this to "dev.local".
+# hostname : str
+#     The hostname for the site.
+#     Example: "ngrok.dev"
 
-cluster_domain: ngrok.dev
+hostname: ngrok.dev
 
 wstunnel:
   port: 80
