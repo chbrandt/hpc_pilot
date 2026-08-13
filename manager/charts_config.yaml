@@ -15,7 +15,6 @@
 #                   The following placeholder tokens are substituted per-user at seed time:
 #                     __NAMESPACE__       → the user's Kubernetes namespace (e.g. user-a3f1b2c4d5e6f7a8)
 #                     __HOSTNAME__  → site_config.hostname (e.g. dev.local)
-#                     __NAMESPACE_HASH__  → the hex digest part of the namespace (e.g. a3f1b2c4d5e6f7a8)
 
 default_charts:
   - kind: helm
@@ -25,7 +24,7 @@ default_charts:
     singleton: true
     description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
     values_yaml: |
-      nodeName: virtual-node-__NAMESPACE_HASH__
+      nodeName: virtual-node-__NAMESPACE__
 
       interlink:
         enabled: true
@@ -43,4 +42,4 @@ default_charts:
         ingress:
           host: __HOSTNAME__
         logLevel: debug
-        secret: "__NAMESPACE_HASH__"
+        secret: "__NAMESPACE__"

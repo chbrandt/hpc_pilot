@@ -186,9 +186,8 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
     ------
     __NAMESPACE__
         The user's Kubernetes namespace (e.g. ``user-a3f1b2c4d5e6f7a8``).
-    __CLUSTER_DOMAIN__
-        The wildcard base domain from ``site_config["cluster_domain"]``
-        (e.g. ``dev.local``).
+    __HOSTNAME__
+        The hostname from ``site_config["hostname"]`` (e.g. ``app.hpc-pilot.test.fedcloud.eu``).
     __NAMESPACE_HASH__
         The hex-digest portion of the namespace, i.e. everything after the
         leading ``"user-"`` prefix (e.g. ``a3f1b2c4d5e6f7a8``).
@@ -201,10 +200,10 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
         The user's Kubernetes namespace.
     site_config : dict
         Site-level configuration dict (from ``site_config.yaml``), used to
-        resolve ``__CLUSTER_DOMAIN__``.  Falls back to ``"dev.local"`` when
+        resolve ``__HOSTNAME__``.  Falls back to ``"dev.local"`` when
         the key is absent.
     """
-    cluster_domain = site_config.get("cluster_domain", "dev.local")
+    hostname = site_config.get("hostname", "dev.local")
     # Strip the "user-" prefix to get just the hash; fall back to the full
     # namespace string if the expected prefix is absent.
     namespace_hash = namespace.removeprefix("user-")
@@ -212,8 +211,8 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
     return (
         text
         .replace("__NAMESPACE__", namespace)
-        .replace("__CLUSTER_DOMAIN__", cluster_domain)
-        .replace("__NAMESPACE_HASH__", namespace_hash)
+        .replace("__HOSTNAME__", hostname)
+        # .replace("__NAMESPACE_HASH__", namespace_hash)
     )
 
 
@@ -227,7 +226,7 @@ def seed_defaults(namespace: str, site_config: Optional[dict] = None) -> None:
     how many times this function is called (e.g. on every login).
 
     Dynamic placeholder tokens in ``values_yaml`` (``__NAMESPACE__``,
-    ``__CLUSTER_DOMAIN__``, ``__NAMESPACE_HASH__``) are resolved against the
+    ``__HOSTNAME__``, ``__NAMESPACE_HASH__``) are resolved against the
     user's namespace and the supplied *site_config* before the entry is stored.
 
     Parameters
@@ -237,7 +236,7 @@ def seed_defaults(namespace: str, site_config: Optional[dict] = None) -> None:
     site_config : dict, optional
         Site-level configuration dict (from ``site_config.yaml``).  When
         omitted, placeholder resolution falls back to built-in defaults
-        (``cluster_domain`` → ``"dev.local"``).
+        (``hostname`` → ``"dev.local"``).
     """
     defaults = load_default_charts()
     if not defaults:
