@@ -33,6 +33,7 @@ data:
           wstunnel:
             enabled: true
             port: {{ .Values.interlinkConfig.wstunnel.port | default 8080 }}
-            host: {{ .Values.interlinkConfig.wstunnel.host | default "__NAMESPACE__.__CLUSTER_DOMAIN__" }}
+            ingress:
+              host: {{ .Values.interlinkConfig.wstunnel.ingress.host | default "__HOSTNAME__" }}
             logLevel: {{ .Values.interlinkConfig.wstunnel.logLevel | default "debug" }}
-            secret: {{ .Values.interlinkConfig.wstunnel.secret | default "__NAMESPACE_HASH__" }}
+            secret: {{ .Values.interlinkConfig.wstunnel.secret | default "__NAMESPACE__" }}

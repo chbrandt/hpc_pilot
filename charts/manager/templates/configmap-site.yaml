@@ -13,6 +13,5 @@ metadata:
     {{- include "manager.labels" . | nindent 4 }}
 data:
   site_config.yaml: |
-    rootDomain: {{ .Values.siteConfig.rootDomain }}
-    subDomain: {{ .Values.siteConfig.subDomain }}
+    hostname: {{ .Values.siteConfig.hostname }}
 
