@@ -43,20 +43,19 @@ interlinkConfig:
 
   # You probably don't need to change the values below.
   wstunnel:
-    server:
-      logLevel: debug
-      ingress:
-        # Hostname that the wstunnel client uses to connect to the server.
-        host: __HOSTNAME__
-      # Port on which the Ingress will route traffic to the wstunnel server.
-      externalPort: 80
-      # Port on which the wstunnel server in the InterLink pod listens.
-      port: 8080
-      # Local port on the pod used to forward to the client.
-      internalPort: 4000
-      # Secret value used for authenticating wstunnel clients. Must match the
-      # value configured in the InterLink pod's wstunnel server.
-      secret: "__NAMESPACE_HASH__"
+    logLevel: debug
+    ingress:
+      # Hostname that the wstunnel client uses to connect to the server.
+      host: __HOSTNAME__
+    # Port on which the Ingress will route traffic to the wstunnel server.
+    externalPort: 80
+    # Port on which the wstunnel server in the InterLink pod listens.
+    port: 8080
+    # Local port on the pod used to forward to the client.
+    internalPort: 4000
+    # Secret value used for authenticating wstunnel clients. Must match the
+    # value configured in the InterLink pod's wstunnel server.
+    secret: "__NAMESPACE__"
 
   interlink:
     # Port on which the InterLink API server in the InterLink pod listens.
