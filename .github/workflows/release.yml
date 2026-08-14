@@ -7,8 +7,18 @@ name: Release
 #   - allows pushing to ghcr.io for the manager image
 on:
   push:
+    # Glob patterns (NOT regex): `[0-9]+` means one or more digits and `.` is
+    # a literal dot. Accepts core versions (v2, v1.7, v1.2.3) and pre-releases
+    # (v2-alpha, v1.7-rc, v1.2.3-pr.1). Strict, whole-tag validation is done in
+    # the "Validate release tag" step below with a regular expression, because
+    # the `tags` filter cannot express that level of strictness.
     tags:
-      - "v*.*.*"
+      - "v[0-9]+"
+      - "v[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+-[0-9A-Za-z.-]+"
+      - "v[0-9]+.[0-9]+-[0-9A-Za-z.-]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-[0-9A-Za-z.-]+"
   workflow_dispatch:
 
 permissions:
@@ -27,6 +37,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # Strict release-tag grammar (extended regular expression):
+          #   v<major>[.<minor>[.<patch>]][-<pre-release>]
+          # - 1 to 3 dot-separated numeric segments; no leading zeros (a lone "0" is allowed)
+          # - optional pre-release starting with an alphanumeric character, then any mix
+          #   of alphanumerics, dots and hyphens (e.g. alpha, rc1, pr.1)
+          regex='^v(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+          if [[ ! "$tag" =~ $regex ]]; then
+            echo "::error::Tag '$tag' is not a valid release tag. Expected forms like v2, v1.7, v1.2.3, v2-alpha, v1.7-rc, v1.2.3-pr.1"
+            exit 1
+          fi
+          echo "Release tag '$tag' is valid."
 
       - name: Set release version
         id: release_vars

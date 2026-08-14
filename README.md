@@ -123,7 +123,7 @@ access to both the Manager app and the HPC edge-node. See
 
 This repository includes GitHub Actions workflows for the following flows:
 
-- `release.yml` — publishes production artifacts from semantic version tags (`v*.*.*`). It also supports manual triggers via `workflow_dispatch` for ad hoc releases.
+- `release.yml` — publishes production artifacts from version tags shaped like `v<MAJOR>[.<MINOR>[.<PATCH>]][-<pre-release>]` (e.g. `v2`, `v1.7`, `v1.2.3`, `v2-alpha`, `v1.7-rc`, `v1.2.3-pr.1`). The tag is validated strictly (leading zeros and non-numeric segments are rejected). It also supports manual triggers via `workflow_dispatch` for ad hoc releases.
 - `test-branch.yml` — validates the `test` branch, builds a test Docker image, packages the Helm chart, and uploads chart artifacts for homologation.
 - `pr.yml` — runs unit tests (`.venv/bin/python -m pytest tests/`), Helm linting, and a Docker build validation for pull requests, without publishing artifacts.
 
