@@ -42,15 +42,17 @@ def _api_error(exc: requests.HTTPError) -> str:
 
 def _wstunnel_config(namespace: str) -> dict:
     """
-    Build sensible wstunnel defaults from the user's namespace and the
-    site config (cluster_domain).
+    Build wstunnel defaults from the user's namespace and the site config.
+
+    The server hostname is ``site_config.hostname`` (shared, path-prefix
+    routing); the secret/path-prefix is the user's full namespace; the ports
+    come from ``site_config.wstunnel``.
     """
     site_cfg = load_site_config()
     hostname = site_cfg.get("hostname", "dev.local")
     wstunnel_port = site_cfg["wstunnel"]["port"]
     wstunnel_server = hostname
     wstunnel_local_port = site_cfg["wstunnel"]["local_port"]
-    # namespace_hash = namespace.removeprefix("user-")
     return {
         "wstunnel_server": wstunnel_server,
         "wstunnel_port": wstunnel_port,

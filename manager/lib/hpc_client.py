@@ -7,28 +7,26 @@ have to call subprocess directly.
 
 Every public function accepts the EGI Check-in *access token* that is
 already stored in the Flask session, together with the HPC host details,
-and returns a plain dict  ``{success: bool, output: str, error: str|None}``.
+and returns a plain dict  ``{success: bool, output: str, error: str|None}``
+(the two ``check_*`` probes are the exception and return a bool).
 
 Prerequisites on the manager host
 ----------------------------------
 - ``mccli``  (motley-cue client)  — wraps SSH with OIDC token auth
-- ``flaat-userinfo``              — used to decode the token sub claim
+- ``flaat-userinfo``              — used by mccli to decode the token
 
 The remote HPC node needs no pre-installed software other than a working
-``python3``, ``curl``, and ``pip`` / ``pip3``; the :mod:`hpc_setup` step
-functions take care of installing wstunnel + supervisord via mccli.
+``python3``, ``curl``, and ``pip``; the setup step functions below install
+wstunnel + supervisord into a virtualenv under ``~/.pilot`` via mccli/SSH.
 """
 from __future__ import annotations
 
-from fileinput import filename
 import logging
-from multiprocessing import context
 import os
 import subprocess
 from typing import Optional
 
 from .token_auth import validate_token  # noqa: F401
-# from . import hpc_setup
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +34,7 @@ logger = logging.getLogger(__name__)
 _SHORT_TIMEOUT = 30   # seconds – simple probes (whoami, ls, …)
 _LONG_TIMEOUT  = 300  # seconds – setup steps (pip install, curl download)
 
-# Remote installation base directory
-_REMOTE_BASE_DIR = "~/.hpc-pilot"
-
-# Enable/diable verbose (debug-level) output from mccli subprocess calls.
+# Enable/disable verbose (debug-level) output from mccli subprocess calls.
 _VERBOSE = False
 
 # Default interLink plugin — referenced by deploy() before the full plugin
@@ -354,7 +349,7 @@ def deploy(
     Install wstunnel + supervisord on the remote HPC node and start them.
 
     Each setup step is executed individually on the remote node via ``mccli``
-    / SSH using the step functions from :mod:`hpc_setup`.  No scripts are
+    / SSH using the step functions in this module.  No scripts are
     piped or copied to the remote node.
 
     Parameters
@@ -399,7 +394,7 @@ def deploy(
 
     steps = [
         ("setup_directories",      lambda: setup_directories(runner)),
-        ("install_supervisord",    lambda: install_supervisord(runner, cfg)),
+        ("install_supervisord",    lambda: install_supervisord(runner)),
         ("copy_supervisord_conf",  lambda: copy_supervisord_conf(copier, cfg)),
         ("install_wstunnel",       lambda: install_wstunnel(runner, cfg)),
         ("install_plugin",         lambda: install_plugin(runner, cfg, plugin=plugin)),
@@ -618,7 +613,7 @@ def setup_directories(runner: Runner) -> dict:
     """
     Create the HPC Pilot base directories on the remote node.
 
-    Equivalent to: ``mkdir -p ~/.hpc-pilot/{bin,logs,config}``
+    Equivalent to: ``mkdir -p ~/.pilot/{tmp,bin,log}``
 
     Parameters
     ----------
@@ -658,8 +653,6 @@ _PLUGIN_PACKAGES: dict[str, dict[str, str]] = {
 }
 
 _VALID_PLUGINS = tuple(_PLUGIN_PACKAGES.keys())
-# _DEFAULT_PLUGIN = "echo"
-_DEFAULT_PLUGIN = "docker"
 
 
 def install_plugin(runner: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PLUGIN) -> dict:
@@ -755,7 +748,7 @@ def copy_plugin_conf(copier: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PL
 
 def install_wstunnel(runner: Runner, cfg: SetupConfig, force: bool = False) -> dict:
     """
-    Download and install the wstunnel binary into ``~/.hpc-pilot/bin/``.
+    Download and install the wstunnel binary into ``~/.pilot/bin/``.
 
     Skips the download if the binary is already present and executable (idempotent).
     Uses ``curl`` + ``tar`` + ``install`` — all standard HPC tools.

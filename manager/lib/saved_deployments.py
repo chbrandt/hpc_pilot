@@ -8,7 +8,7 @@ No database dependency.
 Global default chart presets are read from ``charts_config.yaml`` (at the
 manager root) and automatically seeded into each user's store on first login.
 
-Site-level configuration (e.g. ``cluster_domain``) is **not** read here.
+Site-level configuration (e.g. ``hostname``) is **not** read here.
 Callers in the api/app layer are responsible for loading ``site_config.yaml``
 and passing the relevant values as arguments to functions that need them
 (e.g. :func:`seed_defaults`).
@@ -188,9 +188,6 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
         The user's Kubernetes namespace (e.g. ``user-a3f1b2c4d5e6f7a8``).
     __HOSTNAME__
         The hostname from ``site_config["hostname"]`` (e.g. ``app.hpc-pilot.test.fedcloud.eu``).
-    __NAMESPACE_HASH__
-        The hex-digest portion of the namespace, i.e. everything after the
-        leading ``"user-"`` prefix (e.g. ``a3f1b2c4d5e6f7a8``).
 
     Parameters
     ----------
@@ -204,15 +201,10 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
         the key is absent.
     """
     hostname = site_config.get("hostname", "dev.local")
-    # Strip the "user-" prefix to get just the hash; fall back to the full
-    # namespace string if the expected prefix is absent.
-    namespace_hash = namespace.removeprefix("user-")
-
     return (
         text
         .replace("__NAMESPACE__", namespace)
         .replace("__HOSTNAME__", hostname)
-        # .replace("__NAMESPACE_HASH__", namespace_hash)
     )
 
 
@@ -226,7 +218,7 @@ def seed_defaults(namespace: str, site_config: Optional[dict] = None) -> None:
     how many times this function is called (e.g. on every login).
 
     Dynamic placeholder tokens in ``values_yaml`` (``__NAMESPACE__``,
-    ``__HOSTNAME__``, ``__NAMESPACE_HASH__``) are resolved against the
+    ``__HOSTNAME__``) are resolved against the
     user's namespace and the supplied *site_config* before the entry is stored.
 
     Parameters

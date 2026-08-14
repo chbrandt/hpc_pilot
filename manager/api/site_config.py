@@ -3,7 +3,7 @@ api/site_config.py — Operator-level site configuration loader.
 
 Reads ``site_config.yaml`` from the manager root directory and exposes a
 single :func:`load_site_config` helper used by API endpoints that need
-site-level settings (e.g. ``cluster_domain`` for placeholder resolution in
+site-level settings (e.g. ``hostname`` for placeholder resolution in
 Helm values).
 
 The ``lib/`` layer is intentionally kept unaware of this file; site config is
@@ -28,9 +28,11 @@ def load_site_config() -> dict:
 
     Currently defined keys:
 
-    * ``cluster_domain`` (str) — wildcard base domain of the Kubernetes cluster
-      (e.g. ``"dev.local"``).  Each user's InterLink deployment will be
-      reachable at ``<namespace>.<cluster_domain>``.
+    * ``hostname`` (str) — the single fixed hostname the manager and its
+      per-user InterLink wstunnel endpoints are exposed on (e.g.
+      ``"dev.local"``).  No wildcard DNS/TLS is required: each user's
+      wstunnel is reachable at ``<hostname>/<namespace>`` (a path-prefixed
+      route on the shared hostname), not a per-user subdomain.
 
     Returns
     -------

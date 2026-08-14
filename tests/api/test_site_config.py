@@ -22,12 +22,12 @@ import api.site_config as sc
 class TestLoadSiteConfig:
     def test_returns_dict_from_valid_yaml(self, tmp_path):
         cfg_file = tmp_path / "site_config.yaml"
-        cfg_file.write_text("cluster_domain: my.cluster\n", encoding="utf-8")
+        cfg_file.write_text("hostname: my.cluster\n", encoding="utf-8")
 
         with patch.object(sc, "_SITE_CONFIG_PATH", str(cfg_file)):
             result = sc.load_site_config()
 
-        assert result == {"cluster_domain": "my.cluster"}
+        assert result == {"hostname": "my.cluster"}
 
     def test_returns_empty_dict_when_file_missing(self, tmp_path):
         missing = str(tmp_path / "nonexistent.yaml")
@@ -53,24 +53,24 @@ class TestLoadSiteConfig:
 
         assert result == {}
 
-    def test_cluster_domain_key_present(self, tmp_path):
+    def test_hostname_key_present(self, tmp_path):
         cfg_file = tmp_path / "site_config.yaml"
-        cfg_file.write_text("cluster_domain: prod.example.com\n", encoding="utf-8")
+        cfg_file.write_text("hostname: prod.example.com\n", encoding="utf-8")
 
         with patch.object(sc, "_SITE_CONFIG_PATH", str(cfg_file)):
             result = sc.load_site_config()
 
-        assert result.get("cluster_domain") == "prod.example.com"
+        assert result.get("hostname") == "prod.example.com"
 
     def test_extra_keys_are_preserved(self, tmp_path):
         cfg_file = tmp_path / "site_config.yaml"
         cfg_file.write_text(
-            "cluster_domain: dev.local\nsome_future_key: value\n",
+            "hostname: dev.local\nsome_future_key: value\n",
             encoding="utf-8",
         )
 
         with patch.object(sc, "_SITE_CONFIG_PATH", str(cfg_file)):
             result = sc.load_site_config()
 
-        assert result["cluster_domain"] == "dev.local"
+        assert result["hostname"] == "dev.local"
         assert result["some_future_key"] == "value"

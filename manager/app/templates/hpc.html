@@ -69,13 +69,14 @@
       stored in this session). The script:
     </p>
     <ol>
+      <li>Creates a virtualenv at <code>~/.pilot</code> and installs
+        <strong>supervisord</strong> (<code>pip install supervisor</code>)
+        into it</li>
       <li>Downloads the <strong>wstunnel</strong> binary into
-        <code>~/.hpc-pilot/bin/</code>
+        <code>~/.pilot/bin/</code>
       </li>
-      <li>Installs <strong>supervisord</strong>
-        (<code>pip install --user supervisor</code>) if not already present</li>
-      <li>Writes a <code>supervisord.conf</code> that manages wstunnel as a
-        supervised process</li>
+      <li>Writes a <code>supervisord.conf</code> that manages wstunnel (and the
+        plugin) as supervised processes</li>
       <li>Installs the selected <strong>interLink plugin</strong>
         (<code>echo</code>, <code>docker</code>, or <code>slurm</code>)</li>
       <li>Starts supervisord, which in turn starts wstunnel and keeps it

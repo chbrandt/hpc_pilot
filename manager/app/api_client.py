@@ -15,9 +15,9 @@ Usage
 -----
     from app.api_client import api_get, api_post, api_delete
 
-    deployments = api_get("/api/deployments")
-    result      = api_post("/api/deployments", {"name": "my-app", "image": "nginx"})
-    result      = api_delete("/api/deployments/my-app")
+    jobs   = api_get("/api/jobs")
+    result = api_post("/api/jobs", {"name": "my-job", "image": "ubuntu:22.04", "node_name": "vk-1"})
+    result = api_delete("/api/jobs/my-job")
 
 All helpers forward the Bearer token stored in the Flask session so that the
 API's ``require_token`` decorator is satisfied transparently.
@@ -63,7 +63,7 @@ def api_get(path: str) -> dict | list:
     Parameters
     ----------
     path : str
-        Path relative to ``API_BASE_URL``, e.g. ``"/api/deployments"``.
+        Path relative to ``API_BASE_URL``, e.g. ``"/api/jobs"``.
 
     Returns
     -------
@@ -89,7 +89,7 @@ def api_post(path: str, body: dict | None = None) -> dict:
     Parameters
     ----------
     path : str
-        Path relative to ``API_BASE_URL``, e.g. ``"/api/helm/install"``.
+        Path relative to ``API_BASE_URL``, e.g. ``"/api/interlink"``.
     body : dict, optional
         JSON-serialisable request body.
 
@@ -117,7 +117,7 @@ def api_delete(path: str) -> dict:
     Parameters
     ----------
     path : str
-        Path relative to ``API_BASE_URL``, e.g. ``"/api/deployments/my-app"``.
+        Path relative to ``API_BASE_URL``, e.g. ``"/api/jobs/my-job"``.
 
     Returns
     -------

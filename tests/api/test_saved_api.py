@@ -17,7 +17,7 @@ import pytest
 SEED_DEFAULTS_PATCH = "api.saved.seed_defaults"
 LOAD_SITE_CONFIG_PATCH = "api.saved.load_site_config"
 
-_FAKE_SITE_CFG = {"cluster_domain": "test.local"}
+_FAKE_SITE_CFG = {"hostname": "test.local"}
 
 
 # ---------------------------------------------------------------------------

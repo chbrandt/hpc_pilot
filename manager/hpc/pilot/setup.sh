@@ -1,9 +1,15 @@
 #!/bin/bash
 #
-# HPC Pilot — Remote HPC Node Setup Script
+# HPC Pilot — Remote HPC Node Setup Script  (DEPRECATED)
 #
-# This script is executed on the remote HPC login node via mccli (motley-cue
-# SSH client).  It is piped through stdin by hpc_client.py:
+# ⚠ DEPRECATED: This script is no longer executed by the manager. The HPC
+#   node setup is now performed step-by-step from Python by the step functions
+#   in manager/lib/hpc_client.py (setup_directories, install_supervisord,
+#   install_wstunnel, install_plugin, copy_supervisord_conf,
+#   start_supervisord, …) over mccli/SSH. It is kept here for reference only.
+#
+# Historically, this script was executed on the remote HPC login node via
+# mccli (motley-cue SSH client), piped through stdin by hpc_client.py:
 #
 #   mccli --token $TOKEN ssh -p $PORT $HOST 'bash -s' < setup.sh
 #

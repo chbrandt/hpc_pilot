@@ -34,7 +34,7 @@ FAKE_USER = {
     "iss": "https://aai.egi.eu",
 }
 FAKE_SITE_CFG = {
-    "cluster_domain": "test.local",
+    "hostname": "test.local",
     "wstunnel": {"port": 80, "local_port": 4000},
 }
 FAKE_HPC_NODES = [

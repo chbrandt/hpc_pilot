@@ -129,15 +129,14 @@ FAKE_CHARTS_CONFIG = {
             "description": "InterLink VK",
             "values_yaml": (
                 "namespace: __NAMESPACE__\n"
-                "domain: __CLUSTER_DOMAIN__\n"
-                "hash: __NAMESPACE_HASH__\n"
+                "host: __HOSTNAME__\n"
             ),
         }
     ],
 }
 
 # Site config supplied explicitly by callers (as the api layer would)
-FAKE_SITE_CONFIG = {"cluster_domain": "test.local"}
+FAKE_SITE_CONFIG = {"hostname": "test.local"}
 
 
 class TestSeedDefaults:
@@ -165,30 +164,23 @@ class TestSeedDefaults:
         assert self.NS in entry["values_yaml"]
         assert "__NAMESPACE__" not in entry["values_yaml"]
 
-    def test_placeholder_cluster_domain_resolved(self):
+    def test_placeholder_hostname_resolved(self):
         sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         entry = sd.list_configs(self.NS)[0]
         assert "test.local" in entry["values_yaml"]
-        assert "__CLUSTER_DOMAIN__" not in entry["values_yaml"]
-
-    def test_placeholder_namespace_hash_resolved(self):
-        sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
-        entry = sd.list_configs(self.NS)[0]
-        expected_hash = self.NS.removeprefix("user-")
-        assert expected_hash in entry["values_yaml"]
-        assert "__NAMESPACE_HASH__" not in entry["values_yaml"]
+        assert "__HOSTNAME__" not in entry["values_yaml"]
 
     def test_seed_with_no_defaults_does_nothing(self):
         with patch.object(sd, "_load_charts_config", return_value={}):
             sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         assert sd.list_configs(self.NS) == []
 
-    def test_seed_without_site_config_uses_fallback_domain(self):
+    def test_seed_without_site_config_uses_fallback_hostname(self):
         """Calling seed_defaults with no site_config falls back to 'dev.local'."""
         sd.seed_defaults(self.NS)
         entry = sd.list_configs(self.NS)[0]
         assert "dev.local" in entry["values_yaml"]
-        assert "__CLUSTER_DOMAIN__" not in entry["values_yaml"]
+        assert "__HOSTNAME__" not in entry["values_yaml"]
 
 
 # ---------------------------------------------------------------------------

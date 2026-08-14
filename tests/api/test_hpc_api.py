@@ -100,7 +100,7 @@ class TestHpcDeploy:
         assert call_kwargs["ssh_port"] == 22
 
     def test_wstunnel_params_computed_internally(self, client, auth_headers):
-        """Verify wstunnel params are computed from namespace + site config."""
+        """Verify wstunnel params are computed from the site config + namespace."""
         headers, fake_ns = auth_headers
         body = {"hpc_name": "test-echo"}
         with (
@@ -109,10 +109,13 @@ class TestHpcDeploy:
         ):
             client.post(self.URL, json=body, headers=headers)
         call_kwargs = mock_deploy.call_args.kwargs
-        # wstunnel_server should be derived from namespace + cluster_domain
-        assert fake_ns in call_kwargs["wstunnel_server"]
-        # wstunnel_secret should be the namespace hash
-        assert call_kwargs["wstunnel_secret"] == fake_ns.removeprefix("user-")
+        # wstunnel_server is now the site's fixed hostname (no per-user
+        # subdomain / wildcard domain routing).
+        assert call_kwargs["wstunnel_server"] == "ngrok.dev"
+        assert fake_ns not in call_kwargs["wstunnel_server"]
+        # wstunnel_secret is the full namespace, used as both the shared
+        # tunnel secret and the Ingress path prefix on the K8s side.
+        assert call_kwargs["wstunnel_secret"] == fake_ns
 
 
 # ---------------------------------------------------------------------------

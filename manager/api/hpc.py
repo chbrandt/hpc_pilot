@@ -79,9 +79,9 @@ def _wstunnel_config(namespace: str) -> dict:
     """
     Compute wstunnel parameters from the user's namespace and site config.
 
-    The wstunnel server hostname is derived from the namespace and
-    ``cluster_domain``; the secret is the namespace hash; ports come from
-    ``site_config.yaml``.
+    The wstunnel server hostname is ``site_config.hostname`` (shared, with
+    path-prefix routing per user); the secret/path-prefix is the user's full
+    namespace; the ports come from ``site_config.wstunnel``.
 
     Returns
     -------
@@ -94,7 +94,6 @@ def _wstunnel_config(namespace: str) -> dict:
     wstunnel_port = site_cfg["wstunnel"]["port"]
     wstunnel_server = hostname
     wstunnel_local_port = site_cfg["wstunnel"]["local_port"]
-    # namespace_hash = namespace.removeprefix("user-")
     return {
         "wstunnel_server": wstunnel_server,
         "wstunnel_port": wstunnel_port,

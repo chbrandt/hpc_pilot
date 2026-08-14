@@ -32,10 +32,26 @@ flask:
 
 # ── Site configuration (written into site_config.yaml ConfigMap) ───────────────
 siteConfig:
-  # Wildcard base domain of the Kubernetes cluster.
+  # Single fixed hostname the manager and every user's InterLink wstunnel
+  # endpoint are exposed on. No wildcard DNS / wildcard TLS needed: each user's
+  # tunnel is reached at <hostname>/<namespace> via path-prefix routing.
   hostname: app.hpc-pilot.test.fedcloud.eu
-  # Note: each user's InterLink wstunnel server will be reachable at
-  # <user-namespace>.<rootDomain> via the nginx Ingress wildcard rule.
+
+  wstunnel:
+    # Port the wstunnel Ingress listens on (the port the HPC-side wstunnel
+    # client connects to).
+    port: 80
+    # Local TCP port on the HPC edge-node that wstunnel forwards to the
+    # InterLink plugin.
+    localPort: 4000
+
+  # Optional list of EGI VO entitlement substrings that restrict login.
+  # When non-empty, only users whose UserInfo contains at least one of these
+  # substrings are granted access. Leave empty for open access (any
+  # authenticated EGI user).
+  allowedGroups: []
+    # - "vo.access.egi.eu"
+    # - "hpc-wg"
 
 interlinkConfig:
   chart: oci://ghcr.io/chbrandt/interlink
@@ -68,38 +84,6 @@ interlinkConfig:
     port: 4000
     # Address that the plugin API server binds to inside the HPC edge-node.
     address: http://0.0.0.0
-
-# # ── Default charts configuration (written into charts_config.yaml ConfigMap) ──
-# # This controls which Helm charts are pre-seeded for every user on first login.
-# # The content below mirrors manager/charts_config.yaml.
-# # Override 'chartsConfig' with a custom YAML block if needed.
-# chartsConfig: |
-#   default_charts:
-#     - kind: helm
-#       release_name: interlink
-#       chart: oci://ghcr.io/chbrandt/interlink
-#       version: null
-#       singleton: true
-#       description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
-#       values_yaml: |
-#         nodeName: virtual-node
-
-#         interlink:
-#           enabled: true
-#           address: http://0.0.0.0
-#           port: 3000
-
-#         plugin:
-#           enabled: false
-#           address: http://0.0.0.0
-#           port: 4000
-
-#         wstunnel:
-#           enabled: true
-#           port: 8420
-#           host: __NAMESPACE__.__CLUSTER_DOMAIN__
-#           logLevel: debug
-#           secret: "__NAMESPACE_HASH__"
 
 # ── Persistent storage for saved deployment configs ────────────────────────────
 persistence:

@@ -1,8 +1,9 @@
 {{/*
 ConfigMap: site_config.yaml
 Mounted into the manager pod at /app/site_config.yaml.
-Controls the cluster domain and wstunnel port used by the manager to
-generate per-user InterLink chart values.
+Controls the single site hostname, wstunnel ports, and optional VO access
+restrictions used by the manager to generate per-user InterLink chart values
+and to compute HPC wstunnel parameters.
 */}}
 apiVersion: v1
 kind: ConfigMap
@@ -14,4 +15,11 @@ metadata:
 data:
   site_config.yaml: |
     hostname: {{ .Values.siteConfig.hostname }}
+    wstunnel:
+      port: {{ .Values.siteConfig.wstunnel.port }}
+      local_port: {{ .Values.siteConfig.wstunnel.localPort }}
+    {{- with .Values.siteConfig.allowedGroups }}
+    allowed_groups:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 

@@ -7,11 +7,13 @@ suitable for use with cURL or any HTTP client.
 Authentication: pass the EGI Check-in access token as a Bearer token in the
 ``Authorization`` header::
 
-    curl -H "Authorization: Bearer <token>" http://localhost:5000/api/deployments
+    curl -H "Authorization: Bearer <token>" http://localhost:5000/api/jobs
 
 Blueprints
 ----------
-k8s_bp    /api/deployments  — container deployments & namespaces
-helm_bp   /api/helm         — Helm chart operations
-hpc_bp    /api/hpc          — HPC node operations
+k8s_bp    /api  — namespaces, InterLink nodes, jobs
+helm_bp   /api  — InterLink chart (singleton release)
+hpc_bp    /api/hpc — HPC node operations (wstunnel + supervisord)
+saved_bp  /api  — saved configuration seeding
+docs_bp   /api  — OpenAPI spec + Swagger UI (``/api/docs``)
 """

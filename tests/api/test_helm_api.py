@@ -46,7 +46,7 @@ def _default_chart_patches():
     """Return a context-manager stack that patches chart-config helpers."""
     return (
         patch(LOAD_DEFAULT_CHARTS_PATCH, return_value=_INTERLINK_CFG),
-        patch(LOAD_SITE_CONFIG_PATCH, return_value={"cluster_domain": "dev.local"}),
+        patch(LOAD_SITE_CONFIG_PATCH, return_value={"hostname": "dev.local"}),
         patch(RESOLVE_PLACEHOLDERS_PATCH, side_effect=lambda text, ns, cfg: text),
     )
 
