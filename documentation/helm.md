@@ -1,61 +1,67 @@
 # Helm Integration
 
-Multi-container workloads and complex applications are deployed via Helm charts.
-The `helm_client.py` module wraps the `helm` CLI using `subprocess.run()`.
+The manager uses Helm to deploy the **InterLink virtual-kubelet pod** — the
+only Helm release it manages. The `helm_client.py` module wraps the `helm` CLI
+using `subprocess.run()`; no Helm Python SDK is used (subprocess calls are
+preferred for reliability and version-independence).
 
-No Helm Python SDK is used — subprocess calls are preferred for reliability,
-version-independence, and to avoid SDK maintenance overhead.
+The InterLink release is a **singleton**: a user may deploy at most one. Its
+chart reference, version and default values are defined once in
+[`charts_config.yaml`](../manager/charts_config.yaml) and installed via the
+[`/api/interlink`](rest_api.md#api-helm) endpoint (no arbitrary chart is
+accepted at runtime). See [configuration.md](configuration.md#charts-configyaml).
 
 ---
 
 ## Prerequisites
 
-- `helm` v3 must be installed and available on `$PATH`
-- The app's kubeconfig must grant permissions to the namespaces Helm installs into
+- `helm` v3 must be installed and available on `$PATH` (the manager Docker
+  image installs it automatically).
+- The manager's kubeconfig / ServiceAccount must grant permissions to the
+  namespaces Helm installs into (see [kubernetes.md](kubernetes.md#rbac-requirements)).
 - The `helm` binary inherits the same `KUBECONFIG` environment variable as
-  the Flask process
+  the Flask process (or the in-cluster ServiceAccount token).
 
 ---
 
-## Chart Reference Formats
+## Chart reference formats
 
-The `chart` field in the form is passed **directly** to `helm install` — any
-reference format that Helm understands is valid:
+The `chart` value in `charts_config.yaml` is passed **directly** to
+`helm install`, so any reference format Helm understands is valid:
 
 | Format | Example |
 |---|---|
-| OCI registry | `oci://registry-1.docker.io/bitnamicharts/nginx` |
+| OCI registry | `oci://ghcr.io/chbrandt/interlink` (the default) |
 | Already-added repo | `bitnami/nginx` (requires prior `helm repo add`) |
 | HTTPS tarball URL | `https://charts.bitnami.com/bitnami/nginx-18.2.3.tgz` |
 | Local path | `/path/to/my-chart` (if the app has filesystem access) |
 
-> **Note:** The app does **not** call `helm repo add` automatically. If using
-> a `repo/chart` reference, the repository must have been added to the local
-> Helm configuration before the app runs.
-> For zero-configuration deployments, prefer OCI or HTTPS URL references.
+> **Note:** The manager does **not** call `helm repo add` automatically. If
+> using a `repo/chart` reference, add the repository to the local Helm
+> configuration before the app runs. For zero-configuration deployments prefer
+> OCI or HTTPS URL references.
 
 ---
 
-## Install Behaviour
+## Install behaviour
 
 ```python
 helm_install(
-    release_name="my-release",
-    chart="oci://registry-1.docker.io/bitnamicharts/nginx",
+    release_name="interlink",
+    chart="oci://ghcr.io/chbrandt/interlink",
     namespace="user-abc123",
-    values_yaml="replicaCount: 1\nservice:\n  type: NodePort",
-    version="18.2.3",   # optional
+    values_yaml="...",   # resolved from charts_config.yaml
+    version=None,        # optional — pin chart version
 )
 ```
 
-This translates to:
+translates to:
 
 ```bash
-helm install my-release oci://registry-1.docker.io/bitnamicharts/nginx \
+helm install interlink oci://ghcr.io/chbrandt/interlink \
   --namespace user-abc123 \
   --wait \
   --timeout=5m0s \
-  --version 18.2.3 \
   --values -      # values_yaml passed via stdin
 ```
 
@@ -69,71 +75,90 @@ The HTTP request **blocks** for the duration of the install. The submit button
 is disabled in the browser via JavaScript to prevent double-submission. A
 "⏳ Installing…" message is shown inline.
 
+### Per-user placeholder resolution
+
+Before installing, the `/api/interlink` handler resolves placeholder tokens in
+the default `values_yaml` against the user's namespace and `site_config.yaml`:
+
+| Token | Replaced with |
+|---|---|
+| `__NAMESPACE__` | User's Kubernetes namespace, e.g. `user-a3f1b2c4d5e6f7a8` |
+| `__HOSTNAME__` | `site_config.hostname` (the single shared hostname) |
+
+The resolved values configure the InterLink wstunnel server so that the HPC
+edge-node's wstunnel client can reach it via path-prefix routing on that
+hostname (`--http-upgrade-path-prefix <namespace>`).
+
+
 ---
 
-## Values Override
+## Default values (InterLink)
 
-The values YAML textarea accepts any valid YAML that would go in a `values.yaml`
-file. Only the keys you specify override chart defaults — all other values use
-the chart's built-in defaults.
-
-Example for Bitnami NGINX with Ingress:
+The InterLink chart's default `values_yaml` (from `charts_config.yaml`) looks
+like this (with placeholders that are resolved per-user at install time):
 
 ```yaml
-replicaCount: 1
+nodeName: virtual-node-__NAMESPACE__
 
-service:
-  type: ClusterIP
-
-ingress:
+interlink:
   enabled: true
-  ingressClassName: nginx
-  hostname: myapp.example.com
-  path: /
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+  address: http://0.0.0.0
+  port: 3000
 
-resources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 200m
-    memory: 128Mi
+plugin:
+  enabled: false            # deployed on the HPC edge-node, not in the pod
+  address: http://0.0.0.0
+  port: 4000
+
+wstunnel:
+  enabled: true
+  port: 8420                # server port inside the pod
+  ingress:
+    host: __HOSTNAME__       # shared cluster hostname (path-prefix routing)
+  logLevel: debug
+  secret: "__NAMESPACE__"    # path-prefix secret = the user's namespace
 ```
+
+Operators can override any of these keys via the `chartsConfig` block of the
+manager Helm chart (see [`charts/manager/README.md`](../charts/manager/README.md)).
+
 
 ---
 
-## List Releases
+## Get values
+
+```python
+helm_get_values(release_name="interlink", namespace="user-abc123")
+# → {"success": True, "values_yaml": "nodeName: ...\n...", "error": None}
+```
+
+Runs `helm get values interlink --namespace <ns> --output yaml`. Used by the
+GUI's "save release" feature.
+
+---
+
+## List releases
 
 ```python
 helm_list(namespace="user-abc123")
-# → [
-#     {
-#       "name": "my-release",
-#       "namespace": "user-abc123",
-#       "revision": "1",
-#       "updated": "2026-03-31 20:00:00.000000000 +0000 UTC",
-#       "status": "deployed",
-#       "chart": "nginx-18.2.3",
-#       "app_version": "1.27.0",
-#     },
-#     ...
-# ]
+# → [{"name": "interlink", "namespace": "user-abc123",
+#     "revision": "1", "status": "deployed", "chart": "...", ...}]
 ```
 
-Runs: `helm list --namespace <ns> --output json`
+Runs `helm list --namespace <ns> --output json`. (The REST API exposes only the
+managed `interlink` release; `helm_list` itself lists all releases in the
+namespace and is primarily a library-level helper.)
 
 ---
 
 ## Uninstall
 
 ```python
-helm_uninstall(release_name="my-release", namespace="user-abc123")
-# → {"success": True, "output": "release \"my-release\" uninstalled\n", "error": None}
+helm_uninstall(release_name="interlink", namespace="user-abc123")
+# → {"success": True, "output": "release \"interlink\" uninstalled\n", "error": None}
 ```
 
-Runs: `helm uninstall my-release --namespace user-abc123`
+Runs `helm uninstall interlink --namespace user-abc123`.
 
 ---
 
@@ -153,18 +178,19 @@ Helm release statuses are mapped to CSS badge classes in `deployments.html`:
 
 ---
 
-## Error Handling
+## Error handling
 
-All three functions (`helm_install`, `helm_list`, `helm_uninstall`) catch:
+All four functions (`helm_install`, `helm_list`, `helm_get_values`,
+`helm_uninstall`) catch:
 
 - `FileNotFoundError` — `helm` binary not found on `$PATH`
-- `subprocess.TimeoutExpired` — install exceeded 5-minute (360-second) timeout
+- `subprocess.TimeoutExpired` — install exceeded the 5-minute timeout
 - Non-zero exit code — error output from `helm` itself (e.g. invalid chart,
   resource conflict, cluster unreachable)
 
-Errors are surfaced as:
-- Flash messages + redirect (for install/uninstall)
-- Error banner on the workloads page (for list)
+Errors are surfaced as a `{"success": False, "error": "..."}` return value
+(`helm_list` raises `RuntimeError`), which the API/GUI layers translate into
+flash messages or error banners.
 
 ---
 
@@ -174,4 +200,5 @@ Errors are surfaced as:
 |---|---|---|
 | `helm_install` | `(release_name, chart, namespace, values_yaml=None, version=None, timeout="5m0s") → dict` | Install chart; block until ready; return `{success, output, error}` |
 | `helm_list` | `(namespace) → list[dict]` | List releases; return normalised list; raise `RuntimeError` on failure |
+| `helm_get_values` | `(release_name, namespace) → dict` | Return user-supplied values: `{success, values_yaml, error}` |
 | `helm_uninstall` | `(release_name, namespace) → dict` | Uninstall release; return `{success, output, error}` |

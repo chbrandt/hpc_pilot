@@ -18,11 +18,13 @@ starting a server.
 
 | Module | Purpose |
 |---|---|
-| `lib.k8s_client` | Create / list / delete Kubernetes Deployments |
-| `lib.helm_client` | Install / list / uninstall Helm chart releases |
-| `lib.hpc_client` | Deploy and manage wstunnel on a remote HPC node via `mccli` |
-| `lib.token_auth` | Validate EGI Check-in JWT tokens; derive K8s namespace names |
-| `lib.saved_deployments` | Persist and reload deployment configurations |
+| `lib.k8s_client` | Create / list / delete Kubernetes jobs (Deployments) pinned to InterLink nodes |
+| `lib.helm_client` | Install / list / get-values / uninstall Helm chart releases |
+| `lib.hpc_config` | Load per-HPC-node config files from `manager/hpc/<name>.yaml` |
+| `lib.hpc_client` | Deploy and manage wstunnel + supervisord + plugin on a remote HPC node via `mccli` |
+| `lib.token_auth` | Validate EGI Check-in JWT tokens; derive K8s namespaces; check group access |
+| `lib.token_checkin` | CLI helper for the EGI Check-in OAuth 2.0 Device Authorization Grant |
+| `lib.saved_deployments` | Per-user saved-config store; default-chart seeding |
 
 ---
 
@@ -36,15 +38,13 @@ from lib.k8s_client import K8sClient
 
 ### `K8sClient`
 
-Wraps the official `kubernetes` Python client.  
-Reads cluster credentials from a kubeconfig file.
+Wraps the official `kubernetes` Python client.
+Reads cluster credentials from a kubeconfig file (falls back to `$KUBECONFIG`,
+then `~/.kube/config`).
 
 ```{code-block} python
-# Default kubeconfig (~/.kube/config or $KUBECONFIG)
-k8s = K8sClient()
-
-# Explicit path
-k8s = K8sClient(kubeconfig_path="/path/to/my-cluster.yaml")
+k8s = K8sClient()                                # default kubeconfig
+k8s = K8sClient(kubeconfig_path="/path/cfg.yaml")  # explicit path
 ```
 
 ---
@@ -52,40 +52,40 @@ k8s = K8sClient(kubeconfig_path="/path/to/my-cluster.yaml")
 #### Namespace helpers
 
 ```{code-block} python
-# List all namespace names
 namespaces = k8s.list_namespaces()          # -> list[str]
-
-# Create a namespace (idempotent — returns success if it already exists)
-result = k8s.create_namespace("user-abc123")
-# -> {"success": True, "namespace": "user-abc123"}
-
-# Test whether a namespace exists
 exists = k8s.namespace_exists("user-abc123")  # -> bool
+result = k8s.create_namespace("user-abc123")
+# -> {"success": True, "namespace": "user-abc123"}  (idempotent on 409)
 ```
 
 ---
 
-#### Creating a Deployment
+#### InterLink node discovery
 
 ```{code-block} python
-result = k8s.create_deployment(
-    name="my-nginx",
-    image="nginx:latest",
+nodes = k8s.list_interlink_nodes()  # -> list[str]
+```
+
+Returns the sorted names of cluster nodes carrying the taint key
+`virtual-node.interlink/no-schedule`.
+
+---
+
+#### Creating a job
+
+A job is a `Deployment` pinned to an InterLink virtual-kubelet node via
+`nodeSelector` + a toleration for `virtual-node.interlink/no-schedule`.
+Replicas, resources, ports, Services and Ingresses are **not supported**
+(InterLink maps one pod to one HPC batch job).
+
+```{code-block} python
+result = k8s.create_job(
+    name="my-job",
+    image="ubuntu:22.04",
+    node_name="virtual-node-user-abc123",
     namespace="user-abc123",
-    replicas=2,
-    cpu_request="100m",
-    cpu_limit="500m",
-    mem_request="64Mi",
-    mem_limit="256Mi",
-    env_vars={"MY_ENV": "hello"},
-    ports=[{"number": 80, "name": "http", "protocol": "TCP"}],
-    command=None,          # optional shell override
-    ingress={              # optional — creates a K8s Ingress resource
-        "host": "my-nginx.example.com",
-        "path": "/",
-        "port": 80,
-        "class": "nginx",
-    },
+    env_vars={"MY_ENV": "hello"},   # optional
+    command="echo hello",           # optional, run as /bin/sh -c
 )
 ```
 
@@ -94,80 +94,68 @@ result = k8s.create_deployment(
 ```{code-block} json
 {
   "success": true,
-  "deployment_name": "my-nginx",
+  "job_name": "my-job",
   "namespace": "user-abc123",
-  "image": "nginx:latest",
-  "replicas": 2,
-  "status": "progressing",
-  "service": {
-    "success": true,
-    "service_name": "my-nginx-svc",
-    "node_ip": "10.0.0.1",
-    "ports": [{"name": "http", "port": 80, "node_port": 31234,
-                "external_url": "http://10.0.0.1:31234"}]
-  },
-  "ingress": {
-    "success": true,
-    "ingress_name": "my-nginx-ingress",
-    "host": "my-nginx.example.com",
-    "path": "/",
-    "url": "http://my-nginx.example.com/"
-  }
+  "image": "ubuntu:22.04"
 }
 ```
 
 ---
 
-#### Listing Deployments
+#### Listing jobs
 
 ```{code-block} python
-# All deployments created by HPC Pilot in a specific namespace
-deployments = k8s.list_deployments(namespace="user-abc123")
-
-# Across all namespaces
-all_deps = k8s.list_deployments()   # namespace=None or "__all__"
+jobs  = k8s.list_jobs(namespace="user-abc123")
+all_  = k8s.list_jobs()   # namespace=None or "__all__" lists across all ns
 ```
 
-Each entry in the returned list:
+Each entry (label-filtered to `created-by=hpc-pilot-webapp`):
 
 ```{code-block} json
 {
-  "name": "my-nginx",
+  "name": "my-job",
   "namespace": "user-abc123",
-  "image": "nginx:latest",
-  "replicas": 2,
-  "ready_replicas": 2,
-  "replicas_status": "2/2",
+  "image": "ubuntu:22.04",
+  "node_name": "virtual-node-user-abc123",
   "status": "available",
-  "created": "2025-01-15 12:34:56",
-  "service_ports": [...],
-  "ingress_url": "http://my-nginx.example.com/"
+  "created": "2026-08-14 12:34:56"
 }
 ```
 
 ---
 
-#### Deployment Status and Spec
+#### Job spec, status, delete
 
 ```{code-block} python
-# Detailed status for a single deployment
-status = k8s.get_deployment_status(name="my-nginx", namespace="user-abc123")
-# -> {"name": ..., "status": "available", "replicas": 2, "ready_replicas": 2, ...}
-
-# Read back the spec (useful for saving as a template)
-spec = k8s.get_deployment_spec(name="my-nginx", namespace="user-abc123")
-# -> {"name": ..., "image": ..., "replicas": ..., "ports": [...], ...}
+spec   = k8s.get_job_spec(name="my-job", namespace="user-abc123")
+status = k8s.get_job_status(name="my-job", namespace="user-abc123")
+result = k8s.delete_job(name="my-job", namespace="user-abc123")
 ```
 
----
+`get_job_spec` returns `{name, image, node_name, env_vars, command}`
+(or `{"error": "..."}` on failure).
 
-#### Deleting a Deployment
+`get_job_status` returns:
 
-```{code-block} python
-result = k8s.delete_deployment(name="my-nginx", namespace="user-abc123")
-# Also removes the associated Service and Ingress (if any).
-# -> {"deployment": {"success": True, ...}, "service": ..., "ingress": ...}
+```{code-block} json
+{
+  "name": "my-job",
+  "namespace": "user-abc123",
+  "replicas": 1,
+  "ready_replicas": 1,
+  "available_replicas": 1,
+  "updated_replicas": 1,
+  "replicas_status": "1/1",
+  "status": "available",
+  "image": "ubuntu:22.04",
+  "created": "2026-08-14 12:34:56"
+}
 ```
+
+`status` is `available` / `progressing` / `unknown` (from the Deployment
+conditions).
+
+`delete_job` returns `{"job": {"success": bool, "name" | "error": ...}}`.
 
 ---
 
@@ -179,81 +167,81 @@ result = k8s.delete_deployment(name="my-nginx", namespace="user-abc123")
 from lib.helm_client import helm_install, helm_list, helm_get_values, helm_uninstall
 ```
 
-Thin wrappers around the `helm` CLI binary.  
-Requires Helm 3 to be installed and available on `$PATH`.
-
----
+Thin wrappers around the `helm` CLI binary via `subprocess.run()`.
+Requires Helm 3 on `$PATH`; inherits the process `KUBECONFIG`.
 
 ### `helm_install`
 
 ```{code-block} python
 result = helm_install(
-    release_name="my-release",
-    chart="bitnami/nginx",
+    release_name="interlink",
+    chart="oci://ghcr.io/chbrandt/interlink",
     namespace="user-abc123",
-    values_yaml="replicaCount: 2\n",  # optional raw YAML string
-    version="15.0.0",                  # optional — pin chart version
-    timeout="5m0s",                    # default
+    values_yaml="...",   # optional raw YAML string (passed via --values -)
+    version=None,        # optional — pin chart version
+    timeout="5m0s",     # default
 )
 # -> {"success": bool, "output": str, "error": str | None}
 ```
 
-```{note}
-`helm_install` runs `helm install --wait`, so it blocks until the release
-is fully deployed or the timeout is reached.
-```
-
-Common chart reference formats accepted by the `chart` argument:
-
-- `bitnami/nginx` — from an added Helm repo
-- `oci://registry-1.docker.io/bitnamicharts/nginx` — OCI registry
-- `https://example.com/charts/nginx-1.0.0.tgz` — direct tarball URL
-
----
+Runs `helm install <release> <chart> --namespace <ns> --wait --timeout=5m0s
+[--version …] --values -` (values read from stdin).
 
 ### `helm_list`
 
 ```{code-block} python
-releases = helm_list(namespace="user-abc123")
+releases = helm_list(namespace="user-abc123")  # -> list[dict]
 ```
 
-Returns a list of dicts, one per installed release:
-
-```{code-block} json
-[
-  {
-    "name": "my-release",
-    "namespace": "user-abc123",
-    "revision": "1",
-    "updated": "2025-01-15 12:34:56",
-    "status": "deployed",
-    "chart": "nginx-15.0.0",
-    "app_version": "1.27.0"
-  }
-]
-```
-
-Raises `RuntimeError` if the `helm` binary exits non-zero.
-
----
+Returns a normalised list (`name`, `namespace`, `revision`, `updated`,
+`status`, `chart`, `app_version`). Raises `RuntimeError` on non-zero exit.
 
 ### `helm_get_values`
 
 ```{code-block} python
-result = helm_get_values(release_name="my-release", namespace="user-abc123")
+result = helm_get_values(release_name="interlink", namespace="user-abc123")
 # -> {"success": bool, "values_yaml": str | None, "error": str | None}
 ```
 
-Returns the user-supplied values as a raw YAML string.  
-`values_yaml` is `None` when no custom values were provided at install time.
-
----
+Returns the user-supplied values as a raw YAML string (`values_yaml` is `None`
+when no custom values were provided). Used by the GUI's "save release" feature.
 
 ### `helm_uninstall`
 
 ```{code-block} python
-result = helm_uninstall(release_name="my-release", namespace="user-abc123")
+result = helm_uninstall(release_name="interlink", namespace="user-abc123")
 # -> {"success": bool, "output": str, "error": str | None}
+```
+
+---
+
+(lib-hpc-config)=
+
+## `lib.hpc_config` — Per-HPC-Node Configuration
+
+```{code-block} python
+from lib.hpc_config import list_hpc_nodes, load_hpc_config
+```
+
+Loads per-HPC-node config files from `manager/hpc/<name>.yaml`. Each file has
+the structure:
+
+```yaml
+hostname: 161.9.255.206   # HPC login node hostname or IP (required)
+ssh_port: 3333            # SSH port (default 22)
+plugin: echo              # InterLink plugin: echo | docker | slurm
+```
+
+The filename stem (`<name>`) is the HPC node's unique identifier used by the
+API and web GUI.
+
+```{code-block} python
+nodes = list_hpc_nodes()
+# -> [{"name": "test-echo", "hostname": ..., "ssh_port": ..., "plugin": ...}, ...]
+
+cfg = load_hpc_config("test-echo")
+# -> {"name": "test-echo", "hostname": ..., "ssh_port": ..., "plugin": ...}
+# raises ValueError if the file is missing or invalid
 ```
 
 ---
@@ -271,40 +259,18 @@ node using an EGI Check-in access token and run remote commands.
 
 **Prerequisites on the manager host:**
 
-- `mccli` — `pip install mccli`
+- `mccli` — `pip install mccli` (wraps SSH with OIDC token auth)
 - `flaat-userinfo` — used by mccli to decode the token
 
----
+All public functions return a dict ``{success, output, error}`` (the two
+boolean-returning probes below are the exception).
 
-### `check_connection`
-
-```{code-block} python
-result = hpc_client.check_connection(
-    token="<egi-access-token>",
-    hpc_host="hpc-login.example.org",
-    ssh_port=22,           # default
-)
-# -> {"success": bool, "username": str | None, "output": str, "error": str | None}
-```
-
-Runs `whoami` on the remote node. Use this to verify that the token grants
-SSH access before attempting a full deployment.
-
----
-
-### `check_installed`
+### `check_connection` / `check_installed`
 
 ```{code-block} python
-result = hpc_client.check_installed(
-    token="<egi-access-token>",
-    hpc_host="hpc-login.example.org",
-)
-# -> {"success": bool, "installed": bool, "output": str, "error": str | None}
+ok = hpc_client.check_connection(token, hpc_host, ssh_port=22)   # -> bool (runs whoami)
+ok = hpc_client.check_installed(token, hpc_host, ssh_port=22)     # -> bool (~/.pilot exists)
 ```
-
-Checks whether the `~/.hpc-pilot` directory already exists on the remote node.
-
----
 
 ### `deploy`
 
@@ -313,88 +279,121 @@ result = hpc_client.deploy(
     token="<egi-access-token>",
     hpc_host="hpc-login.example.org",
     ssh_port=22,
-    wstunnel_server="user-abc123.k8s.example.org",
-    wstunnel_port=8420,
-    wstunnel_secret="my-shared-secret",
-    wstunnel_local_port=8420,   # optional, defaults to wstunnel_port
+    wstunnel_server="app.example.com",   # site_config.hostname
+    wstunnel_port=80,                     # site_config.wstunnel.port
+    wstunnel_secret="user-abc123",       # the user's namespace
+    wstunnel_local_port=4000,            # site_config.wstunnel.local_port
+    plugin="echo",                        # echo | docker | slurm
 )
-# -> {"success": bool, "output": str, "error": str | None}
+# -> {"success": bool, "output": str, "error": str}
 ```
 
-Uploads and executes `manager/hpc/setup.sh` on the remote node.
-The script installs `wstunnel` and `supervisord`, writes a supervisord
-configuration, and starts the tunnel process.
+Installs the HPC Pilot stack on the remote node by running these step
+functions in order:
 
----
+1. `setup_directories` — `mkdir -p ~/.pilot/{tmp,bin,log}`
+2. `install_supervisord` — `python3.12 -m venv ~/.pilot && pip install supervisor`
+3. `copy_supervisord_conf` — render & copy `supervisord.conf.jinja`
+4. `install_wstunnel` — download wstunnel `v10.5.5` to `~/.pilot/bin`
+5. `install_plugin` — install the named plugin (pip for `echo`, binary for
+   `docker`/`slurm`) and symlink it to `~/.pilot/bin/plugin`
+6. `copy_plugin_conf` — render & copy the plugin's `InterLinkConfig.yaml`
+7. `start_supervisord` — start (or reload) the supervisord daemon
+8. `check_status` — `supervisorctl status`
+
+### `undeploy`
+
+```{code-block} python
+result = hpc_client.undeploy(token, hpc_host, ssh_port=22)
+```
+
+Stops services, shuts down supervisord, and removes the `~/.pilot` directory.
 
 ### `get_status` / `start_services` / `stop_services`
 
 ```{code-block} python
-status  = hpc_client.get_status(token, hpc_host)
-started = hpc_client.start_services(token, hpc_host)
-stopped = hpc_client.stop_services(token, hpc_host)
-# All return: {"success": bool, "output": str, "error": str | None}
+status  = hpc_client.get_status(token, hpc_host, ssh_port=22)
+started = hpc_client.start_services(token, hpc_host, ssh_port=22)
+stopped = hpc_client.stop_services(token, hpc_host, ssh_port=22)
+# -> {"success": bool, "output": str, "error": str | None}
 ```
 
-These call `supervisorctl status/start all/stop all` on the remote node.
+Map to `supervisorctl status` / `start all` / `stop all` on the remote node.
 
 ---
+
 
 (lib-token)=
 
 ## `lib.token_auth` — Token Validation
 
 ```{code-block} python
-from lib.token_auth import validate_token, derive_namespace
+from lib.token_auth import validate_token, derive_namespace, check_group_access, fetch_userinfo
 ```
-
-Pure-Python helpers for EGI Check-in JWT access tokens.
-
----
 
 ### `validate_token`
 
 ```{code-block} python
-try:
-    claims = validate_token("<raw-jwt-string>")
-except ValueError as exc:
-    print(f"Invalid token: {exc}")
+claims = validate_token("<raw-jwt-string>")
+# raises ValueError on any failure
 ```
 
-Performs a full end-to-end validation:
+Full validation:
 
-1. Decodes the JWT header to extract `kid` and `alg`.
-2. Extracts the `iss` (issuer) claim without verification.
-3. Checks `iss` against the trusted issuers list.
-4. Fetches (or uses a 1-hour-cached) JWKS key set from the issuer.
-5. Verifies the RSA signature, expiry (`exp`), and issuer.
-6. Returns the full verified claims dict.
+1. Decode the JWT header to extract `kid` and `alg`.
+2. Extract the `iss` claim without verification.
+3. Check `iss` against the trusted-issuers list.
+4. Fetch (or use a 1-hour-cached) JWKS key set from the issuer.
+5. Verify the RSA signature, expiry (`exp`), and issuer.
 
-**Trusted issuers:**
+**Trusted issuers** (`token_auth.py`):
 
 - `https://aai.egi.eu/auth/realms/egi` (production)
 - `https://aai-dev.egi.eu/auth/realms/egi` (development)
 - `https://aai-demo.egi.eu/auth/realms/egi` (demo)
 
-Raises `ValueError` with a human-readable message on any failure.
+### `fetch_userinfo`
 
----
+```{code-block} python
+userinfo = fetch_userinfo(token, issuer)
+# -> {"eduperson_entitlement": [...], "entitlements": [...], ...}
+```
+
+Fetches the user's entitlements from the issuer's UserInfo endpoint. EGI
+Check-in does not put entitlements in the JWT, so this is used by the
+group-access check.
+
+### `check_group_access`
+
+```{code-block} python
+check_group_access(claims, allowed_groups)   # raises ValueError on denial
+```
+
+Verifies that the user holds at least one of the `allowed_groups` substrings
+in `eduperson_entitlement` or `entitlements` (union, substring match).
+Raises `ValueError` on denial; is a no-op when `allowed_groups` is empty.
 
 ### `derive_namespace`
 
 ```{code-block} python
-ns = derive_namespace(claims["sub"])
-# e.g. "user-a3f1b2c4d5e6f7a8"
+ns = derive_namespace(claims["sub"])   # "user-" + sha256(sub)[:16]
 ```
 
-Produces a stable, Kubernetes-safe namespace name from a user's `sub` claim.
-The algorithm is:
+Stable, Kubernetes-safe namespace name (21 chars, RFC 1123 compliant).
 
-```
-"user-" + sha256(sub).hexdigest()[:16]
+---
+
+## `lib.token_checkin` — CLI Token Helper
+
+```{code-block} bash
+python manager/lib/token_checkin.py new                  # full device flow
+python manager/lib/token_checkin.py new --audience interlink
+python manager/lib/token_checkin.py refresh --file tokens_egi.json
 ```
 
-The result is always 21 characters (lowercase alphanumeric + hyphens, ≤ 63 chars).
+Implements the OAuth 2.0 Device Authorization Grant against EGI Check-in,
+using the public client `oidc-agent`. Saves tokens to a JSON file (mode 0600)
+and supports refresh/revoke. See [authentication.md](authentication.md).
 
 ---
 
@@ -405,27 +404,43 @@ The result is always 21 characters (lowercase alphanumeric + hyphens, ≤ 63 cha
 ```{code-block} python
 from lib.saved_deployments import (
     save_config, list_configs, get_config, delete_config,
-    load_app_config, load_default_charts,
+    seed_defaults, def_chart_is_singleton, load_default_charts,
 )
 ```
 
-Persists deployment configurations as JSON files under `manager/data/`.
-Configurations can be re-used as templates when launching new deployments.
+Persists per-user saved configurations as a JSON file per namespace under
+`manager/data/<namespace>.json`.
 
 ```{code-block} python
-# Save a deployment spec under an ID
-save_config(config_id="my-nginx-template", data={"name": "nginx", "image": "nginx:latest", ...})
+# Save a deployment spec (kind: "container" | "helm")
+entry = save_config(namespace="user-abc123", kind="container",
+                    config={"name": "my-job", "image": "ubuntu:22.04", ...})
+# entry includes a generated "id" and "saved_at"
 
-# List all saved configurations
-configs = list_configs()   # -> list[dict]
+# List (optionally filtered by kind)
+configs = list_configs("user-abc123", kind="helm")
 
-# Load a single config by ID
-cfg = get_config("my-nginx-template")   # -> dict | None
-
-# Delete a config
-delete_config("my-nginx-template")
-
-# Load the charts_config.yaml defaults
-app_cfg = load_app_config()
-charts   = load_default_charts()
+# Load / delete by id
+cfg = get_config("user-abc123", "<id>")      # -> dict | None
+delete_config("user-abc123", "<id>")         # -> bool
 ```
+
+### Default-chart seeding
+
+```{code-block} python
+seed_defaults("user-abc123", site_config={"hostname": "..."})
+```
+
+Reads `charts_config.yaml` and inserts any missing default chart entries into
+the user's store with stable IDs (`default-<release_name>`), resolving the
+per-user placeholder tokens `__NAMESPACE__` and `__HOSTNAME__` against the
+user's namespace and the supplied site config. Idempotent — safe to call on
+every login.
+
+### Helpers
+
+```{code-block} python
+charts = load_default_charts()                 # -> list[dict] from charts_config.yaml
+is_singleton = def_chart_is_singleton("oci://ghcr.io/chbrandt/interlink")
+```
+

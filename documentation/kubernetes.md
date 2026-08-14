@@ -88,18 +88,39 @@ This endpoint is polled by `status.html` every 3 seconds until status reaches
 
 ## RBAC Requirements
 
-The service account (or user in the kubeconfig) needs:
+The manager's service account (in-cluster) or kubeconfig user (external) needs
+to manage namespaces, jobs, and — because the `helm` CLI runs under the same
+identity — the Helm release storage (Secrets/ConfigMaps) and supporting
+resources. The authoritative rule set is the chart's
+[`clusterrole.yaml`](../charts/manager/templates/clusterrole.yaml); in summary:
 
 ```yaml
 rules:
   - apiGroups: [""]
-    resources: ["namespaces", "nodes"]
-    verbs: ["get", "list", "create"]
+    resources: ["namespaces", "nodes", "pods"]
+    verbs: ["get", "list", "create"]          # pods: read for status polling
+
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "delete"]
+
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "delete"]
 
   - apiGroups: ["apps"]
-    resources: ["deployments"]
+    resources: ["deployments", "replicasets"]
     verbs: ["get", "list", "create", "delete"]
+
+  # Helm stores release state as Secrets in the target namespace:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "events"]
+    verbs: ["get", "list", "create", "update", "delete"]
 ```
+
+> Jobs themselves do not create Services or Ingresses, but the RBAC grants
+> them so the same identity can run arbitrary `helm install` charts (e.g. the
+> InterLink chart, which does create a Service and an Ingress).
 
 ---
 
@@ -108,8 +129,9 @@ rules:
 | Method | Description |
 |---|---|
 | `__init__(kubeconfig_path=None)` | Load kubeconfig; initialise CoreV1 and AppsV1 API clients |
+| `list_namespaces()` | Return sorted list of namespace names |
 | `namespace_exists(namespace)` | Return `True` if namespace exists |
-| `create_namespace(namespace)` | Create namespace; return `{success, error}` |
+| `create_namespace(namespace)` | Create namespace; return `{success, error}` (idempotent on 409) |
 | `list_interlink_nodes()` | Return sorted list of node names that carry the `virtual-node.interlink/no-schedule` taint |
 | `create_job(name, image, node_name, namespace, env_vars, command)` | Create job (with `nodeSelector` + `tolerations`, replicas=1); return `{success, job_name, ...}` |
 | `list_jobs(namespace=None)` | List jobs; return list of dicts with `name`, `image`, `node_name`, `status`, `created` |

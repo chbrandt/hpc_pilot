@@ -14,10 +14,11 @@ To deploy interLink (pod), [Helm](https://helm.sh/) is required.
 The provided `[interlink/values.yaml](./interlink/values.yaml)` file contains
 the default configuration for our interLink deployment.
 
-Here's an example configuration for the interLink pod:
+Here's an example configuration for the interLink pod (this mirrors the
+defaults the manager injects per user from `charts_config.yaml`):
 
 ```yaml
-nodeName: vk-node # name of the virtual-kubelet node, unique per namespace
+nodeName: virtual-node-user-<hash>  # unique per namespace
 
 interlink:
   enabled: true             # deploys interLink API server container
@@ -36,23 +37,29 @@ plugin:
 wstunnel:
   # Enable deployment of wstunnel server container in the interLink pod.
   enabled: true
-  # Hostname for wstunnel server (for wstunnel client to connect to).
-  host: interlink.dev.local
+  # Port the wstunnel server listens on inside the pod.
+  port: 8080
+  # Ingress exposing the wstunnel server (path-prefix routing on the shared
+  # hostname; no wildcard DNS required).
+  ingress:
+    host: app.example.com   # __HOSTNAME__ placeholder, resolved per user
   # Secret value for wstunnel authentication, must match the secret used 
   # by wstunnel client (--http-upgrade-path-prefix "<secret>").
-  secret: "secret-string-for-wstunnel"
+  # In HPC Pilot this is the user's namespace (the __NAMESPACE__ placeholder).
+  secret: "user-<hash>"
+  logLevel: debug
 ```
 
 Deploy it with Helm:
 
 ```bash
 helm install interlink \
-    ../interlink-helm-chart/interlink \
-    -n interlink --create-namespace \
-    -f values.yaml 
+    oci://ghcr.io/chbrandt/interlink \
+    -n user-<hash> --create-namespace \
+    -f values.yaml
 ```
 
-This will create the interLink pod in the `interlink` namespace.
+This will create the interLink pod in the `user-<hash>` namespace.
 You can check the status of the deployment with:
 
 ```bash

@@ -1,23 +1,33 @@
-# API Reference
+# Web UI Routes
 
-All routes are served by `app.py`. Authentication is enforced by checking
-`get_session_user()` at the start of each protected route — unauthenticated
-requests are redirected to `/login`.
+The **web GUI layer** (`manager/app/`) renders HTML pages in the browser. It is a
+thin client over the [REST API](rest_api.md): every backend operation goes
+through `app/api_client.py`, which forwards the session's Bearer token to the
+`/api` endpoints over HTTP (loopback by default).
+
+All routes (except `/login` and `/logout`) are protected by the
+`require_login` decorator. Unauthenticated HTML requests are redirected to
+`/login`; AJAX/JSON requests get HTTP 401 with a JSON body.
+
+```{contents} Contents
+:local:
+:depth: 2
+```
 
 ---
 
-## Auth Routes
+## Authentication Routes (`app/auth.py`)
 
 ### `GET /login`
 
-Render the login page.
+Render the login page (token paste form).
 
 **Query parameters:**
 
 | Parameter | Description |
 |---|---|
 | `reason=expired` | Show "session expired" warning banner |
-| `refresh=1` | Show "update your token" banner instead of normal title |
+| `refresh=1` | Show "update your token" banner instead of the normal title |
 | `next=<url>` | URL to redirect to after successful login |
 
 **Response:** `login.html`
@@ -26,7 +36,13 @@ Render the login page.
 
 ### `POST /login`
 
-Validate the submitted access token and start a session.
+Validate the submitted EGI Check-in access token and start a session.
+
+On success the manager also:
+
+1. Derives the user's namespace from the `sub` claim.
+2. Calls `POST /api/namespaces/ensure` to create it (if missing).
+3. Calls `POST /api/saved/seed` to seed the default chart presets.
 
 **Form fields:**
 
@@ -35,7 +51,7 @@ Validate the submitted access token and start a session.
 | `token` | ✓ | Raw EGI Check-in JWT access token |
 | `next` | | URL to redirect to after login |
 
-**Success:** Redirect to `next` (or `/`)  
+**Success:** Redirect to `next` (or `/`)
 **Failure:** Flash error message, redirect to `GET /login`
 
 ---
@@ -54,20 +70,24 @@ Clear the session and redirect to the login page.
 
 ---
 
-## Container Deployment Routes
+## Job Routes (`app/k8s.py`)
 
 ### `GET /`
 
-Render the "Deploy a Container" form.
+Render the "Submit a Job" form.
 
-**Auth:** Required  
+The form's InterLink-node dropdown is populated by calling
+`GET /api/nodes/interlink`. Saved container configs for the user are listed for
+one-click reuse.
+
+**Auth:** Required
 **Response:** `index.html`
 
 ---
 
-### `POST /deploy`
+### `POST /submit`
 
-Create a Kubernetes Deployment (+ optional Service and Ingress) from form data.
+Submit a new job (forwards to `POST /api/jobs`).
 
 **Auth:** Required
 
@@ -75,36 +95,25 @@ Create a Kubernetes Deployment (+ optional Service and Ingress) from form data.
 
 | Field | Required | Description |
 |---|---|---|
-| `name` | ✓ | Deployment name (RFC 1123, max 63 chars) |
-| `image` | ✓ | Container image (e.g. `nginx:latest`) |
-| `replicas` | | Number of pod replicas (default: `1`) |
-| `cpu_request` | | CPU request (e.g. `100m`) |
-| `cpu_limit` | | CPU limit (e.g. `500m`) |
-| `mem_request` | | Memory request (e.g. `64Mi`) |
-| `mem_limit` | | Memory limit (e.g. `256Mi`) |
+| `name` | ✓ | Job name (RFC 1123 label, max 63 chars) |
+| `image` | ✓ | Container image (e.g. `ubuntu:22.04`) |
+| `node_name` | ✓ | InterLink virtual-kubelet node name (from the dropdown) |
 | `command` | | Shell command override; runs as `/bin/sh -c "<command>"` |
 | `env_key[]` | | Environment variable key (repeatable) |
 | `env_value[]` | | Environment variable value (repeatable, paired with `env_key`) |
-| `port_number[]` | | Port number 1–65535 (repeatable) |
-| `port_name[]` | | Port name (repeatable, optional) |
-| `port_protocol[]` | | `TCP` or `UDP` (repeatable, default `TCP`) |
-| `ingress_enabled` | | `1` to enable Ingress (requires at least one port) |
-| `ingress_host` | | Ingress hostname (empty = match all) |
-| `ingress_path` | | Ingress path (default `/`) |
-| `ingress_port` | | Target port name or number |
-| `ingress_class` | | Ingress class name (e.g. `nginx`) |
 
-**Success:** Render `status.html` with deployment result  
+**Success:** Render `status.html` with the job result
 **Failure:** Flash error, redirect to `GET /`
 
 ---
 
-### `GET /deployments`
+### `GET /jobs`
 
-List all workloads in the user's namespace: container deployments **and** Helm
-releases merged into a single unified table.
+List all workloads in the user's namespace: container **jobs** (from
+`GET /api/jobs`) and the InterLink Helm release (from `GET /api/interlink`),
+merged into a single unified table.
 
-**Auth:** Required  
+**Auth:** Required
 **Response:** `deployments.html` with `workloads` list
 
 Each workload entry:
@@ -115,96 +124,190 @@ Each workload entry:
     "name":         str,
     "namespace":    str,
     "detail":       str,   # image (container) or chart name (helm)
+    "node_name":    str,    # container only
     "status":       str,   # CSS badge class key
-    "status_label": str,   # badge display text
     "created":      str,   # ISO timestamp
-    "service_ports": [...] | None,  # container only
-    "ingress_url":   str | None,    # container only
 }
 ```
 
 ---
 
-### `POST /deployments/<namespace>/<name>/delete`
+### `POST /jobs/<namespace>/<name>/delete`
 
-Delete a container deployment (Deployment + Service + Ingress).
+Delete a container job (forwards to `DELETE /api/jobs/<name>`).
 
-**Auth:** Required  
-**Security:** `namespace` must equal `session["namespace"]`  
-**Response:** Redirect to `/deployments`
+**Auth:** Required
+**Security:** `namespace` must equal `session["namespace"]`
+**Response:** Redirect to `/jobs`
 
 ---
 
-### `GET /deployments/<namespace>/<name>/status`
+### `GET /jobs/<namespace>/<name>/status`
 
-Get current deployment status as JSON (used by the `status.html` polling page).
+Get current job status as JSON (used by the `status.html` polling page after a
+submit).
 
-**Auth:** Required  
+**Auth:** Required
+**Security:** `namespace` must equal `session["namespace"]`
 **Response:** JSON
 
 ```json
 {
   "status": "available | progressing | unknown",
-  "replicas_status": "2/2",
-  "ready_replicas": 2,
-  "replicas": 2
+  "replicas_status": "1/1",
+  "ready_replicas": 1,
+  "replicas": 1
 }
 ```
 
-**Error responses:**
-- `401` — `{"error": "Not authenticated"}`
-- `500` — `{"error": "<message>"}`
+---
+
+### `POST /jobs/<namespace>/<name>/save`
+
+Read the full job spec (forwards to `GET /api/jobs/<name>`) and save it to the
+user's saved-config store as a reusable container template.
+
+**Auth:** Required
+**Security:** `namespace` must equal `session["namespace"]`
+**Response:** Redirect to `/jobs`
 
 ---
 
-## Helm Routes
+## Helm / InterLink Routes (`app/helm.py`)
 
 ### `GET /helm`
 
-Render the "Deploy a Helm Chart" form.
+Render the "Deploy a Chart" form. The form is pre-populated with the user's
+saved Helm configs (the InterLink preset is auto-seeded on first login).
 
-**Auth:** Required  
+**Auth:** Required
 **Response:** `helm.html`
 
 ---
 
 ### `POST /helm/install`
 
-Install a Helm chart with `helm install --wait --timeout=5m0s`.
+Submit the InterLink Helm install form. The form fields are read for display
+purposes only; the backend always calls `POST /api/interlink` (the only managed
+Helm release), which installs the chart using the defaults from
+`charts_config.yaml`.
 
 **Auth:** Required
-
-**Form fields:**
-
-| Field | Required | Description |
-|---|---|---|
-| `release_name` | ✓ | Release name (RFC 1123, max 63 chars) |
-| `chart` | ✓ | Chart reference (see [Helm Integration](helm.md)) |
-| `version` | | Pin a specific chart version |
-| `values_yaml` | | YAML string passed to `--values -` (stdin) |
-
-**Behaviour:** Synchronous — the HTTP request blocks until `helm install` completes
-(up to 5 minutes). The submit button is disabled via JavaScript to prevent
-double-submission.
-
-**Success:** Render `helm_result.html` with install output  
-**Failure:** Flash error, redirect to `GET /helm`
+**Form fields:** `release_name`, `chart` (used for display in the result page)
+**Response:** `helm_result.html` with the install outcome
 
 ---
 
 ### `GET /releases`
 
-List Helm releases in the user's namespace (standalone page, not linked from
-navbar — use `/deployments` for the merged view).
+List Helm releases in the user's namespace. Since `interlink` is the only
+managed release, the table is a single-item list populated from
+`GET /api/interlink` (empty when not yet deployed).
 
-**Auth:** Required  
+**Auth:** Required
 **Response:** `releases.html`
 
 ---
 
 ### `POST /releases/<name>/delete`
 
-Uninstall a Helm release (`helm uninstall`).
+Uninstall the InterLink Helm release (forwards to `DELETE /api/interlink`).
 
-**Auth:** Required  
-**Response:** Redirect to `/deployments`
+**Auth:** Required
+**Response:** Redirect to `/jobs`
+
+---
+
+### `POST /releases/<name>/save`
+
+Read the InterLink release values (forwards to `GET /api/interlink`) and save
+them to the user's saved-config store as a reusable Helm template.
+
+**Auth:** Required
+**Response:** Redirect to `/jobs`
+
+---
+
+## HPC Routes (`app/hpc.py`)
+
+All HPC routes are mounted under the `/hpc` prefix. They render forms or result
+pages; the backend always proxies to the corresponding `/api/hpc/*` endpoint
+using the user's session token. The wstunnel parameters are computed from the
+session namespace and `site_config.yaml` — the user only picks an HPC node.
+
+### `GET /hpc`
+
+Render the HPC deployment form. The node dropdown is populated from
+`manager/hpc/*.yaml` (via `lib.hpc_config.list_hpc_nodes`); the page also shows
+the computed wstunnel server/port/secret for the user's namespace.
+
+**Auth:** Required
+**Response:** `hpc.html`
+
+---
+
+### `POST /hpc/deploy`
+
+Deploy the HPC Pilot stack on the selected node (forwards to
+`POST /api/hpc/deploy` with `{"hpc_name": ...}`).
+
+**Auth:** Required
+**Form fields:** `hpc_name` (required)
+**Response:** `hpc_result.html` with the deploy outcome
+
+---
+
+### `POST /hpc/status`
+
+Query `supervisorctl status` on the selected node (forwards to
+`POST /api/hpc/status`).
+
+**Auth:** Required
+**Form fields:** `hpc_name` (required)
+**Response:** `hpc_result.html`
+
+---
+
+### `POST /hpc/start`
+
+Start all managed services on the selected node (forwards to
+`POST /api/hpc/start`).
+
+**Auth:** Required
+**Form fields:** `hpc_name` (required)
+**Response:** `hpc_result.html`
+
+---
+
+### `POST /hpc/stop`
+
+Stop all managed services on the selected node (forwards to
+`POST /api/hpc/stop`).
+
+**Auth:** Required
+**Form fields:** `hpc_name` (required)
+**Response:** `hpc_result.html`
+
+---
+
+## Saved Config Routes (`app/saved.py`)
+
+### `POST /saved/<config_id>/delete`
+
+Remove a saved configuration entry from the user's store. The redirect target
+depends on the entry's `kind`: Helm configs go to `/releases`, container
+configs to `/`.
+
+**Auth:** Required
+**Response:** Redirect to `/` or `/releases`
+
+---
+
+## Static Assets & API Docs
+
+- All CSS lives in `app/static/style.css`.
+- Templates live in `app/templates/` (all extend `base.html`).
+- `base.html` embeds the token-expiry countdown JavaScript that redirects to
+  `/logout?reason=expired` when the session token expires.
+- The interactive Swagger UI for the REST API is served at **`/api/docs`**.
+

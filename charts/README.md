@@ -21,8 +21,8 @@ helm install manager ./charts/manager \
   --set image.repository=ghcr.io/<your-org>/hpc-pilot-manager \
   --set image.tag=latest \
   --set flask.secretKey="$SECRET" \
-  --set siteConfig.clusterDomain=<your-cluster-domain> \
-  --set ingress.host=manager.<your-cluster-domain>
+  --set siteConfig.hostname=manager.example.com \
+  --set interlinkConfig.chart=oci://ghcr.io/chbrandt/interlink
 ```
 
 ### InterLink Pod — `interlink/`
@@ -41,9 +41,7 @@ the manager app on behalf of users.
 
 | Directory | Purpose |
 |---|---|
-| `interlink-wstunnel/` | Raw YAML manifests (no Helm) showing the InterLink + wstunnel deployment without the manager |
-| `wstunnel-user/` | Helm chart for a per-user wstunnel deployment (used in development and testing) |
-| `wstunnel-test/` | Minimal test setup for validating wstunnel connectivity |
+| `test_pods/` | Example pod/test manifests for validating the InterLink + wstunnel deployment without the manager |
 
 ---
 

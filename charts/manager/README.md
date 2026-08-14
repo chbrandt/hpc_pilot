@@ -4,6 +4,9 @@ This chart deploys the **HPC Pilot Manager** Flask application inside a
 Kubernetes cluster, together with all the supporting resources it needs to
 manage per-user [InterLink](https://interlink-project.dev) pod deployments.
 
+- **Chart name:** `egi-hpc-pilot` (see [`Chart.yaml`](./Chart.yaml))
+- **Version:** `0.1.0` / appVersion `0.1.0`
+
 ---
 
 ## Overview
@@ -14,15 +17,15 @@ manage per-user [InterLink](https://interlink-project.dev) pod deployments.
 |---|---|---|
 | `hpc-pilot` | `Namespace` | Dedicated namespace for the manager |
 | `hpc-pilot-manager` | `ServiceAccount` | In-cluster identity for the pod |
-| `hpc-pilot-manager` | `ClusterRole` | RBAC rules: namespaces, deployments, services, ingresses, nodes |
-| `hpc-pilot-manager` | `ClusterRoleBinding` | Binds the ClusterRole to the ServiceAccount |
+| `egi-hpc-pilot` | `ClusterRole` | RBAC: namespaces, deployments, services, ingresses, nodes, pods, secrets/configmaps, events, replicasets |
+| `egi-hpc-pilot` | `ClusterRoleBinding` | Binds the ClusterRole to the ServiceAccount |
 | `<release>-manager` | `Secret` | Flask session secret key |
-| `<release>-manager-site-config` | `ConfigMap` | `site_config.yaml` (cluster domain, wstunnel settings) |
-| `<release>-manager-charts-config` | `ConfigMap` | `charts_config.yaml` (InterLink chart preset for every user) |
+| `<release>-manager-site-config` | `ConfigMap` | `site_config.yaml` (hostname, wstunnel ports, allowed_groups) |
+| `<release>-manager-charts-config` | `ConfigMap` | `charts_config.yaml` (InterLink chart preset per user) |
 | `<release>-manager-data` | `PersistentVolumeClaim` | Durable store for per-user saved deployment configs |
 | `<release>-manager` | `Deployment` | The Flask manager pod |
 | `<release>-manager` | `Service` | ClusterIP service (port 80 → Flask port 5000) |
-| `<release>-manager` | `Ingress` | nginx Ingress (exposes the manager UI/API externally) |
+| `<release>-manager` | `Ingress` | nginx Ingress on `siteConfig.hostname` (exposes the manager UI/API) |
 
 ---
 
@@ -31,9 +34,10 @@ manage per-user [InterLink](https://interlink-project.dev) pod deployments.
 - Kubernetes ≥ 1.24
 - Helm v3
 - An **nginx Ingress controller** installed in the cluster
-- A **wildcard DNS record** pointing `*.<clusterDomain>` at the Ingress
-  controller's external IP (needed for per-user InterLink wstunnel endpoints)
-- The manager container image built from `manager/Dockerfile` and pushed to
+- A **DNS record** for the single `siteConfig.hostname` pointing at the Ingress
+  controller's external IP (no wildcard record required — routing is
+  path-prefix based)
+- The manager container image built from the root `Dockerfile` and pushed to
   an accessible registry
 
 ---
@@ -42,9 +46,8 @@ manage per-user [InterLink](https://interlink-project.dev) pod deployments.
 
 ```bash
 # From the repository root
-docker build -t ghcr.io/<your-org>/hpc-pilot-manager:latest manager/
+docker build -t ghcr.io/<your-org>/hpc-pilot-manager:latest .
 
-# Push to your registry
 docker push ghcr.io/<your-org>/hpc-pilot-manager:latest
 ```
 
@@ -61,8 +64,8 @@ helm install manager ./charts/manager \
   --set image.repository=ghcr.io/<your-org>/hpc-pilot-manager \
   --set image.tag=latest \
   --set flask.secretKey="$SECRET" \
-  --set siteConfig.clusterDomain=<your-cluster-domain> \
-  --set ingress.host=manager.<your-cluster-domain>
+  --set siteConfig.hostname=manager.example.com \
+  --set interlinkConfig.chart=oci://ghcr.io/chbrandt/interlink
 
 # 3. Verify
 kubectl get all -n hpc-pilot
@@ -79,7 +82,8 @@ kubectl get ingress -n hpc-pilot
 |---|---|---|
 | `image.repository` | `ghcr.io/chbrandt/hpc-pilot-manager` | Container image repository |
 | `image.tag` | `latest` | Image tag |
-| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
+| `image.pullPolicy` | `Always` | Image pull policy |
+| `image.pullSecrets` | `[]` | Optional registry pull secrets |
 | `replicaCount` | `1` | Number of manager pods |
 
 ### Flask
@@ -88,38 +92,53 @@ kubectl get ingress -n hpc-pilot
 |---|---|---|
 | `flask.port` | `5000` | Port Flask listens on inside the container |
 | `flask.debug` | `"0"` | Set to `"1"` for debug mode (never in production) |
-| `flask.secretKey` | `""` | Flask session secret key — **always override in production** |
+| `flask.secretKey` | `"ok-for-dev-only-…"` | Flask session secret key — **always override in production** |
 | `flask.existingSecret` | `""` | Use a pre-existing Secret instead of creating one |
-| `flask.existingSecretKey` | `"flask-secret-key"` | Key inside the existing Secret |
+| `flask.existingSecretKey` | `flask-secret-key` | Key inside the existing Secret |
 
-### Site configuration
+### Site configuration (`site_config.yaml`)
 
 | Parameter | Default | Description |
 |---|---|---|
-| `siteConfig.clusterDomain` | `dev.local` | Wildcard base domain. Each user's InterLink wstunnel will be at `<namespace>.<clusterDomain>` |
-| `siteConfig.wstunnel.port` | `80` | Port the wstunnel Ingress listens on |
-| `siteConfig.wstunnel.localPort` | `4000` | Port the wstunnel client uses on the HPC edge-node |
+| `siteConfig.hostname` | `app.hpc-pilot.test.fedcloud.eu` | Single fixed hostname for the manager and every user's InterLink wstunnel endpoint (path-prefix routing — no wildcard DNS) |
+| `siteConfig.wstunnel.port` | `80` | Port the wstunnel ingress listens on |
+| `siteConfig.wstunnel.localPort` | `4000` | Local port on the HPC edge-node wstunnel forwards to |
+| `siteConfig.allowedGroups` | `[]` | Optional list of EGI VO entitlement substrings restricting access (empty = open) |
 
-### Default charts (InterLink preset)
+> The `site_config.yaml` ConfigMap is rendered by
+> [`templates/configmap-site.yaml`](./templates/configmap-site.yaml). Without
+> `siteConfig.wstunnel.*` the HPC endpoints would raise a `KeyError`, so
+> always supply them.
 
-`chartsConfig` is a multi-line YAML string written verbatim into
-`charts_config.yaml`. It defines the Helm chart presets that are auto-seeded
-into every user's saved-config store on first login.  The default value
-installs the InterLink chart from the OCI registry.
+### InterLink chart defaults (`charts_config.yaml`)
 
-Placeholder tokens resolved per-user:
+| Parameter | Default | Description |
+|---|---|---|
+| `interlinkConfig.chart` | `oci://ghcr.io/chbrandt/interlink` | InterLink chart reference (OCI / repo / URL) |
+| `interlinkConfig.version` | `null` | Pin a chart version, or `null` for latest |
+| `interlinkConfig.interlink.address` | `http://0.0.0.0` | InterLink API server bind address |
+| `interlinkConfig.interlink.port` | `3000` | InterLink API server port |
+| `interlinkConfig.plugin.address` | `http://0.0.0.0` | Plugin bind address (HPC side) |
+| `interlinkConfig.plugin.port` | `4000` | Plugin port |
+| `interlinkConfig.wstunnel.port` | `8080` | wstunnel server port inside the pod |
+| `interlinkConfig.wstunnel.ingress.host` | `__HOSTNAME__` | wstunnel ingress host (placeholder) |
+| `interlinkConfig.wstunnel.externalPort` | `80` | Port the Ingress routes to wstunnel |
+| `interlinkConfig.wstunnel.internalPort` | `4000` | Local port forwarded to the client |
+| `interlinkConfig.wstunnel.secret` | `__NAMESPACE__` | wstunnel path-prefix secret |
+| `interlinkConfig.wstunnel.logLevel` | `debug` | wstunnel log level |
+
+Placeholder tokens resolved per-user at seed time (only these two are used):
 
 | Token | Replaced with |
 |---|---|
 | `__NAMESPACE__` | User's Kubernetes namespace, e.g. `user-a3f1b2c4d5e6f7a8` |
-| `__CLUSTER_DOMAIN__` | Value of `siteConfig.clusterDomain` |
-| `__NAMESPACE_HASH__` | Hex-digest portion of the namespace (after `user-`) |
+| `__HOSTNAME__` | `siteConfig.hostname` (the single shared hostname) |
 
 ### Persistence
 
 | Parameter | Default | Description |
 |---|---|---|
-| `persistence.enabled` | `true` | Mount a PVC for `/app/data` |
+| `persistence.enabled` | `false` | Mount a PVC for `/app/data` |
 | `persistence.size` | `1Gi` | PVC storage size |
 | `persistence.accessMode` | `ReadWriteOnce` | PVC access mode |
 | `persistence.storageClass` | `""` | StorageClass (leave blank for cluster default) |
@@ -131,12 +150,27 @@ Placeholder tokens resolved per-user:
 |---|---|---|
 | `ingress.enabled` | `true` | Create an Ingress resource |
 | `ingress.className` | `nginx` | IngressClass name |
-| `ingress.host` | `manager.dev.local` | Hostname for the manager UI |
 | `ingress.path` | `/` | URL path prefix |
-| `ingress.annotations` | see values.yaml | Extra annotations (timeouts are pre-configured) |
+| `ingress.pathType` | `Prefix` | Path type |
+| `ingress.port` | `80` | Backend service port |
+| `ingress.annotations` | see values | Extra annotations (timeouts are pre-configured) |
 | `ingress.tls` | `[]` | TLS configuration |
 
+> The Ingress host is `siteConfig.hostname` (not a separate `ingress.host`
+> value). The chart does **not** require a wildcard record — a single-host
+> TLS certificate is sufficient.
+
+### Resources
+
+| Parameter | Default |
+|---|---|
+| `resources.requests.cpu` | `100m` |
+| `resources.requests.memory` | `128Mi` |
+| `resources.limits.cpu` | `500m` |
+| `resources.limits.memory` | `512Mi` |
+
 ---
+
 
 ## How the manager connects to InterLink deployments
 
@@ -150,25 +184,25 @@ Manager derives namespace: user-<hash>   ←── from token "sub" claim
 POST /api/interlink
   │   helm install interlink oci://ghcr.io/chbrandt/interlink \
   │     --namespace user-<hash> \
-  │     --values -   (wstunnel.host = user-<hash>.<clusterDomain>)
+  │     --values -   (wstunnel.ingress.host = __HOSTNAME__, secret = __NAMESPACE__)
   │
   ▼
 InterLink pod created in user-<hash> namespace:
-  ├── virtual-kubelet container  (interLink API server)
-  ├── wstunnel server container  (port 8420 → ClusterIP Service)
-  └── nginx Ingress:  user-<hash>.<clusterDomain>:80  →  wstunnel:8420
+  ├── interLink API server container  (port 3000)
+  ├── wstunnel server container       (port 8080)
+  └── nginx Ingress:  <hostname>/<namespace>  →  wstunnel:8080   (path-prefix)
   │
   ▼
 HPC edge-node runs wstunnel client:
   wstunnel client \
-    --http-upgrade-path-prefix '<namespace-hash>' \
+    --http-upgrade-path-prefix 'user-<hash>' \
     -R 'tcp://4000:localhost:4000' \
-    ws://user-<hash>.<clusterDomain>:80
+    ws://<hostname>:80
 ```
 
-> **Requirement:** A wildcard DNS record `*.<clusterDomain>` must point to
-> the nginx Ingress controller's external IP so that each user's
-> `user-<hash>.<clusterDomain>` hostname resolves correctly.
+> **No wildcard DNS required.** A single DNS record for `siteConfig.hostname`
+> pointing at the nginx Ingress controller's external IP is enough — each
+> user's wstunnel is disambiguated by the path prefix.
 
 ---
 
@@ -177,12 +211,13 @@ HPC edge-node runs wstunnel client:
 ```bash
 helm upgrade manager ./charts/manager \
   --reuse-values \
-  --set siteConfig.clusterDomain=<new-domain>
+  --set image.tag=<new-tag>
 ```
 
 ## Uninstalling
 
 ```bash
 helm uninstall manager
-kubectl delete namespace hpc-pilot   # also removes all user namespaces if desired
+kubectl delete namespace hpc-pilot   # also removes user namespaces if desired
 ```
+

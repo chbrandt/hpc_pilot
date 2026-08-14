@@ -2,7 +2,7 @@
 
 # `api` — REST API
 
-The `api` layer exposes every `lib` capability as a JSON HTTP endpoint.
+The `api` layer exposes every manager capability as a JSON HTTP endpoint.
 It is designed for scripted access (shell, Python, CI pipelines) using
 **EGI Check-in Bearer tokens** for authentication.
 
@@ -18,42 +18,45 @@ All endpoints are mounted under the `/api` path prefix.
 
 ## Authentication
 
-Every endpoint is protected.
-Attach a valid EGI Check-in access token as a
+Every endpoint is protected. Attach a valid EGI Check-in access token as a
 [Bearer token](https://datatracker.ietf.org/doc/html/rfc6750):
 
 ```{code-block} bash
-curl -H "Authorization: Bearer $TOKEN" https://manager.example.org/api/deployments
+curl -H "Authorization: Bearer $TOKEN" https://manager.example.org/api/jobs
 ```
 
 **Token acquisition**
 
 The token is the same EGI Check-in access token used to log into the web GUI.
-You can obtain one with the `checkin_token_device.py` helper in
-`duckduck/utils/`:
+You can obtain one with the Device Authorization Grant helper shipped in this
+repository:
 
 ```{code-block} bash
-cd duckduck/utils
-python checkin_token_device.py
-# Follow the browser prompt — the token is printed to stdout.
-export TOKEN=$(python checkin_token_device.py)
+python manager/lib/token_checkin.py new
+# Follow the printed URL, authenticate in your browser, then read the
+# access token from the printed tokens file.
+export TOKEN=$(python -c "import json;print(json.load(open('tokens_egi.json'))['access_token'])")
 ```
+
+See [authentication.md](authentication.md) for the full token flow.
 
 **Namespace isolation**
 
 Each token's `sub` (subject) claim is hashed to produce a deterministic,
 isolated Kubernetes namespace (`user-<16-hex-chars>`).
-All resources created through the API are placed in that namespace
-— you never see or manage other users' resources.
+All resources created through the API are placed in that namespace — you never
+see or manage other users' resources.
 
 **Error responses**
 
 | HTTP code | Meaning |
 |---|---|
 | `401` | Missing, malformed, expired, or untrusted-issuer token |
+| `403` | Token valid but the user is not a member of a configured `allowed_groups` VO |
+| `503` | Token valid but the EGI UserInfo endpoint could not be reached to verify group membership |
 | `400` | Missing required field in request body |
 | `404` | Named resource not found |
-| `500` | Server-side error (Kubernetes API unreachable, Helm failed, etc.) |
+| `500` | Server-side error (Kubernetes API unreachable, Helm failed, mccli/SSH failed, …) |
 
 Error body:
 
@@ -65,16 +68,69 @@ Error body:
 
 (api-k8s)=
 
-## Kubernetes Deployments — `/api/deployments`
+## Kubernetes Jobs — `/api/namespaces`, `/api/nodes`, `/api/jobs`
 
-### `GET /api/deployments` — List deployments
+Jobs are Kubernetes `Deployment` objects pinned to an InterLink virtual-kubelet
+node via `nodeSelector` + `tolerations`. InterLink forwards the pod to an HPC
+batch job on the connected HPC site, so **replica counts, CPU/memory requests
+and limits, container ports, Services and Ingresses are not supported** and are
+not part of the API (see [kubernetes.md](kubernetes.md)).
 
-Returns all HPC-Pilot-managed Deployments in the caller's namespace.
+### `POST /api/namespaces/ensure` — Ensure the user namespace exists
+
+Idempotently create the caller's personal namespace (derived from the token
+`sub` claim). Safe to call on every login — returns `"created": false` when the
+namespace already exists.
+
+```{code-block} bash
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/namespaces/ensure | jq .
+```
+
+**Response `200`** (already exists):
+
+```{code-block} json
+{"namespace": "user-a3f1b2c4d5e6f7a8", "created": false}
+```
+
+**Response `201`** (newly created):
+
+```{code-block} json
+{"namespace": "user-a3f1b2c4d5e6f7a8", "created": true}
+```
+
+---
+
+### `GET /api/nodes/interlink` — List InterLink virtual-kubelet nodes
+
+Return the names of cluster nodes registered as InterLink virtual-kubelet nodes.
+A node is considered an InterLink node when it carries the taint key
+`virtual-node.interlink/no-schedule`.
 
 ```{code-block} bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/deployments | jq .
+  https://manager.example.org/api/nodes/interlink | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{"nodes": ["virtual-node-user-a3f1b2c4d5e6f7a8"]}
+```
+
+---
+
+### `GET /api/jobs` — List jobs
+
+Returns all HPC-Pilot-managed jobs (Deployments labelled
+`created-by=hpc-pilot-webapp`) in the caller's namespace.
+
+```{code-block} bash
+curl -s \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/jobs | jq .
 ```
 
 **Response `200`:**
@@ -82,116 +138,98 @@ curl -s \
 ```{code-block} json
 [
   {
-    "name": "my-nginx",
+    "name": "my-job",
     "namespace": "user-a3f1b2c4d5e6f7a8",
-    "image": "nginx:latest",
-    "replicas": 1,
-    "ready_replicas": 1,
-    "replicas_status": "1/1",
+    "image": "ubuntu:22.04",
+    "node_name": "virtual-node-user-a3f1b2c4d5e6f7a8",
     "status": "available",
-    "created": "2025-01-15 12:34:56",
-    "service_ports": [
-      {
-        "name": "http",
-        "port": 80,
-        "node_port": 31234,
-        "external_url": "http://10.0.0.1:31234"
-      }
-    ],
-    "ingress_url": null
+    "created": "2026-08-14 12:34:56"
   }
 ]
 ```
 
 ---
-
-### `POST /api/deployments` — Create a deployment
+### `POST /api/jobs` — Submit a job
 
 ```{code-block} bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "my-nginx",
-    "image": "nginx:latest",
-    "replicas": 1,
-    "ports": [{"number": 80, "name": "http"}]
+    "name": "my-job",
+    "image": "ubuntu:22.04",
+    "node_name": "virtual-node-user-a3f1b2c4d5e6f7a8",
+    "command": "echo hello && sleep infinity",
+    "env_vars": {"MY_VAR": "hello"}
   }' \
-  https://manager.example.org/api/deployments | jq .
+  https://manager.example.org/api/jobs | jq .
 ```
 
 **Request body:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | ✓ | Deployment name (Kubernetes-valid) |
-| `image` | string | ✓ | Container image, e.g. `nginx:latest` |
-| `replicas` | int | — | Number of replicas (default `1`) |
-| `cpu_request` | string | — | CPU request, e.g. `"100m"` |
-| `cpu_limit` | string | — | CPU limit, e.g. `"500m"` |
-| `mem_request` | string | — | Memory request, e.g. `"64Mi"` |
-| `mem_limit` | string | — | Memory limit, e.g. `"256Mi"` |
+| `name` | string | ✓ | Job name (RFC 1123 label: lowercase alphanumeric + hyphens, max 63 chars) |
+| `image` | string | ✓ | Container image reference, e.g. `ubuntu:22.04` |
+| `node_name` | string | ✓ | InterLink virtual-kubelet node name (sets `nodeSelector["kubernetes.io/hostname"]`) |
 | `env_vars` | object | — | `{"KEY": "value"}` pairs |
-| `ports` | array | — | See [Port objects](#port-objects) |
-| `command` | string | — | Override container command (shell string) |
-| `ingress` | object | — | See [Ingress config](#ingress-config) |
+| `command` | string | — | Shell command override (run as `/bin/sh -c "<command>"`) |
 
-**Port objects:**
-
-```{code-block} json
-{"number": 80, "name": "http", "protocol": "TCP"}
-```
-
-`name` and `protocol` are optional (`"TCP"` is the default protocol).
-
-**Ingress config:**
-
-```{code-block} json
-{
-  "host": "my-nginx.example.com",
-  "path": "/",
-  "port": 80,
-  "class": "nginx"
-}
-```
-
-All fields optional. When `host` is omitted the Ingress matches all hosts.
+If the namespace does not yet exist it is created automatically before the job.
 
 **Response `201`** (created):
 
 ```{code-block} json
 {
   "success": true,
-  "deployment_name": "my-nginx",
+  "job_name": "my-job",
   "namespace": "user-a3f1b2c4d5e6f7a8",
-  "image": "nginx:latest",
-  "replicas": 1,
-  "status": "progressing",
-  "service": {
-    "success": true,
-    "service_name": "my-nginx-svc",
-    "node_ip": "10.0.0.1",
-    "ports": [{"name": "http", "port": 80, "node_port": 31234,
-               "external_url": "http://10.0.0.1:31234"}]
-  }
+  "image": "ubuntu:22.04"
 }
 ```
 
 ---
 
-### `GET /api/deployments/<name>/status` — Deployment status
+### `GET /api/jobs/<name>` — Get job spec
+
+Read back the full job spec — used by the GUI's "save configuration" feature to
+store a reusable template.
 
 ```{code-block} bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/deployments/my-nginx/status | jq .
+  https://manager.example.org/api/jobs/my-job | jq .
 ```
 
 **Response `200`:**
 
 ```{code-block} json
 {
-  "name": "my-nginx",
+  "name": "my-job",
+  "image": "ubuntu:22.04",
+  "node_name": "virtual-node-user-a3f1b2c4d5e6f7a8",
+  "env_vars": {"MY_VAR": "hello"},
+  "command": "echo hello && sleep infinity"
+}
+```
+
+**Response `404`** (not found): `{"error": "..."}`
+
+---
+
+### `GET /api/jobs/<name>/status` — Get job status
+
+```{code-block} bash
+curl -s \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/jobs/my-job/status | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{
+  "name": "my-job",
   "namespace": "user-a3f1b2c4d5e6f7a8",
   "replicas": 1,
   "ready_replicas": 1,
@@ -199,143 +237,156 @@ curl -s \
   "updated_replicas": 1,
   "replicas_status": "1/1",
   "status": "available",
-  "image": "nginx:latest",
-  "created": "2025-01-15 12:34:56"
+  "image": "ubuntu:22.04",
+  "created": "2026-08-14 12:34:56"
 }
 ```
 
-`status` is one of `"available"`, `"progressing"`, or `"unknown"`.
+`status` is one of `"available"`, `"progressing"`, or `"unknown"`
+(derived from the Deployment's `Available` / `Progressing` conditions). This
+endpoint is polled by the `status.html` page after a submit.
 
 ---
 
-### `DELETE /api/deployments/<name>` — Delete a deployment
+### `DELETE /api/jobs/<name>` — Delete a job
 
-Also removes the associated NodePort Service and Ingress, if they exist.
+Deletes the Deployment. No Service or Ingress is created for jobs, so nothing
+else needs to be removed.
 
 ```{code-block} bash
 curl -s -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/deployments/my-nginx | jq .
+  https://manager.example.org/api/jobs/my-job | jq .
 ```
 
 **Response `200`:**
 
 ```{code-block} json
-{
-  "deployment": {"success": true, "name": "my-nginx"},
-  "service":    {"success": true, "name": "my-nginx-svc"},
-  "ingress":    null
-}
+{"job": {"success": true, "name": "my-job"}}
 ```
 
 ---
 
 (api-helm)=
 
-## Helm Releases — `/api/releases` and `/api/helm`
+## InterLink Chart — `/api/interlink`
 
-### `GET /api/releases` — List Helm releases
+The manager manages exactly **one** Helm release per user — the InterLink
+virtual-kubelet pod. The release is named `interlink`, is a singleton (a user
+may not deploy more than one), and its chart reference, version and default
+values are read from `charts_config.yaml` (see [helm.md](helm.md)).
 
-```{code-block} bash
-curl -s \
-  -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/releases | jq .
-```
+### `POST /api/interlink` — Deploy InterLink
 
-**Response `200`:**
-
-```{code-block} json
-[
-  {
-    "name": "my-release",
-    "namespace": "user-a3f1b2c4d5e6f7a8",
-    "revision": "1",
-    "updated": "2025-01-15 12:34:56",
-    "status": "deployed",
-    "chart": "nginx-15.0.0",
-    "app_version": "1.27.0"
-  }
-]
-```
-
----
-
-### `POST /api/helm/install` — Install a Helm chart
+Install the InterLink chart into the user's namespace using the defaults from
+`charts_config.yaml`. No request body is required; per-user placeholders
+(`__NAMESPACE__`, `__HOSTNAME__`) in the default values are resolved
+server-side from the token and `site_config.yaml`.
 
 ```{code-block} bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "release_name": "my-release",
-    "chart": "bitnami/nginx",
-    "version": "15.0.0",
-    "values_yaml": "replicaCount: 2\n"
-  }' \
-  https://manager.example.org/api/helm/install | jq .
-```
-
-**Request body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `release_name` | string | ✓ | Kubernetes-valid release name |
-| `chart` | string | ✓ | Chart reference (repo/chart, OCI URI, or HTTPS tarball URL) |
-| `version` | string | — | Pin a specific chart version |
-| `values_yaml` | string | — | Raw YAML overrides (passed via `--values -`) |
-
-The chart reference accepts any format the `helm install` command accepts:
-
-```
-bitnami/nginx
-oci://registry-1.docker.io/bitnamicharts/nginx
-https://example.com/charts/nginx-1.0.0.tgz
+  https://manager.example.org/api/interlink | jq .
 ```
 
 ```{note}
-The install call blocks (up to 5 minutes) until Helm reports that the
-release is fully ready.  For long-running installs you may need to
-increase your HTTP client's timeout accordingly.
+This call blocks for the duration of `helm install --wait` (timeout 5 minutes).
 ```
 
 **Response `201`** (installed):
 
 ```{code-block} json
-{"success": true, "output": "NAME: my-release\n...", "error": null}
+{"success": true, "output": "...helm output...", "error": null}
 ```
 
-**Response `400`** (Helm failed):
+**Response `400`** (singleton already deployed / install failed):
 
 ```{code-block} json
-{"success": false, "output": "", "error": "Error: INSTALLATION FAILED: ..."}
+{"error": "..."}
 ```
 
 ---
 
-### `DELETE /api/releases/<name>` — Uninstall a Helm release
+### `GET /api/interlink` — Get InterLink values
+
+Return the user-supplied values for the deployed InterLink release.
 
 ```{code-block} bash
-curl -s -X DELETE \
+curl -s \
   -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/releases/my-release | jq .
+  https://manager.example.org/api/interlink | jq .
 ```
 
 **Response `200`:**
 
 ```{code-block} json
-{"success": true, "output": "release \"my-release\" uninstalled\n", "error": null}
+{
+  "success": true,
+  "values_yaml": "nodeName: ...\ninterlink: ...\n",
+  "error": null
+}
+```
+
+**Response `404`** (not deployed): `{"error": "..."}`
+
+---
+
+### `DELETE /api/interlink` — Uninstall InterLink
+
+```{code-block} bash
+curl -s -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/interlink | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{"success": true, "output": "release \"interlink\" uninstalled\n", "error": null}
 ```
 
 ---
+
+(api-saved)=
+
+## Saved Configurations — `/api/saved`
+
+### `POST /api/saved/seed` — Seed default configs
+
+Idempotently seed the default Helm chart configs (from `charts_config.yaml`)
+into the authenticated user's saved-config store, applying per-user
+placeholder resolution against `site_config.yaml`. Already-seeded entries
+(identified by their stable IDs) are never duplicated.
+
+This is called automatically at login, but is safe to call on demand.
+
+```{code-block} bash
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/saved/seed | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{"seeded": true, "namespace": "user-a3f1b2c4d5e6f7a8"}
+```
+
+---
+
 
 (api-hpc)=
 
 ## HPC Node Operations — `/api/hpc`
 
-All HPC endpoints accept a JSON body identifying the target HPC node by
-its **name** — a short identifier that maps to a config file in
-`manager/hpc/<name>.yaml` containing the hostname, SSH port, and plugin.
+All HPC endpoints accept a JSON body identifying the target HPC node by its
+**name** — a short identifier that maps to a config file in
+`manager/hpc/<name>.yaml` containing the `hostname`, `ssh_port`, and `plugin`.
 The raw Bearer token is forwarded to `mccli` for SSH authentication.
+
+The wstunnel parameters (server hostname, port, secret, local port) are
+computed internally from the authenticated user's namespace and
+`site_config.yaml` — they are **not** supplied by the caller.
 
 **Common body fields:**
 
@@ -380,12 +431,10 @@ curl -s \
 
 ### `POST /api/hpc/deploy` — Deploy wstunnel on HPC node
 
-Installs wstunnel and supervisord on the remote node, then starts the
-tunnel pointing at the Kubernetes-side server.  The HPC node's hostname,
-SSH port, and plugin are read from the config file.  The wstunnel
-parameters (server, port, secret, local port) are computed internally
-from the authenticated user's namespace and the site config — they are
-**not** supplied by the caller.
+Install the HPC Pilot stack (wstunnel client + supervisord + InterLink plugin)
+on the remote node and start it. The node's hostname, SSH port and plugin are
+read from the config file; the plugin is installed from its published source
+(see [lib.md](lib.md#lib-hpc)).
 
 ```{code-block} bash
 curl -s -X POST \
@@ -395,30 +444,32 @@ curl -s -X POST \
   https://manager.example.org/api/hpc/deploy | jq .
 ```
 
-**Request body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `hpc_name` | string | ✓ | HPC node name (matches `manager/hpc/<name>.yaml`) |
-
 ```{note}
-This call may take up to **5 minutes** while the setup script runs on the
-remote node (downloads wstunnel binary, configures supervisord, etc.).
+This call may take up to **5 minutes** while the setup steps run on the remote
+node (create venv, `pip install supervisor`, download wstunnel, install plugin,
+start supervisord).
 ```
 
 **Response `200`:**
 
 ```{code-block} json
-{"success": true, "output": "wstunnel installed...\nsupervisord started\n", "error": null}
+{
+  "success": true,
+  "output": "[setup_directories] ...\n[install_supervisord] ...\n[check_status] ...",
+  "error": ""
+}
 ```
+
+On failure `success` is `false`, the partial output is returned, and the HTTP
+status is `500`.
 
 ---
 
 ### `DELETE /api/hpc/deploy` — Uninstall HPC deployment
 
-Stop all supervisord-managed services, shut down supervisord, and remove
-the ``~/.pilot`` installation directory from the remote node.
-This is the inverse of `POST /api/hpc/deploy`.
+Stop all supervisord-managed services, shut down supervisord, and remove the
+`~/.pilot` installation directory from the remote node. This is the inverse of
+`POST /api/hpc/deploy`.
 
 ```{code-block} bash
 curl -s -X DELETE \
@@ -428,12 +479,6 @@ curl -s -X DELETE \
   https://manager.example.org/api/hpc/deploy | jq .
 ```
 
-**Request body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `hpc_name` | string | ✓ | HPC node name |
-
 **Response `200`:**
 
 ```{code-block} json
@@ -441,6 +486,7 @@ curl -s -X DELETE \
 ```
 
 ---
+
 
 ### `POST /api/hpc/status` — Query service status
 
@@ -502,12 +548,16 @@ curl -s -X POST \
 
 ---
 
+## OpenAPI / Swagger UI
+
+- The raw OpenAPI 3.1 spec is served at [`/api/openapi.yaml`](../manager/api/openapi.yaml).
+- A browseable Swagger UI is mounted at **`/api/docs`**.
+
+---
+
 (api-python-client)=
 
 ## Using the API from Python
-
-If you prefer Python over curl, you can call the API with the `requests`
-library using the same token:
 
 ```{code-block} python
 import os
@@ -517,27 +567,28 @@ BASE = "https://manager.example.org"
 TOKEN = os.environ["TOKEN"]
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
-# List deployments
-resp = requests.get(f"{BASE}/api/deployments", headers=HEADERS)
+# List jobs
+resp = requests.get(f"{BASE}/api/jobs", headers=HEADERS)
 resp.raise_for_status()
-for dep in resp.json():
-    print(dep["name"], dep["status"])
+for job in resp.json():
+    print(job["name"], job["status"])
 
-# Create a deployment
+# Submit a job
 resp = requests.post(
-    f"{BASE}/api/deployments",
+    f"{BASE}/api/jobs",
     headers=HEADERS,
     json={
-        "name": "my-nginx",
-        "image": "nginx:latest",
-        "ports": [{"number": 80, "name": "http"}],
+        "name": "my-job",
+        "image": "ubuntu:22.04",
+        "node_name": "virtual-node-user-a3f1b2c4d5e6f7a8",
+        "command": "echo hello",
     },
 )
 resp.raise_for_status()
 print(resp.json())
 
-# Delete a deployment
-resp = requests.delete(f"{BASE}/api/deployments/my-nginx", headers=HEADERS)
+# Delete a job
+resp = requests.delete(f"{BASE}/api/jobs/my-job", headers=HEADERS)
 resp.raise_for_status()
 print(resp.json())
 ```
@@ -548,16 +599,23 @@ print(resp.json())
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/deployments` | List K8s deployments |
-| `POST` | `/api/deployments` | Create a K8s deployment |
-| `GET` | `/api/deployments/<name>/status` | Deployment status |
-| `DELETE` | `/api/deployments/<name>` | Delete a deployment |
-| `GET` | `/api/releases` | List Helm releases |
-| `POST` | `/api/helm/install` | Install a Helm chart |
-| `DELETE` | `/api/releases/<name>` | Uninstall a Helm release |
+| `POST` | `/api/namespaces/ensure` | Idempotently create the user's personal namespace |
+| `GET` | `/api/nodes/interlink` | List InterLink virtual-kubelet node names |
+| `GET` | `/api/jobs` | List jobs in the user's namespace |
+| `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required) |
+| `GET` | `/api/jobs/<name>` | Return full job spec |
+| `GET` | `/api/jobs/<name>/status` | Get job status |
+| `DELETE` | `/api/jobs/<name>` | Delete a job |
+| `POST` | `/api/interlink` | Install the InterLink singleton chart |
+| `GET` | `/api/interlink` | Get InterLink release values |
+| `DELETE` | `/api/interlink` | Uninstall the InterLink release |
+| `POST` | `/api/saved/seed` | Seed default chart configs for the user |
 | `GET` | `/api/hpc/nodes` | List available HPC nodes |
-| `POST` | `/api/hpc/deploy` | Deploy wstunnel on HPC node |
-| `DELETE` | `/api/hpc/deploy` | Stop & uninstall HPC deployment |
+| `POST` | `/api/hpc/deploy` | Deploy wstunnel on an HPC node |
+| `DELETE` | `/api/hpc/deploy` | Stop & uninstall the HPC deployment |
 | `POST` | `/api/hpc/status` | Query HPC service status |
 | `POST` | `/api/hpc/start` | Start HPC services |
 | `POST` | `/api/hpc/stop` | Stop HPC services |
+| `GET` | `/api/openapi.yaml` | Raw OpenAPI 3.1 spec |
+| — | `/api/docs` | Swagger UI |
+

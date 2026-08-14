@@ -1,140 +1,85 @@
-# HPC Pilot — Kubernetes Pod Deployer
+# HPC Pilot — Manager App
 
-A minimalist web application for deploying pods to a Kubernetes cluster.
-The app runs **outside** the cluster and connects via `kubeconfig`.
+The Flask application that powers HPC Pilot: it submits HPC jobs (container
+workloads forwarded to HPC batch systems via [interLink](https://interlink-project.dev)),
+deploys per-user InterLink pods, manages the HPC edge-node wstunnel client,
+and authenticates via [EGI Check-in](https://www.egi.eu/service/check-in/).
 
-## Features
+It can run **outside** the cluster (local dev / VM, external kubeconfig) or
+**inside** the cluster as a Deployment managed by the
+[`charts/manager/`](../charts/manager/) Helm chart.
 
-- **Deploy Pods** — Simple form with full options: name, image, namespace, resources, env vars, ports, command
-- **Create Namespaces** — Define new namespaces directly from the form
-- **External Access** — Automatically creates a NodePort Service when a port is specified
-- **Pod Management** — List all deployed pods with status, filter by namespace, delete pods
-- **Auto-refresh** — Status page polls for pod readiness updates
+> For the full documentation see [`../documentation/README.md`](../documentation/README.md).
 
-## Quick Start
+---
+
+## Three-layer architecture
+
+```
+manager/
+├── lib/       # Pure Python business logic (importable from CLI)
+├── api/       # JSON REST API under /api   (cURL / HTTP clients)
+├── app/       # HTML web GUI under /       (browser)
+├── main.py    # Flask application entry point (wires lib+api+app)
+├── site_config.yaml  # Operator-level site settings
+└── charts_config.yaml # Default chart catalogue seeded per user
+```
+
+- `lib/` — Kubernetes SDK, `helm` CLI, `mccli`/SSH, JWT validation. No Flask.
+- `api/` — thin JSON wrappers over `lib/`, protected by Bearer-token auth.
+- `app/` — HTML routes; a thin client that calls the `api/` layer over HTTP
+  via `app/api_client.py` (loopback by default; split with `API_BASE_URL`).
+
+See [`../documentation/architecture.md`](../documentation/architecture.md).
+
+---
+
+## Quick start
 
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Set kubeconfig (optional — defaults to ~/.kube/config)
+# 2. Configure the site (single hostname — no wildcard DNS needed)
+#    edit site_config.yaml: hostname, wstunnel.port, wstunnel.local_port
+
+# 3. Set kubeconfig (optional — defaults to ~/.kube/config)
 export KUBECONFIG=/path/to/your/kubeconfig
 
-# 3. Run the app
-python app.py
+# 4. Set a secret key
+export FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 
-# 4. Open in browser
-# → http://localhost:5000
+# 5. Run
+python main.py
+# → http://localhost:5000  (Swagger UI at /api/docs)
 ```
+
+---
 
 ## Configuration
 
-| Environment Variable | Default          | Description                           |
-| -------------------- | ---------------- | ------------------------------------- |
-| `KUBECONFIG`         | `~/.kube/config` | Path to kubeconfig file               |
-| `FLASK_PORT`         | `5000`           | Port for the web server               |
-| `FLASK_DEBUG`        | `0`              | Set to `1` for debug mode             |
-| `FLASK_SECRET_KEY`   | `dev-secret-...` | Secret key for session/flash messages |
+| Source | Purpose |
+|---|---|
+| `site_config.yaml` | `hostname`, `wstunnel.port`, `wstunnel.local_port`, `allowed_groups` |
+| `charts_config.yaml` | Default InterLink chart preset seeded per user |
+| `hpc/<name>.yaml` | One file per HPC node (`hostname`, `ssh_port`, `plugin`) |
 
-## Form Fields
+| Environment variable | Default | Description |
+|---|---|---|
+| `KUBECONFIG` | `~/.kube/config` | Path to kubeconfig (or in-cluster ServiceAccount) |
+| `FLASK_SECRET_KEY` | `dev-secret-change-in-production` | Session cookie key — **change in production** |
+| `FLASK_PORT` | `5000` | TCP port |
+| `FLASK_DEBUG` | `0` | `1` for debug mode |
+| `API_BASE_URL` | `http://localhost:5000` | REST API base URL as seen from the GUI layer |
 
-| Field                 | Required | Description                                                     |
-| --------------------- | -------- | --------------------------------------------------------------- |
-| Pod Name              | ✅       | Must follow K8s naming rules (lowercase, alphanumeric, hyphens) |
-| Container Image       | ✅       | Docker image reference (e.g., `nginx:latest`)                   |
-| Namespace             | —        | Select existing or create new                                   |
-| CPU Request/Limit     | —        | e.g., `100m`, `0.5`, `1`                                        |
-| Memory Request/Limit  | —        | e.g., `64Mi`, `256Mi`, `1Gi`                                    |
-| Environment Variables | —        | Key-value pairs                                                 |
-| Container Port        | —        | If set, a NodePort Service is created for external access       |
-| Command Override      | —        | Executed as `/bin/sh -c "your command"`                         |
+See [`../documentation/configuration.md`](../documentation/configuration.md).
 
-## Project Structure
+---
 
-```
-webapp/
-├── app.py              # Flask application (routes, form handling)
-├── k8s_client.py       # Kubernetes client wrapper
-├── requirements.txt    # Python dependencies
-├── README.md
-├── templates/
-│   ├── base.html       # Base template (nav, flash messages)
-│   ├── index.html      # Pod deployment form
-│   ├── status.html     # Deployment result page
-│   └── pods.html       # Pod listing page
-└── static/
-    └── style.css       # Minimal CSS styling
-```
+## Further reading
 
-## How It Works
-
-1. User fills the deployment form and submits
-2. Flask backend validates input
-3. If a new namespace is needed, it's created first
-4. A Pod is created via the Kubernetes Python client
-5. If a port is specified, a NodePort Service is also created
-6. User is redirected to a status page showing the result
-7. The status page auto-refreshes until the pod is Running
-
-## Notes
-
-- Only pods created by this app (labeled `created-by=hpc-pilot-webapp`) appear in the pod list
-- The app requires `kubectl` access via kubeconfig — no in-cluster auth
-- No authentication is built in; this is meant for operators with cluster access
-
-## Kubeconfig
-
-Allow app to perform the following operations:
-
-- Namespaces: list, create
-- Pods: create, list, get status, delete
-- Services: create, list, get, delete (for NodePort exposure)
-- Nodes: list (to retrieve node IPs for external URLs)
-
-The user in the kubeconfig needs a `ClusterRole` or `Role`:
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: hpc-manager
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "namespaces", "nodes"]
-    verbs: ["get", "list", "create", "delete"]
-```
-
-Place this config in `~/.kube/config` or set `KUBECONFIG` env-var to
-point to it.
-
-Alternatively, you can command the creation of the role:
-
-```bash
-kubectl create clusterrole hpc-manager \
-    --verb=get,list,create,delete \
-    --resource=pods,services,namespaces,nodes
-```
-
-And then bind it to your user:
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: hpc-manager-binding
-subjects:
-  - kind: User
-    name: minikube
-    apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: ClusterRole
-  name: hpc-manager
-  apiGroup: rbac.authorization.k8s.io
-```
-
-Or,
-
-```bash
-kubectl create clusterrolbinding hpc-manager-binding \
-    --clusterrole=hpc-manager --user=minikube
-```
+- [Deployment Guide](../documentation/deployment.md)
+- [REST API Reference](../documentation/rest_api.md) (also at `/api/docs`)
+- [Web UI Routes](../documentation/api.md)
+- [Python Library](../documentation/lib.md)
+- [Authentication](../documentation/authentication.md)

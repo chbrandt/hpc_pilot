@@ -28,17 +28,28 @@ User pastes token → POST /login
 5. Verify exp (not expired) + iss (matches trusted issuer)
         │
         ▼
-6. Derive Kubernetes namespace from sub claim
+6. If allowed_groups is set: fetch entitlements from the UserInfo endpoint
+   and run check_group_access (deny → 403-equivalent flash + redirect)
         │
         ▼
-7. Store {token, claims, namespace} in Flask session
+7. Derive Kubernetes namespace from sub claim
         │
         ▼
-8. Auto-create namespace in cluster (if it doesn't exist)
+8. Store {token, claims, namespace} in Flask session
         │
         ▼
-9. Redirect to requested page (or /)
+9. POST /api/namespaces/ensure  (auto-create the namespace if missing)
+        │
+        ▼
+10. POST /api/saved/seed  (seed default chart presets for the user)
+        │
+        ▼
+11. Redirect to requested page (or /)
 ```
+
+The same validation + group check runs on every REST API request via the
+`require_token` decorator (no session is used for API calls).
+
 
 ---
 
@@ -124,17 +135,18 @@ default cookie-based session backend. The encryption key is `FLASK_SECRET_KEY`.
 
 ### Option 2 — Device Code Flow
 
-The `utils/checkin_token_device.py` script in this repo implements the OAuth 2.0
-Device Authorization Grant:
+The `manager/lib/token_checkin.py` script in this repo implements the OAuth 2.0
+Device Authorization Grant against EGI Check-in (using the public client
+`oidc-agent`):
 
 ```bash
-cd utils/
-pip install -r requirements.txt
-python checkin_token_device.py
+python manager/lib/token_checkin.py new
+# Follow the printed URL, authenticate in your browser, then read the
+# access token from the printed tokens file.
 ```
 
-Follow the printed URL, authenticate in your browser, then copy the printed
-access token.
+Sub-commands: `new` (full device flow), `refresh --file tokens_egi.json`,
+`revoke`. See [lib.md](lib.md#lib-token-checkin).
 
 ---
 
@@ -158,8 +170,12 @@ entitlement by setting `allowed_groups` in `site_config.yaml`.
 
 ### How it works
 
-After a token is cryptographically validated, `check_group_access` inspects
-two JWT claims:
+After a token is cryptographically validated, the manager calls
+`fetch_userinfo(token, issuer)` to retrieve the user's entitlements from the
+EGI Check-in **UserInfo endpoint** — entitlements are **not** carried in the JWT
+itself. The returned UserInfo claims (`eduperson_entitlement` and
+`entitlements`) are merged into the claims dict, and `check_group_access`
+inspects both:
 
 | Claim | Description |
 |---|---|
@@ -178,18 +194,19 @@ allowed_groups:
   - "vo.access.egi.eu"
 ```
 
-A user whose token contains
+A user whose UserInfo contains
 `urn:mace:egi.eu:group:vo.access.egi.eu:role=member#aai.egi.eu` in either
 claim field will pass the check.
 
 An empty list (or omitting the key entirely) disables the check — any
-authenticated EGI user is allowed.
+authenticated EGI user is allowed (and the UserInfo call is skipped entirely).
 
-### Response on denial
+### Response on denial / failure
 
 | Layer | Behaviour |
 |---|---|
-| REST API (`require_token`) | HTTP **403 Forbidden** with JSON `{"error": "...", "code": 403}` |
+| REST API (`require_token`) — denied | HTTP **403 Forbidden** with JSON `{"error": "...", "code": 403}` |
+| REST API (`require_token`) — UserInfo unreachable | HTTP **503** with JSON `{"error": "Could not verify group membership (UserInfo endpoint unavailable): ..."}` |
 | Web GUI (`/login` POST) | Flash error message, redirect back to `/login` |
 
 ---
@@ -198,8 +215,9 @@ authenticated EGI user is allowed.
 
 | Function | Description |
 |---|---|
-| `validate_token(token)` | Full 6-step validation; returns claims dict or raises `ValueError` |
+| `validate_token(token)` | Full validation; returns claims dict or raises `ValueError` |
+| `fetch_userinfo(token, issuer)` | Fetch entitlements from the issuer's UserInfo endpoint; returns a claims dict |
 | `check_group_access(claims, allowed_groups)` | Verifies group membership via entitlement substring match; raises `ValueError` on denial |
 | `derive_namespace(sub)` | Derives namespace string from subject claim |
 | `get_session_user()` | Reads Flask session; returns `{sub, namespace, exp, iss}` or `None` |
-| `require_token(f)` | Decorator: returns 401 (invalid token) or 403 (group denied) on failure |
+| `require_token(f)` | (in `api/auth.py`) Decorator: 401 (invalid token), 403 (group denied) or 503 (UserInfo unreachable) on failure |
