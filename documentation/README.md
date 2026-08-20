@@ -16,7 +16,7 @@ cluster as a Kubernetes Deployment managed by the
 ## Features
 
 | Feature | Description |
-|---|---|
+| --- | --- |
 | **Job submission** | Form-driven submission of container jobs pinned to InterLink virtual-kubelet nodes (InterLink forwards them to HPC batch jobs) |
 | **InterLink deployment** | Deploy the singleton InterLink chart (wstunnel server + virtual-kubelet) per user, with per-user placeholder resolution from `charts_config.yaml` |
 | **HPC node management** | Install/start/stop/status/uninstall the wstunnel client + supervisord + InterLink plugin on a remote HPC edge-node via `mccli` |
@@ -50,7 +50,7 @@ lifecycle.
 ## Prerequisites
 
 | Requirement | Notes |
-|---|---|
+| --- | --- |
 | Python ≥ 3.9 | Tested with 3.11 / 3.12 |
 | `helm` CLI (v3) | Must be on `$PATH`; used for chart operations |
 | `kubectl` access | Via `KUBECONFIG` or `~/.kube/config` (or in-cluster ServiceAccount) |
@@ -85,13 +85,6 @@ wstunnel:
   port: 80
   local_port: 4000
 ```
-
-### 3. Configure default charts (optional)
-
-Edit `manager/charts_config.yaml` to define which Helm charts are pre-seeded
-into every user's saved-deployments store on first login. The file includes
-placeholder tokens (`__NAMESPACE__`, `__HOSTNAME__`) that are resolved
-per-user.
 
 ### 4. Configure HPC nodes (optional)
 
@@ -128,7 +121,7 @@ for the REST API is served at **`/api/docs`**.
 ## Environment Variables
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `KUBECONFIG` | `~/.kube/config` | Path to kubeconfig file |
 | `FLASK_SECRET_KEY` | `dev-secret-change-in-production` | Session encryption key — **change in production** |
 | `FLASK_PORT` | `5000` | TCP port to listen on |
@@ -136,7 +129,6 @@ for the REST API is served at **`/api/docs`**.
 | `API_BASE_URL` | `http://localhost:5000` | Base URL of the REST API as seen from the GUI layer (set to split GUI/API processes) |
 
 ---
-
 
 ## File Structure
 
@@ -215,4 +207,3 @@ manager/
 - [Kubernetes Integration](kubernetes.md) — resources created, RBAC
 - [Helm Integration](helm.md) — the InterLink chart and `helm_client`
 - [Configuration](configuration.md) — all environment variables, kubeconfig, RBAC, production setup
-

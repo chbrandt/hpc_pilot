@@ -150,9 +150,56 @@ selection — are already shipped):
 
 - Add a `--config` flag for launching the manager with a custom config path.
 - Make the InterLink chart version a first-class app-config value.
-- Add TLS termination options (beyond the chart's `ingress.tls`).
 - Evaluate moving away from the nginx Ingress controller.
-- Add an admin/manager whitelist (in addition to the VO `allowed_groups`).
 - Support Unix sockets for the wstunnel client.
 - Restrict which users may use a given virtual-kubelet node (taints,
   per-HPC and per-user VK nodes tied to VO/`sub`).
+
+### API
+
+#### General
+
+- Change `/api/namespaces/ensure` to `/api/init`.
+
+#### HPC
+
+##### Bugs
+
+- Fix empty
+
+##### Improvements
+
+- Change `/api/hpc/deploy` to a GET with hpc node name as a query parameter.
+- Change `/api/hpc/status` to a GET with hpc node name as a query parameter.
+- Check output from `/api/hpc/status` for `status` and `error` fields, and
+  return a 404 if the node is not deployed.
+- Change `/api/hpc/nodes` to `/api/hpc/list`; with optional query parameter
+  for filtering `deployed` listing only the ones user has deployed.
+- HPC node deployment must be bound to interlink deployment: the hpc "node"
+  deployment is triggered after interlink "node" successful deployment.
+- Keep track of deployments for a first check by `/api/hpc/deploy` DELETE.
+  Currently, it tries to delete the deployment even if there is no deployment.
+
+#### interLink
+
+##### Improvements
+
+- Change `/api/interlink` POST (deploy) to required the HPC node it is to bind.
+- Unify all configuration attributes manager demands into one "config.yaml".
+- Move `/api/nodes/interlink` to OpenAPI "Helm" section.
+- Rename OpenAPI section "Helm" to "interLink".
+
+#### Jobs
+
+##### Bugs
+
+- In `/api/jobs` POST, validate node_name; reject invalid HPC/node
+
+##### Improvements
+
+- Do not delete edge job directory when/if DELETE `/api/jobs/{name}`
+- Expand `/api/jobs` to `/api/jobs/job` and `/api/jobs/pod`.
+  The latter will accept Pod (yaml) manifests and run as it is;
+  The former, keep the simplify format, with a well-defined set of attibutes
+  received at the endpoint to merge with a pod template.
+- 
