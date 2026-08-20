@@ -1,0 +1,16 @@
+# --- minimal functional SlurmConfig.yaml ---
+# Path is taken from $SLURMCONFIGPATH (default: /etc/interlink/SlurmConfig.yaml)
+
+SidecarPort: {{sidecar_port}}
+
+# SLURM binaries (no defaults; SqueuePath has no env override either)
+SbatchPath: "/usr/bin/sbatch"
+ScancelPath: "/usr/bin/scancel"
+SqueuePath: "/usr/bin/squeue"
+# SinfoPath omitted -> defaults to "/usr/bin/sinfo"
+
+# Where job data/scripts are materialised on the host
+ExportPodData: true
+DataRootFolder: ".local/interlink/jobs/"
+
+BashPath: /bin/bash

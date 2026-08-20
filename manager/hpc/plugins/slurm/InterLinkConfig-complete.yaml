@@ -1,0 +1,87 @@
+# =============================================================================
+#  Complete SlurmConfig.yaml (every field from pkg/slurm/types.go)
+#  Load path: $SLURMCONFIGPATH (default /etc/interlink/SlurmConfig.yaml)
+# =============================================================================
+
+# --- networking / sidecar ---
+SidecarPort: "4000"            # overridable by $SIDECARPORT
+Socket: ""                     # optional unix socket path
+
+# --- SLURM binaries ---
+SbatchPath: "/usr/bin/sbatch"  # overridable by $SBATCHPATH
+ScancelPath: "/usr/bin/scancel"# overridable by $SCANCELPATH
+SqueuePath: "/usr/bin/squeue"  # NO env override / NO default -> set explicitly
+SinfoPath:   "/usr/bin/sinfo"  # overridable by $SINFOPATH; default /usr/bin/sinfo
+
+# --- script / image handling ---
+CommandPrefix: ""              # prepended to the generated SLURM script
+ImagePrefix: "docker://"       # prefix added to image names lacking a URI scheme
+
+# --- container runtime: singularity ---
+SingularityPath: "singularity"           # overridable by $SINGULARITYPATH; default "singularity"
+SingularityPrefix: ""                    # prefix for Singularity image names
+SingularityDefaultOptions:               # default ["--nv","--no-eval","--containall"] if empty
+  - "--nv"
+  - "--no-eval"
+  - "--containall"
+
+# --- container runtime: enroot (used only when ContainerRuntime == "enroot") ---
+ContainerRuntime: "singularity"          # "singularity" (default) or "enroot"
+EnrootPath: "enroot"                     # path to the enroot binary
+EnrootPrefix: ""                         # prefix for enroot image names
+EnrootDefaultOptions:                    # note: the struct's default tag is NOT applied at runtime
+  - "--rw"
+
+# --- pod data / VK integration ---
+VKConfigPath: ""              # defined in struct but currently unused by the plugin
+ExportPodData: true           # export ConfigMaps/Secrets as mounts inside the container
+DataRootFolder: ".local/interlink/jobs/"  # where exported data is stored locally
+
+# --- proxy networking (tsocks) ---
+Tsocks: false                 # overridable by $TSOCKS (true/false)
+TsocksPath: "$WORK/tsocks-1.8beta5+ds1/libtsocks.so"  # overridable by $TSOCKSPATH
+TsocksLoginNode: "login01"    # node to SSH through ("window to the external world")
+
+# --- logging / probes ---
+BashPath: /bin/bash
+VerboseLogging: true          # also settable via --verbose flag
+ErrorsOnlyLogging: false      # also settable via --errorsonly flag
+EnableProbes: true           # enable Kubernetes startup/readiness/liveness probes
+
+# --- UID (User ID) for SLURM jobs (RFC #58) ---
+# Priority: pod securityContext.runAsUser > flavor UID > DefaultUID
+DefaultUID: 1000              # optional; non-negative integer; omit to leave unset
+
+# --- Flavor system (predefined resource/flag sets) ---
+DefaultFlavor: "default"      # used when no annotation and no auto-detection match
+Flavors:
+  default:
+    Name: "default"
+    Description: "Standard CPU job (4 cores, 16GB RAM)"
+    CPUDefault: 4
+    MemoryDefault: "16G"        # e.g. "16G", "32000M", "1024"
+    # UID: 1001                 # optional per-flavor UID (non-negative)
+    SlurmFlags:
+      - "--partition=cpu"
+      - "--time=01:00:00"
+
+  gpu-nvidia:
+    Name: "gpu-nvidia"
+    Description: "GPU job with NVIDIA GPU (8 cores, 64GB RAM, 1 GPU)"
+    CPUDefault: 8
+    MemoryDefault: "64G"
+    UID: 2000                   # jobs using this flavor run as UID 2000
+    SlurmFlags:
+      - "--gres=gpu:1"
+      - "--partition=gpu"
+      - "--time=04:00:00"
+
+  high-io:
+    Name: "high-io"
+    Description: "High I/O job (16 cores, 32GB RAM, fast storage)"
+    CPUDefault: 16
+    MemoryDefault: "32G"
+    SlurmFlags:
+      - "--partition=fast-io"
+      - "--time=02:00:00"
+      - "--constraint=ssd"

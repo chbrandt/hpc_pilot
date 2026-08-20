@@ -32,7 +32,10 @@ stdout_logfile=%(here)s/log/wstunnel.stdout
 stderr_logfile=%(here)s/log/wstunnel.stderr
 
 [program:interlink-plugin]
-environment=INTERLINKCONFIGPATH="%(here)s/InterLinkConfig.yaml"
+; environment=INTERLINKCONFIGPATH="%(here)s/InterLinkConfig.yaml"
+{% if plugin == "slurm" %}
+environment=SLURMCONFIGPATH={{plugin_conf}}
+{% endif %}
 command={{plugin_bin}}
 priority=2
 autostart=true

@@ -19,8 +19,8 @@
 default_charts:
   - kind: helm
     release_name: interlink
-    chart: oci://ghcr.io/chbrandt/interlink
-    version: null
+    chart: oci://ghcr.io/chbrandt/interlink-helm-chart/interlink
+    version: 0.6.1-egi.5
     singleton: true
     description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
     values_yaml: |

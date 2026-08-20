@@ -395,7 +395,7 @@ def deploy(
     steps = [
         ("setup_directories",      lambda: setup_directories(runner)),
         ("install_supervisord",    lambda: install_supervisord(runner)),
-        ("copy_supervisord_conf",  lambda: copy_supervisord_conf(copier, cfg)),
+        ("copy_supervisord_conf",  lambda: copy_supervisord_conf(copier, cfg, plugin=plugin)),
         ("install_wstunnel",       lambda: install_wstunnel(runner, cfg)),
         ("install_plugin",         lambda: install_plugin(runner, cfg, plugin=plugin)),
         ("copy_plugin_conf",       lambda: copy_plugin_conf(copier, cfg, plugin=plugin)),
@@ -560,6 +560,7 @@ _BASE_DIR         = "$HOME/.pilot"
 _TMP_DIR          = f"{_BASE_DIR}/tmp"
 _BIN_DIR          = f"{_BASE_DIR}/bin"
 _LOG_DIR          = f"{_BASE_DIR}/log"
+_JOBS_DIR          = f"{_BASE_DIR}/jobs"
 # _ETC_DIR          = f"{_BASE_DIR}/etc"
 
 _SUPERVISOR_CONF  = f"{_BIN_DIR}/../supervisord.conf"
@@ -571,6 +572,7 @@ _SUPERVISOR_CONF  = f"{_BIN_DIR}/../supervisord.conf"
 # _WSTUNNEL_BIN     = f"{_BIN_DIR}/wstunnel"
 _WSTUNNEL_VERSION_DEFAULT = "v10.5.5"
 
+_PLUGIN_CONF = f"{_BASE_DIR}/plugin_config.yaml"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
@@ -624,8 +626,8 @@ def setup_directories(runner: Runner) -> dict:
     dict  ``{success, output, error}``
     """
     cmd = (
-        f"echo 'Creating directories: {_TMP_DIR} {_BIN_DIR} {_LOG_DIR}'"
-        f" && mkdir -p {_TMP_DIR} {_BIN_DIR} {_LOG_DIR}" 
+        f"echo 'Creating directories: {_TMP_DIR} {_BIN_DIR} {_LOG_DIR} {_JOBS_DIR}'"
+        f" && mkdir -p {_TMP_DIR} {_BIN_DIR} {_LOG_DIR} {_JOBS_DIR}" 
         f" && echo 'Directories ready'"
     )
     return runner(cmd, timeout=_SHORT_TIMEOUT)
@@ -648,7 +650,7 @@ _PLUGIN_PACKAGES: dict[str, dict[str, str]] = {
         },
     "slurm": {
         "type": "binary",
-        "url": "https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.6.2-pre5/interlink-sidecar-slurm_Linux_x86_64" # placeholder — update when published
+        "url": "https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.6.1/interlink-sidecar-slurm_Linux_x86_64"
         },     
 }
 
@@ -740,7 +742,7 @@ def copy_plugin_conf(copier: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PL
             "plugin_data_root": os.path.join(_BASE_DIR, "data"),
         },
         PLUGIN_CONFIG_TEMPLATES[plugin],
-        os.path.join(_BASE_DIR, f"InterLinkConfig.yaml")
+        _PLUGIN_CONF
     )
 
     return result_copy
@@ -808,7 +810,7 @@ def install_supervisord(runner: Runner, force: bool = False) -> dict:
     return runner(cmd, timeout=_LONG_TIMEOUT)
 
 
-def copy_supervisord_conf(copier: Runner, cfg: SetupConfig) -> dict:
+def copy_supervisord_conf(copier: Runner, cfg: SetupConfig, plugin: str) -> dict:
     """
     Copy the supervisord.conf file to the remote node.
 
@@ -816,6 +818,7 @@ def copy_supervisord_conf(copier: Runner, cfg: SetupConfig) -> dict:
     ----------
     copier : callable that copies a local file to the remote node via mccli.
     cfg    : :class:`SetupConfig` — provides configuration values for the supervisord.conf file.
+
 
     Returns
     -------
@@ -849,6 +852,7 @@ def copy_supervisord_conf(copier: Runner, cfg: SetupConfig) -> dict:
         # "interlink_plugin_cmd": f"{_BASE_DIR}/bin/plugin --port {cfg.wstunnel_local_port}",
         "plugin_bin": f"{_BASE_DIR}/bin/plugin",
         "plugin_conf": f"{_BASE_DIR}/plugin_config.yaml",
+        "plugin": plugin
     } 
 
     result_copy = _copy_jinja_template(copier, 

@@ -1,0 +1,3 @@
+hostname: 161.9.255.214
+ssh_port: 22
+plugin: slurm
