@@ -3,7 +3,7 @@ name: Release
 # Release workflow for production artifact publishing.
 # Required GitHub settings:
 #   - GITHUB_TOKEN: provided automatically by GitHub Actions
-#   - permissions: contents: read, packages: write
+#   - permissions: contents: write, packages: write
 #   - allows pushing to ghcr.io for the manager image
 on:
   push:
@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -88,6 +88,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           body: "Automated release generated from tag ${{ github.ref_name }}."
-          files: $CHART_DEST/*.tgz
+          files: dist/*.tgz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
