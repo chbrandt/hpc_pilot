@@ -1,8 +1,8 @@
 """
-Kubernetes client wrapper for Deployment management.
+Kubernetes client wrapper for batch Job management.
 
 Handles cluster connection via kubeconfig and provides methods for namespace
-management and Deployment creation targeting InterLink virtual-kubelet nodes.
+management and Job creation targeting InterLink virtual-kubelet nodes.
 
 Pod deployments are forwarded by InterLink to HPC batch jobs; consequently,
 replica counts, CPU/memory resource requests and limits, container ports, and
@@ -122,7 +122,7 @@ class K8sClient:
             logger.error(f"Failed to list interlink nodes: {e}")
             return []
 
-    # ── Deployment operations ─────────────────────────────────────────
+    # ── Job operations ───────────────────────────────────────────────
 
     def create_job(
         self,
@@ -148,7 +148,7 @@ class K8sClient:
           ``Exists``) is added so the pod is accepted by the tainted node.
 
         Args:
-            name: Deployment (and container) name.
+            name: Job (and container) name.
             image: Container image (e.g. "ubuntu:22.04").
             node_name: Name of the InterLink virtual-kubelet node on which the
                 pod must be scheduled (e.g. "vk-node").
@@ -157,7 +157,7 @@ class K8sClient:
             command: Override command (shell string, run as /bin/sh -c).
 
         Returns:
-            dict with success status and deployment info.
+            dict with success status and job info.
         """
         # Define some default resources (greater the cpu/mem=1)
         resources = client.V1ResourceRequirements(
@@ -250,7 +250,7 @@ class K8sClient:
 
     def list_jobs(self, namespace: Optional[str] = None) -> list[dict]:
         """
-        List jobs (Deployments), optionally filtered by namespace.
+        List batch Jobs, optionally filtered by namespace.
 
         Args:
             namespace: If set, list jobs in this namespace only.
@@ -295,7 +295,7 @@ class K8sClient:
             return result
 
         except ApiException as e:
-            logger.error(f"Failed to list deployments: {e}")
+            logger.error(f"Failed to list jobs: {e}")
             return []
 
     def get_job_spec(self, name: str, namespace: str = "default") -> dict:
@@ -360,36 +360,55 @@ class K8sClient:
             return {"error": str(e)}
 
     def get_job_status(self, name: str, namespace: str = "default") -> dict:
-        """Get detailed status for a single job (Deployment)."""
+        """
+        Get detailed status for a single batch Job.
+
+        A ``batch/v1`` Job exposes its progress through ``.status`` counters
+        (``active``, ``succeeded``, ``failed``, ``ready``) and a ``conditions``
+        list whose entries are typed ``Complete``, ``Failed``, or
+        ``Suspended``.  The condition type is mapped to a display status:
+
+        * ``Complete``   → ``succeeded``
+        * ``Failed``     → ``failed``
+        * ``Suspended``  → ``suspended``
+        * otherwise, an active/ready pod means ``running``, else ``unknown``.
+        """
         try:
-            dep = self.batch_v1.read_namespaced_job(
+            job = self.batch_v1.read_namespaced_job(
                 name=name, namespace=namespace
             )
-            # desired = dep.spec.replicas or 0
-            ready = dep.status.ready or 0
-            available = dep.status.available_replicas or 0
-            updated = dep.status.updated_replicas or 0
+            active = job.status.active or 0
+            ready = job.status.ready or 0
+            succeeded = job.status.succeeded or 0
+            failed = job.status.failed or 0
 
-            # Determine condition from status conditions
-            conditions = dep.status.conditions or []
+            # Determine display status from Job conditions (Complete/Failed/Suspended)
+            conditions = job.status.conditions or []
             condition_map = {c.type: c.status for c in conditions}
-            if condition_map.get("Available") == "True":
-                condition = "available"
-            elif condition_map.get("Progressing") == "True":
-                condition = "progressing"
+            if condition_map.get("Complete") == "True":
+                condition = "succeeded"
+            elif condition_map.get("Failed") == "True":
+                condition = "failed"
+            elif condition_map.get("Suspended") == "True":
+                condition = "suspended"
+            elif active > 0 or ready > 0:
+                condition = "running"
             else:
                 condition = "unknown"
 
             return {
-                "name": dep.metadata.name,
-                "namespace": dep.metadata.namespace,
+                "name": job.metadata.name,
+                "namespace": job.metadata.namespace,
                 "ready": ready,
+                "active": active,
+                "succeeded": succeeded,
+                "failed": failed,
                 "status": condition,
-                "image": dep.spec.template.spec.containers[0].image
-                if dep.spec.template.spec.containers
+                "image": job.spec.template.spec.containers[0].image
+                if job.spec.template.spec.containers
                 else "?",
-                "created": dep.metadata.creation_timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                if dep.metadata.creation_timestamp
+                "created": job.metadata.creation_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                if job.metadata.creation_timestamp
                 else "?",
             }
 
@@ -398,7 +417,7 @@ class K8sClient:
             return {"error": str(e)}
 
     def delete_job(self, name: str, namespace: str = "default") -> dict:
-        """Delete a job (Deployment)."""
+        """Delete a batch Job."""
         try:
             self.batch_v1.delete_namespaced_job(name=name, namespace=namespace)
             return {"job": {"success": True, "name": name}}

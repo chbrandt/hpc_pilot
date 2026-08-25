@@ -1,8 +1,8 @@
 {{/*
 ClusterRole — grants the manager the minimum Kubernetes permissions it needs:
   • Namespace management  (create user namespaces on login)
-  • Deployment CRUD       (container workloads via k8s_client.py)
-  • Service CRUD          (NodePort services alongside each Deployment)
+  • Job CRUD              (batch/v1 jobs via k8s_client.py, scheduled on InterLink nodes)
+  • Service CRUD          (NodePort services alongside each job, for helm charts)
   • Ingress CRUD          (optional Ingress resources)
   • Node read             (to resolve the node IP shown in service_ports)
   • Pod read              (status polling)
@@ -22,9 +22,11 @@ rules:
     resources: ["namespaces"]
     verbs: ["get", "list", "create"]
 
-  # ── Deployment management ───────────────────────────────────────────────────
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
+  # ── Job management (batch/v1) ───────────────────────────────────────────────
+  # k8s_client.py creates/lists/reads/deletes batch Jobs whose pods are
+  # scheduled on InterLink virtual-kubelet nodes and forwarded to HPC.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
     verbs: ["get", "list", "create", "delete"]
 
   # ── Service management ──────────────────────────────────────────────────────
@@ -42,7 +44,7 @@ rules:
     resources: ["nodes"]
     verbs: ["get", "list"]
 
-  # ── Pod read (deployment status polling) ───────────────────────────────────
+  # ── Pod read (job status polling) ───────────────────────────────────────────
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
@@ -58,7 +60,9 @@ rules:
     resources: ["events"]
     verbs: ["get", "list"]
 
-  # ── ReplicaSets (owned by Deployments; needed for full status display) ──────
+  # ── Deployments / ReplicaSets ───────────────────────────────────────────────
+  # Granted so the same identity can run arbitrary `helm install` charts
+  # (e.g. the InterLink chart) that may create Deployments/ReplicaSets.
   - apiGroups: ["apps"]
-    resources: ["replicasets"]
-    verbs: ["get", "list"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "create", "delete"]

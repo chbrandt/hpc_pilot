@@ -53,7 +53,7 @@
 </div>
 
 {% if result.success %}
-<!-- Auto-refresh job status until Available -->
+<!-- Auto-refresh job status until terminal (succeeded/failed) -->
 <script>
   const jobName = "{{ result.job_name }}";
   const namespace = "{{ result.namespace }}";
@@ -68,8 +68,9 @@
           statusBadge.className = 'badge badge-' + data.status;
           statusText.textContent = data.status;
         }
-        // Keep polling until available
-        if (data.status && data.status !== 'available') {
+        // Keep polling until the Job reaches a terminal state
+        // (succeeded/failed); batch Jobs never report 'available'.
+        if (data.status && data.status !== 'succeeded' && data.status !== 'failed') {
           setTimeout(refreshStatus, 3000);
         }
       })
