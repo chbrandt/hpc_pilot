@@ -650,7 +650,7 @@ _PLUGIN_PACKAGES: dict[str, dict[str, str]] = {
         },
     "slurm": {
         "type": "binary",
-        "url": "https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.6.1/interlink-sidecar-slurm_Linux_x86_64"
+        "url": "https://github.com/interlink-hq/interlink-slurm-plugin/releases/download/0.6.2-pre5/interlink-sidecar-slurm_Linux_x86_64"
         },     
 }
 
@@ -701,8 +701,10 @@ def install_plugin(runner: Runner, cfg: SetupConfig, plugin: str = _DEFAULT_PLUG
         )
     elif plugin == "slurm":
         package_url = pkg_conf["url"]
+        package_name = package_url.split('/')[-1]
         cmd = (
-            f"curl --fail --silent --show-error -L -o {_BIN_DIR}/plugin {package_url}"
+            f"curl --fail --silent --show-error -L --output-dir {_TMP_DIR} -O {package_url}"
+            f" && cp {_TMP_DIR}/{package_name} {_BIN_DIR}/plugin"
             f" && chmod +x {_BIN_DIR}/plugin"
             f" && echo 'Plugin {plugin} installed'"
         )

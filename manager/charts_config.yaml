@@ -30,6 +30,7 @@ default_charts:
         enabled: true
         address: http://0.0.0.0
         port: 3000
+        disableProjectedVolumes: true
 
       plugin:
         enabled: false

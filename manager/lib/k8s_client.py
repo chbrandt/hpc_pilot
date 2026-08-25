@@ -34,7 +34,8 @@ class K8sClient:
         self.kubeconfig_path = kubeconfig_path or os.environ.get("KUBECONFIG")
         self._load_config()
         self.core_v1 = client.CoreV1Api()
-        self.apps_v1 = client.AppsV1Api()
+        # self.apps_v1 = client.AppsV1Api()
+        self.batch_v1 = client.BatchV1Api()
 
     def _load_config(self):
         """Load Kubernetes configuration from kubeconfig file."""
@@ -133,7 +134,7 @@ class K8sClient:
         command: Optional[str] = None,
     ) -> dict:
         """
-        Create a Deployment (job) whose pod is scheduled on an InterLink virtual-kubelet node.
+        Create a Job whose pod is scheduled on an InterLink virtual-kubelet node.
 
         InterLink translates the pod spec into an HPC batch job, so replica
         counts, resource requests/limits, container ports, and Ingress are not
@@ -158,11 +159,19 @@ class K8sClient:
         Returns:
             dict with success status and deployment info.
         """
+        # Define some default resources (greater the cpu/mem=1)
+        resources = client.V1ResourceRequirements(
+            limits={
+                "cpu": "1",
+                "memory": "1Gi"
+            }
+        )
         # Build container spec
         container = client.V1Container(
             name=name,
             image=image,
             image_pull_policy="IfNotPresent",
+            resources=resources
         )
 
         # Environment variables
@@ -184,6 +193,7 @@ class K8sClient:
                 },
             ),
             spec=client.V1PodSpec(
+                restart_policy="Never",
                 containers=[container],
                 node_selector={"kubernetes.io/hostname": node_name},
                 tolerations=[
@@ -195,11 +205,10 @@ class K8sClient:
             ),
         )
 
-        # Deployment object — a single replica is always used because InterLink
-        # maps one pod to one HPC job.
-        deployment = client.V1Deployment(
-            api_version="apps/v1",
-            kind="Deployment",
+        # Job object
+        job = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
             metadata=client.V1ObjectMeta(
                 name=name,
                 namespace=namespace,
@@ -208,18 +217,16 @@ class K8sClient:
                     "created-by": "hpc-pilot-webapp",
                 },
             ),
-            spec=client.V1DeploymentSpec(
-                replicas=1,
-                selector=client.V1LabelSelector(
-                    match_labels={"app": name},
-                ),
+            spec=client.V1JobSpec(
                 template=pod_template,
+                backoff_limit=0
             ),
         )
 
         try:
-            created = self.apps_v1.create_namespaced_deployment(
-                namespace=namespace, body=deployment
+            # Make sure class initializes 'self.batch_v1 = client.BatchV1Api()'
+            created = self.batch_v1.create_namespaced_job(
+                namespace=namespace, body=job
             )
             return {
                 "success": True,
@@ -230,7 +237,7 @@ class K8sClient:
                 "status": "progressing",
             }
         except ApiException as e:
-            logger.error(f"Failed to create deployment: {e}")
+            logger.error(f"Failed to create job: {e}")
             error_msg = e.body if hasattr(e, "body") else str(e)
             try:
                 error_body = json.loads(error_msg)
@@ -254,19 +261,18 @@ class K8sClient:
         """
         try:
             if namespace and namespace != "__all__":
-                deployments = self.apps_v1.list_namespaced_deployment(
+                jobs = self.batch_v1.list_namespaced_job(
                     namespace=namespace,
                     label_selector="created-by=hpc-pilot-webapp",
                 )
             else:
-                deployments = self.apps_v1.list_deployment_for_all_namespaces(
+                jobs = self.batch_v1.list_job_for_all_namespaces(
                     label_selector="created-by=hpc-pilot-webapp",
                 )
 
             result = []
-            for dep in deployments.items:
-                desired = dep.spec.replicas or 0
-                ready = dep.status.ready_replicas or 0
+            for dep in jobs.items:
+                ready = dep.status.ready or 0
                 node_selector = dep.spec.template.spec.node_selector or {}
 
                 result.append(
@@ -277,7 +283,7 @@ class K8sClient:
                         if dep.spec.template.spec.containers
                         else "?",
                         "node_name": node_selector.get("kubernetes.io/hostname"),
-                        "status": "available" if ready >= desired > 0 else "progressing",
+                        "status": "available" if ready > 0 else "progressing",
                         "created": dep.metadata.creation_timestamp.strftime(
                             "%Y-%m-%d %H:%M:%S"
                         )
@@ -305,7 +311,7 @@ class K8sClient:
             Returns ``{"error": "..."}`` on failure.
         """
         try:
-            dep = self.apps_v1.read_namespaced_deployment(
+            dep = self.batch_v1.read_namespaced_job(
                 name=name, namespace=namespace
             )
             container = (
@@ -356,11 +362,11 @@ class K8sClient:
     def get_job_status(self, name: str, namespace: str = "default") -> dict:
         """Get detailed status for a single job (Deployment)."""
         try:
-            dep = self.apps_v1.read_namespaced_deployment(
+            dep = self.batch_v1.read_namespaced_job(
                 name=name, namespace=namespace
             )
-            desired = dep.spec.replicas or 0
-            ready = dep.status.ready_replicas or 0
+            # desired = dep.spec.replicas or 0
+            ready = dep.status.ready or 0
             available = dep.status.available_replicas or 0
             updated = dep.status.updated_replicas or 0
 
@@ -377,11 +383,7 @@ class K8sClient:
             return {
                 "name": dep.metadata.name,
                 "namespace": dep.metadata.namespace,
-                "replicas": desired,
-                "ready_replicas": ready,
-                "available_replicas": available,
-                "updated_replicas": updated,
-                "replicas_status": f"{ready}/{desired}",
+                "ready": ready,
                 "status": condition,
                 "image": dep.spec.template.spec.containers[0].image
                 if dep.spec.template.spec.containers
@@ -398,7 +400,7 @@ class K8sClient:
     def delete_job(self, name: str, namespace: str = "default") -> dict:
         """Delete a job (Deployment)."""
         try:
-            self.apps_v1.delete_namespaced_deployment(name=name, namespace=namespace)
+            self.batch_v1.delete_namespaced_job(name=name, namespace=namespace)
             return {"job": {"success": True, "name": name}}
         except ApiException as e:
             return {"job": {"success": False, "error": str(e)}}
