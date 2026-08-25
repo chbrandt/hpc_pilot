@@ -194,12 +194,14 @@ selection — are already shipped):
 ##### Bugs
 
 - In `/api/jobs` POST, validate node_name; reject invalid HPC/node
+- Terminated, failed pod/job run keeps as "progressing" in `/api/jobs` GET
+- 
 
 ##### Improvements
 
 - Do not delete edge job directory when/if DELETE `/api/jobs/{name}`
+- Include `cpu` and `memory` in the attributes of `/api/jobs` POST
 - Expand `/api/jobs` to `/api/jobs/job` and `/api/jobs/pod`.
   The latter will accept Pod (yaml) manifests and run as it is;
   The former, keep the simplify format, with a well-defined set of attibutes
   received at the endpoint to merge with a pod template.
-- 
