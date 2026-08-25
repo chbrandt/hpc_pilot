@@ -7,18 +7,12 @@ name: Release
 #   - allows pushing to ghcr.io for the manager image
 on:
   push:
-    # Glob patterns (NOT regex): `[0-9]+` means one or more digits and `.` is
-    # a literal dot. Accepts core versions (v2, v1.7, v1.2.3) and pre-releases
-    # (v2-alpha, v1.7-rc, v1.2.3-pr.1). Strict, whole-tag validation is done in
-    # the "Validate release tag" step below with a regular expression, because
-    # the `tags` filter cannot express that level of strictness.
+    # The broad glob admits candidate release tags. Strict, whole-tag
+    # validation is done in the "Validate release tag" step below with a
+    # regular expression, because the `tags` filter cannot express that level
+    # of strictness.
     tags:
-      - "v[0-9]+"
-      - "v[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+-[0-9A-Za-z.-]+"
-      - "v[0-9]+.[0-9]+-[0-9A-Za-z.-]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-[0-9A-Za-z.-]+"
+      - "v*"
   workflow_dispatch:
 
 permissions:
