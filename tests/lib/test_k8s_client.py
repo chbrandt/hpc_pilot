@@ -24,11 +24,11 @@ def k8s():
     with patch("lib.k8s_client.config.load_kube_config"):
         with (
             patch("lib.k8s_client.client.CoreV1Api") as mock_core,
-            patch("lib.k8s_client.client.AppsV1Api") as mock_apps,
+            patch("lib.k8s_client.client.BatchV1Api") as mock_batch,
         ):
             c = K8sClient(kubeconfig_path="/fake/kubeconfig")
             c.core_v1 = mock_core.return_value
-            c.apps_v1 = mock_apps.return_value
+            c.batch_v1 = mock_batch.return_value
             yield c
 
 
@@ -130,23 +130,27 @@ class TestListInterlinkNodes:
 
 
 class TestJobOperations:
-    def _make_deployment_mock(self, name: str = "myapp", ns: str = "user-ns"):
-        dep = MagicMock()
-        dep.metadata.name = name
-        dep.metadata.namespace = ns
-        dep.metadata.creation_timestamp.strftime.return_value = "2024-01-01 00:00:00"
-        dep.spec.replicas = 1
-        dep.spec.template.spec.containers = [MagicMock(image="ubuntu:22.04")]
-        dep.spec.template.spec.node_selector = {"kubernetes.io/hostname": "vk-node"}
-        dep.status.ready_replicas = 1
-        dep.status.available_replicas = 1
-        dep.status.updated_replicas = 1
-        dep.status.conditions = []
-        return dep
+    def _make_job_mock(self, name: str = "myapp", ns: str = "user-ns"):
+        """Build a MagicMock shaped like a batch/v1 Job object."""
+        job = MagicMock()
+        job.metadata.name = name
+        job.metadata.namespace = ns
+        job.metadata.creation_timestamp.strftime.return_value = "2024-01-01 00:00:00"
+        job.spec.template.spec.containers = [MagicMock(image="ubuntu:22.04")]
+        job.spec.template.spec.node_selector = {"kubernetes.io/hostname": "vk-node"}
+        # JobStatus counters (Deployment-era fields don't exist on a Job)
+        job.status.active = 0
+        job.status.ready = 0
+        job.status.succeeded = 0
+        job.status.failed = 0
+        job.status.conditions = []
+        return job
+
+    # ── create_job ────────────────────────────────────────────────────
 
     def test_create_job_success(self, k8s):
-        created = self._make_deployment_mock()
-        k8s.apps_v1.create_namespaced_deployment.return_value = created
+        created = self._make_job_mock()
+        k8s.batch_v1.create_namespaced_job.return_value = created
         result = k8s.create_job(
             name="myapp", image="ubuntu:22.04", node_name="vk-node", namespace="user-ns"
         )
@@ -155,8 +159,8 @@ class TestJobOperations:
 
     def test_create_job_result_has_job_name_not_deployment_name(self, k8s):
         """Result must use 'job_name', not 'deployment_name'."""
-        created = self._make_deployment_mock()
-        k8s.apps_v1.create_namespaced_deployment.return_value = created
+        created = self._make_job_mock()
+        k8s.batch_v1.create_namespaced_job.return_value = created
         result = k8s.create_job(
             name="myapp", image="ubuntu:22.04", node_name="vk-node", namespace="user-ns"
         )
@@ -165,32 +169,21 @@ class TestJobOperations:
 
     def test_create_job_sets_node_selector_and_toleration(self, k8s):
         """The pod spec must include nodeSelector and toleration for InterLink."""
-        created = self._make_deployment_mock()
-        k8s.apps_v1.create_namespaced_deployment.return_value = created
+        created = self._make_job_mock()
+        k8s.batch_v1.create_namespaced_job.return_value = created
         k8s.create_job(
             name="myapp", image="ubuntu:22.04", node_name="vk-node", namespace="user-ns"
         )
-        call_kwargs = k8s.apps_v1.create_namespaced_deployment.call_args
-        deployment_body = call_kwargs[1]["body"] if call_kwargs[1] else call_kwargs[0][1]
-        pod_spec = deployment_body.spec.template.spec
+        call_kwargs = k8s.batch_v1.create_namespaced_job.call_args
+        job_body = call_kwargs[1]["body"] if call_kwargs[1] else call_kwargs[0][1]
+        pod_spec = job_body.spec.template.spec
         assert pod_spec.node_selector == {"kubernetes.io/hostname": "vk-node"}
         assert len(pod_spec.tolerations) == 1
         assert pod_spec.tolerations[0].key == "virtual-node.interlink/no-schedule"
         assert pod_spec.tolerations[0].operator == "Exists"
 
-    def test_create_job_uses_single_replica(self, k8s):
-        """Jobs must always be created with replicas=1 (one HPC job)."""
-        created = self._make_deployment_mock()
-        k8s.apps_v1.create_namespaced_deployment.return_value = created
-        k8s.create_job(
-            name="myapp", image="ubuntu:22.04", node_name="vk-node", namespace="user-ns"
-        )
-        call_kwargs = k8s.apps_v1.create_namespaced_deployment.call_args
-        deployment_body = call_kwargs[1]["body"] if call_kwargs[1] else call_kwargs[0][1]
-        assert deployment_body.spec.replicas == 1
-
     def test_create_job_api_exception(self, k8s):
-        k8s.apps_v1.create_namespaced_deployment.side_effect = ApiException(
+        k8s.batch_v1.create_namespaced_job.side_effect = ApiException(
             status=409, reason="AlreadyExists"
         )
         result = k8s.create_job(
@@ -199,107 +192,85 @@ class TestJobOperations:
         assert result["success"] is False
         assert "error" in result
 
+    # ── list_jobs ──────────────────────────────────────────────────────
+
     def test_list_jobs_returns_list(self, k8s):
-        dep = self._make_deployment_mock()
-        k8s.apps_v1.list_namespaced_deployment.return_value.items = [dep]
+        job = self._make_job_mock()
+        k8s.batch_v1.list_namespaced_job.return_value.items = [job]
         result = k8s.list_jobs(namespace="user-ns")
         assert len(result) == 1
         assert result[0]["name"] == "myapp"
 
     def test_list_jobs_contains_node_name(self, k8s):
-        dep = self._make_deployment_mock()
-        k8s.apps_v1.list_namespaced_deployment.return_value.items = [dep]
+        job = self._make_job_mock()
+        k8s.batch_v1.list_namespaced_job.return_value.items = [job]
         result = k8s.list_jobs(namespace="user-ns")
         assert result[0]["node_name"] == "vk-node"
 
-    def test_list_jobs_does_not_contain_service_ports_or_ingress(self, k8s):
-        dep = self._make_deployment_mock()
-        k8s.apps_v1.list_namespaced_deployment.return_value.items = [dep]
-        result = k8s.list_jobs(namespace="user-ns")
-        assert "service_ports" not in result[0]
-        assert "ingress_url" not in result[0]
-
     def test_list_jobs_empty_on_api_exception(self, k8s):
-        k8s.apps_v1.list_namespaced_deployment.side_effect = ApiException(status=403)
+        k8s.batch_v1.list_namespaced_job.side_effect = ApiException(status=403)
         result = k8s.list_jobs(namespace="user-ns")
         assert result == []
 
+    # ── get_job_spec ───────────────────────────────────────────────────
+
     def test_get_job_spec_success(self, k8s):
-        dep = self._make_deployment_mock()
-        container = dep.spec.template.spec.containers[0]
+        job = self._make_job_mock()
+        container = job.spec.template.spec.containers[0]
         container.image = "ubuntu:22.04"
         container.command = None
         container.env = []
-        k8s.apps_v1.read_namespaced_deployment.return_value = dep
+        k8s.batch_v1.read_namespaced_job.return_value = job
         result = k8s.get_job_spec("myapp", "user-ns")
         assert result["name"] == "myapp"
         assert result["image"] == "ubuntu:22.04"
 
     def test_get_job_spec_returns_node_name(self, k8s):
-        dep = self._make_deployment_mock()
-        container = dep.spec.template.spec.containers[0]
+        job = self._make_job_mock()
+        container = job.spec.template.spec.containers[0]
         container.image = "ubuntu:22.04"
         container.command = None
         container.env = []
-        dep.spec.template.spec.node_selector = {"kubernetes.io/hostname": "vk-node"}
-        k8s.apps_v1.read_namespaced_deployment.return_value = dep
+        job.spec.template.spec.node_selector = {"kubernetes.io/hostname": "vk-node"}
+        k8s.batch_v1.read_namespaced_job.return_value = job
         result = k8s.get_job_spec("myapp", "user-ns")
         assert result["node_name"] == "vk-node"
 
-    def test_get_job_spec_does_not_contain_resource_or_port_fields(self, k8s):
-        dep = self._make_deployment_mock()
-        container = dep.spec.template.spec.containers[0]
-        container.image = "ubuntu:22.04"
-        container.command = None
-        container.env = []
-        k8s.apps_v1.read_namespaced_deployment.return_value = dep
-        result = k8s.get_job_spec("myapp", "user-ns")
-        for removed_field in ("replicas", "cpu_request", "cpu_limit",
-                              "mem_request", "mem_limit", "ports"):
-            assert removed_field not in result, f"'{removed_field}' should not be in spec"
-
     def test_get_job_spec_api_exception(self, k8s):
-        k8s.apps_v1.read_namespaced_deployment.side_effect = ApiException(status=404)
+        k8s.batch_v1.read_namespaced_job.side_effect = ApiException(status=404)
         result = k8s.get_job_spec("missing", "user-ns")
         assert "error" in result
 
+    # ── get_job_status ─────────────────────────────────────────────────
+
     def test_get_job_status_success(self, k8s):
-        dep = self._make_deployment_mock()
-        available_cond = MagicMock()
-        available_cond.type = "Available"
-        available_cond.status = "True"
-        dep.status.conditions = [available_cond]
-        k8s.apps_v1.read_namespaced_deployment.return_value = dep
+        job = self._make_job_mock()
+        complete_cond = MagicMock()
+        complete_cond.type = "Complete"
+        complete_cond.status = "True"
+        job.status.conditions = [complete_cond]
+        job.status.succeeded = 1
+        k8s.batch_v1.read_namespaced_job.return_value = job
         result = k8s.get_job_status("myapp", "user-ns")
-        assert result["status"] == "available"
+        assert result["status"] == "succeeded"
         assert result["name"] == "myapp"
 
     def test_get_job_status_api_exception(self, k8s):
-        k8s.apps_v1.read_namespaced_deployment.side_effect = ApiException(status=404)
+        k8s.batch_v1.read_namespaced_job.side_effect = ApiException(status=404)
         result = k8s.get_job_status("missing", "user-ns")
         assert "error" in result
 
+    # ── delete_job ─────────────────────────────────────────────────────
+
     def test_delete_job_success(self, k8s):
-        k8s.apps_v1.delete_namespaced_deployment.return_value = None
+        k8s.batch_v1.delete_namespaced_job.return_value = None
         result = k8s.delete_job("myapp", "user-ns")
         assert result["job"]["success"] is True
-
-    def test_delete_job_result_uses_job_key_not_deployment_key(self, k8s):
-        """Result dict must use 'job' key, not 'deployment'."""
-        k8s.apps_v1.delete_namespaced_deployment.return_value = None
-        result = k8s.delete_job("myapp", "user-ns")
+        # Result dict must use the 'job' key, not 'deployment'.
         assert "job" in result
         assert "deployment" not in result
 
-    def test_delete_job_does_not_attempt_service_or_ingress_deletion(self, k8s):
-        """Service and ingress are not created, so they must not be deleted either."""
-        k8s.apps_v1.delete_namespaced_deployment.return_value = None
-        result = k8s.delete_job("myapp", "user-ns")
-        k8s.core_v1.delete_namespaced_service.assert_not_called()
-        assert "service" not in result
-        assert "ingress" not in result
-
     def test_delete_job_api_exception(self, k8s):
-        k8s.apps_v1.delete_namespaced_deployment.side_effect = ApiException(status=404)
+        k8s.batch_v1.delete_namespaced_job.side_effect = ApiException(status=404)
         result = k8s.delete_job("missing", "user-ns")
         assert result["job"]["success"] is False

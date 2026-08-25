@@ -72,17 +72,20 @@ k8s.create_namespace(namespace)   # → {"success": bool, "error": str | None}
 
 ## Job Status
 
-`get_job_status(name, namespace)` reads the `Deployment` object's
-`.status.conditions` list and maps them to display states:
+`get_job_status(name, namespace)` reads the `batch/v1` Job object's
+`.status` counters (`active`, `ready`, `succeeded`, `failed`) and
+`.status.conditions` list, mapping the Job conditions to display states:
 
 | Kubernetes condition | `status` value | Badge colour |
 |---|---|---|
-| `Available=True` | `available` | 🟢 green |
-| `Progressing=True` + not Available | `progressing` | 🟡 yellow |
+| `Complete=True` | `succeeded` | 🟢 green |
+| `Failed=True` | `failed` | 🔴 red |
+| `Suspended=True` | `suspended` | 🟡 yellow |
+| active/ready pod, no terminal condition | `running` | 🟢 green |
 | (none / unknown) | `unknown` | ⚪ grey |
 
-This endpoint is polled by `status.html` every 3 seconds until status reaches
-`available`.
+This endpoint is polled by `status.html` every 3 seconds until the Job
+reaches a terminal state (`succeeded` or `failed`).
 
 ---
 
@@ -100,16 +103,16 @@ rules:
     resources: ["namespaces", "nodes", "pods"]
     verbs: ["get", "list", "create"]          # pods: read for status polling
 
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "create", "delete"]
 
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
-    verbs: ["get", "list", "create", "delete"]
-
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
     verbs: ["get", "list", "create", "delete"]
 
   # Helm stores release state as Secrets in the target namespace:
@@ -128,15 +131,15 @@ rules:
 
 | Method | Description |
 |---|---|
-| `__init__(kubeconfig_path=None)` | Load kubeconfig; initialise CoreV1 and AppsV1 API clients |
+| `__init__(kubeconfig_path=None)` | Load kubeconfig; initialise CoreV1 and BatchV1 API clients |
 | `list_namespaces()` | Return sorted list of namespace names |
 | `namespace_exists(namespace)` | Return `True` if namespace exists |
 | `create_namespace(namespace)` | Create namespace; return `{success, error}` (idempotent on 409) |
 | `list_interlink_nodes()` | Return sorted list of node names that carry the `virtual-node.interlink/no-schedule` taint |
-| `create_job(name, image, node_name, namespace, env_vars, command)` | Create job (with `nodeSelector` + `tolerations`, replicas=1); return `{success, job_name, ...}` |
+| `create_job(name, image, node_name, namespace, env_vars, command)` | Create a batch Job (with `nodeSelector` + `tolerations`); return `{success, job_name, ...}` |
 | `list_jobs(namespace=None)` | List jobs; return list of dicts with `name`, `image`, `node_name`, `status`, `created` |
 | `get_job_spec(name, namespace)` | Return job spec: `name`, `image`, `node_name`, `env_vars`, `command` |
-| `get_job_status(name, namespace)` | Return `{status, replicas_status, ready_replicas, ...}` |
+| `get_job_status(name, namespace)` | Return `{status, active, ready, succeeded, failed, ...}` |
 | `delete_job(name, namespace)` | Delete the job; return `{"job": {success, name}}` |
 
 ---

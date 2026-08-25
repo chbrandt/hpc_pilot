@@ -22,6 +22,13 @@ _FAKE_HPC_CONFIG = {
     "plugin": "echo",
 }
 
+# Site config fixture — keeps the wstunnel test hermetic and independent of
+# the real (mutable) manager/site_config.yaml on disk.
+_FAKE_SITE_CONFIG = {
+    "hostname": "ngrok.dev",
+    "wstunnel": {"port": 443, "local_port": 8420},
+}
+
 
 # ---------------------------------------------------------------------------
 # GET /api/hpc/nodes
@@ -105,6 +112,7 @@ class TestHpcDeploy:
         body = {"hpc_name": "test-echo"}
         with (
             patch(HPC_CONFIG, return_value=_FAKE_HPC_CONFIG),
+            patch("api.hpc.load_site_config", return_value=_FAKE_SITE_CONFIG),
             patch(f"{HPC_CLIENT}.deploy", return_value=_SUCCESS) as mock_deploy,
         ):
             client.post(self.URL, json=body, headers=headers)
