@@ -181,6 +181,13 @@ def jobs():
                     "created": "",
                 }
             )
+    except requests.HTTPError as exc:
+        # 404 means the InterLink release simply isn't deployed yet — that's
+        # a normal state, not an error.  Surface any other failure (e.g. 500
+        # when the helm CLI / cluster is unreachable) to the user.
+        if exc.response is None or exc.response.status_code != 404:
+            errors.append(f"Helm releases: {_api_error(exc)}")
+            logger.error("Could not list Helm releases: %s", exc)
     except Exception as exc:
         errors.append(f"Helm releases: {exc}")
         logger.error("Could not list Helm releases: %s", exc)
