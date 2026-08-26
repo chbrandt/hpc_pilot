@@ -105,7 +105,7 @@ rules:
 
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]   # watch: InterLink VK informers
 
   - apiGroups: [""]
     resources: ["services"]
