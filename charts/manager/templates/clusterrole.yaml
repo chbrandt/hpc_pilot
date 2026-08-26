@@ -6,6 +6,8 @@ ClusterRole — grants the manager the minimum Kubernetes permissions it needs:
   • Ingress CRUD          (optional Ingress resources)
   • Node read             (to resolve the node IP shown in service_ports)
   • Pod read              (status polling)
+  • ServiceAccount CRUD   (the InterLink chart creates a per-user SA for its VK pod)
+  • ClusterRole(RB) CRUD  (the InterLink chart creates cluster-scoped RBAC for its VK)
 
 Helm chart management is handled by the `helm` CLI subprocess which inherits
 the same kubeconfig / in-cluster ServiceAccount token — no extra CRDs needed.
@@ -71,4 +73,25 @@ rules:
   # (e.g. the InterLink chart) that may create Deployments/ReplicaSets.
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "create", "delete"]
+
+  # ── ServiceAccount management (InterLink chart) ─────────────────────────────
+  # The InterLink Helm chart creates a dedicated ServiceAccount
+  # (virtual-node-<namespace>) in each user namespace for its virtual-kubelet
+  # pod.  Helm needs `get` for the pre-flight conflict check / three-way
+  # merge lookup, plus `create`/`delete` for install and uninstall.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "create", "delete"]
+
+  # ── Cluster-scoped RBAC (InterLink chart) ────────────────────────────────────
+  # The InterLink chart also creates cluster-scoped RBAC — a ClusterRole +
+  # ClusterRoleBinding granting its virtual-kubelet the permissions it needs
+  # to manage pods/nodes/leases/….  `helm install`/`uninstall` of the chart
+  # therefore requires get/create/delete on clusterroles and
+  # clusterrolebindings.  (This grants the manager the ability to bind
+  # arbitrary roles — an inherent consequence of running a chart that
+  # creates cluster-scoped RBAC under its own identity; see the chart README.)
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
     verbs: ["get", "list", "create", "delete"]
