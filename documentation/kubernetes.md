@@ -105,7 +105,7 @@ rules:
 
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]   # watch: InterLink VK informers
 
   - apiGroups: [""]
     resources: ["services"]
@@ -119,6 +119,16 @@ rules:
   - apiGroups: [""]
     resources: ["secrets", "configmaps", "events"]
     verbs: ["get", "list", "create", "update", "delete"]
+
+  # The InterLink chart creates a per-user ServiceAccount + cluster-scoped
+  # RBAC (ClusterRole/ClusterRoleBinding) for its virtual-kubelet; helm needs
+  # get/create/delete on these to install and uninstall the chart:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "create", "delete"]
 ```
 
 > Jobs themselves do not create Services or Ingresses, but the RBAC grants

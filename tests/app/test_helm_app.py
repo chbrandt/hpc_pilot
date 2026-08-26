@@ -257,3 +257,22 @@ class TestHelmInstallRoute:
         html = resp.data.decode()
         assert "Installation Failed" in html
         assert "connection refused" in html
+
+    def test_install_uses_long_timeout(self, client):
+        """``helm install --wait`` can take minutes; the API call must use LONG_TIMEOUT."""
+        from app.api_client import LONG_TIMEOUT
+
+        _logged_in_client(client)
+        captured = {}
+
+        def fake_api_post(url, body=None, timeout=None):
+            captured["_timeout"] = timeout
+            return {"success": True, "output": "", "error": None}
+
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_POST_PATCH, side_effect=fake_api_post),
+        ):
+            client.post(self.URL, data=self.FORM_DATA)
+
+        assert captured["_timeout"] == LONG_TIMEOUT

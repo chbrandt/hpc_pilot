@@ -114,6 +114,24 @@ class TestHpcPage:
         assert b"test-echo" in resp.data
         assert b"test-docker" in resp.data
 
+    def test_deploy_form_has_loading_feedback(self, client):
+        """The deploy form must render the spinner + status message so the
+        user sees progress during the long-running HPC deploy."""
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+        ):
+            resp = client.get(self.URL)
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert 'id="hpc-submit-btn"' in html
+        assert 'id="hpc-deploying-msg"' in html
+        assert "spinner" in html
+        assert "addEventListener('submit'" in html
+
 
 # ---------------------------------------------------------------------------
 # POST /hpc/deploy
@@ -184,8 +202,9 @@ class TestHpcDeploy:
         _logged_in_client(client)
         captured = {}
 
-        def fake_api_post(url, payload):
+        def fake_api_post(url, payload, timeout=None):
             captured.update(payload)
+            captured["_timeout"] = timeout
             return _SUCCESS
 
         with (
@@ -196,6 +215,26 @@ class TestHpcDeploy:
             client.post(self.URL, data={**self.FORM, "hpc_name": "test-docker"})
 
         assert captured.get("hpc_name") == "test-docker"
+
+    def test_deploy_uses_long_timeout(self, client):
+        """HPC deploy is long-running; the API call must use LONG_TIMEOUT."""
+        from app.api_client import LONG_TIMEOUT
+
+        _logged_in_client(client)
+        captured = {}
+
+        def fake_api_post(url, payload, timeout=None):
+            captured["_timeout"] = timeout
+            return _SUCCESS
+
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+            patch(API_POST_PATCH, side_effect=fake_api_post),
+        ):
+            client.post(self.URL, data=self.FORM)
+
+        assert captured["_timeout"] == LONG_TIMEOUT
 
 
 # ---------------------------------------------------------------------------

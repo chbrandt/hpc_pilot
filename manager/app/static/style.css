@@ -820,6 +820,24 @@ footer {
     align-self: center;
 }
 
+/* CSS-only spinner shown beside the submit button on long-running forms
+   (Helm install --wait, HPC deploy). Pure CSS, no dependencies. */
+.spinner {
+    display: inline-block;
+    width: 0.95rem;
+    height: 0.95rem;
+    vertical-align: -0.18em;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 0.35rem;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 /* Helm output / error pre-blocks on the result page */
 .helm-output {
     background: var(--color-surface);

@@ -20,7 +20,7 @@ import requests
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from app.auth import require_login
-from app.api_client import api_post
+from app.api_client import LONG_TIMEOUT, api_post
 from api.site_config import load_site_config
 from lib.hpc_config import list_hpc_nodes
 
@@ -100,6 +100,7 @@ def hpc_deploy():
         result = api_post(
             "/api/hpc/deploy",
             {"hpc_name": hpc_name},
+            timeout=LONG_TIMEOUT,
         )
     except requests.HTTPError as exc:
         result = {"success": False, "error": _api_error(exc)}

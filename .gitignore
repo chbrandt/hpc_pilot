@@ -5,3 +5,4 @@ charts/interlink/interlink-helm-chart
 .DS_Store
 .venv/
 .clinerules
+documentation/notes/
