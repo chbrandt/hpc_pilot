@@ -29,7 +29,7 @@ servers:
   # behind an Ingress.  Do NOT use an absolute http://localhost:5000 here:
   # the browser would send "Try it out" requests to the *user's* machine.
   - url: /
-    description: Same origin as the server hosting this spec (local dev or any FQDN/proxy)
+    # description: Same origin as the server hosting this spec (local dev or any FQDN/proxy)
 
 security:
   - bearerAuth: []
