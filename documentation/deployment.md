@@ -58,7 +58,7 @@ edge-node** wstunnel client that connects them.
 | A DNS record | `<hostname>` → Ingress controller external IP (single host, no wildcard) |
 | A TLS certificate | for `<hostname>` (cert-manager + Let's Encrypt, or a pre-existing cert) |
 | Container registry | For the manager image (GitHub Container Registry, Docker Hub, …) |
-| `mccli` + `flaat-userinfo` | On the manager pod, only if HPC edge-node operations are needed |
+| `mccli` + `flaat-userinfo` | Bundled in the manager image (installed from `requirements.txt`); required for HPC edge-node operations |
 
 ---
 
@@ -75,6 +75,8 @@ The root `Dockerfile`:
 - Base image: `python:3.11-slim`
 - Installs Helm v3 CLI (required by `helm_client.py`)
 - Copies `manager/` and installs Python dependencies from `requirements.txt`
+  (this includes `mccli` + `flaat`, required by `hpc_client.py` for HPC edge-node SSH)
+- Installs the `openssh-client` system package (used by `mccli`/SSH)
 - Runs `python main.py`, exposes port 5000
 
 ---

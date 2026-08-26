@@ -21,5 +21,8 @@ flask-swagger-ui>=4.11.1
 python-dotenv>=1.0.0
 jinja2>=3.1.0
 
+#  motley-cue client, for HPC edge-node operations 
+mccli>=0.7.5
+
 # Run tests
 pytest>=7.4.0
