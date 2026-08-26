@@ -265,6 +265,13 @@ node using an EGI Check-in access token and run remote commands.
 All public functions return a dict ``{success, output, error}`` (the two
 boolean-returning probes below are the exception).
 
+> **Remote file copies** (`copy_supervisord_conf`, `copy_plugin_conf`) first
+> try the SFTP/scp channel (`mccli scp`); if that fails — common on
+> motley-cue endpoints that only allow command execution — they fall back to
+> piping the file over the SSH *exec* channel (`cat > <remote>`), which works
+> wherever `mccli ssh <cmd>` works.  Success is decided by the subprocess
+> return code (and stderr is surfaced on failure), not by "stdout is empty".
+
 ### `check_connection` / `check_installed`
 
 ```{code-block} python
