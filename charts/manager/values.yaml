@@ -9,7 +9,7 @@ namespace: hpc-pilot
 # ── Container image ────────────────────────────────────────────────────────────
 image:
   repository: ghcr.io/chbrandt/hpc-pilot-manager
-  tag: 0.3.3
+  tag: latest
   pullPolicy: Always
   # pullSecrets:
   #   - name: my-registry-secret

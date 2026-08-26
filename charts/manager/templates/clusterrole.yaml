@@ -7,7 +7,7 @@ ClusterRole — grants the manager the minimum Kubernetes permissions it needs:
   • Node read             (to resolve the node IP shown in service_ports)
   • Pod read              (status polling)
   • ServiceAccount CRUD   (the InterLink chart creates a per-user SA for its VK pod)
-  • ClusterRole(RB) CRUD  (the InterLink chart creates cluster-scoped RBAC for its VK)
+  • RBAC CRUD             (the InterLink chart creates cluster- & namespace-scoped RBAC for its VK)
 
 Helm chart management is handled by the `helm` CLI subprocess which inherits
 the same kubeconfig / in-cluster ServiceAccount token — no extra CRDs needed.
@@ -84,14 +84,16 @@ rules:
     resources: ["serviceaccounts"]
     verbs: ["get", "list", "create", "delete"]
 
-  # ── Cluster-scoped RBAC (InterLink chart) ────────────────────────────────────
-  # The InterLink chart also creates cluster-scoped RBAC — a ClusterRole +
-  # ClusterRoleBinding granting its virtual-kubelet the permissions it needs
-  # to manage pods/nodes/leases/….  `helm install`/`uninstall` of the chart
-  # therefore requires get/create/delete on clusterroles and
-  # clusterrolebindings.  (This grants the manager the ability to bind
-  # arbitrary roles — an inherent consequence of running a chart that
-  # creates cluster-scoped RBAC under its own identity; see the chart README.)
+  # ── RBAC management (InterLink chart) ───────────────────────────────────────
+  # The InterLink chart creates both cluster-scoped RBAC (a ClusterRole +
+  # ClusterRoleBinding for its virtual-kubelet, so it can manage
+  # pods/nodes/leases/…) and namespace-scoped RBAC (a Role such as
+  # `interlink-node-reader` + RoleBinding, in each user namespace).
+  # `helm install`/`uninstall` therefore needs get/create/delete on all
+  # four RBAC resource kinds.  (Granting clusterrolebindings/rolebindings
+  # lets the manager bind arbitrary roles — an inherent consequence of
+  # running a chart that creates RBAC under its own identity; see the chart
+  # README.)
   - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["clusterroles", "clusterrolebindings"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
     verbs: ["get", "list", "create", "delete"]
