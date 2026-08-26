@@ -47,13 +47,18 @@
     </div>
   </fieldset>
 
-  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
-    <button type="submit" class="btn btn-primary">
+  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; margin-top:1rem;">
+    <button type="submit" class="btn btn-primary" id="hpc-submit-btn">
       🚀 Deploy to HPC
     </button>
     <a href="{{ url_for('app_k8s.jobs') }}" class="btn btn-secondary">
       📋 View Jobs
     </a>
+    <span id="hpc-deploying-msg" class="installing-msg" style="display:none;">
+      <span class="spinner"></span>
+      Deploying to the HPC node… this can take a few minutes (supervisord,
+      wstunnel and the plugin are installed over SSH).
+    </span>
   </div>
 </form>
 
@@ -108,6 +113,17 @@
     } else {
       pluginInfo.value = '—';
     }
+  });
+
+  /* ── Disable the form + show spinner while the HPC deploy runs ──── */
+  /* The deploy runs several mccli/SSH steps and can take minutes; the
+     browser keeps this page rendered until it navigates to the result. */
+  document.getElementById('hpc-form').addEventListener('submit', function () {
+    const btn = document.getElementById('hpc-submit-btn');
+    const msg = document.getElementById('hpc-deploying-msg');
+    btn.disabled = true;
+    btn.textContent = '⏳ Deploying…';
+    msg.style.display = 'inline-flex';
   });
 </script>
 {% endblock %}
