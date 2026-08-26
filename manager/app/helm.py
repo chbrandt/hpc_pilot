@@ -19,7 +19,7 @@ import requests
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from app.auth import require_login
-from app.api_client import api_delete, api_get, api_post
+from app.api_client import LONG_TIMEOUT, api_delete, api_get, api_post
 from lib.saved_deployments import list_configs
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ def helm_install_route():
     release_name = request.form.get("release_name", "interlink").strip() or "interlink"
     chart = request.form.get("chart", "").strip()
     try:
-        result = api_post("/api/interlink")
+        result = api_post("/api/interlink", timeout=LONG_TIMEOUT)
     except requests.HTTPError as exc:
         result = {"success": False, "error": _api_error(exc), "output": ""}
     except Exception as exc:

@@ -413,6 +413,9 @@ def deploy(
             print(step_output)
             all_output.append(step_output)
         if not result["success"]:
+            logger.error(
+                "Deploy step '%s' failed: %s", step_name, result.get("error", "")
+            )
             return {
                 "success": False,
                 "output": "\n".join(all_output),
@@ -467,6 +470,9 @@ def undeploy(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
             print(step_output)
             all_output.append(step_output)
         if not result["success"]:
+            logger.error(
+                "Undeploy step '%s' failed: %s", step_name, result.get("error", "")
+            )
             return {
                 "success": False,
                 "output": "\n".join(all_output),

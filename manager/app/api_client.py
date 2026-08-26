@@ -40,6 +40,19 @@ logger = logging.getLogger(__name__)
 # Set API_BASE_URL to point at a remote API server when running split.
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:5000")
 
+# Read timeouts (seconds) for calls from the GUI layer to the REST API.
+#
+# DEFAULT_TIMEOUT covers ordinary JSON endpoints (job lists, status polls,
+# namespace ensure, …).  LONG_TIMEOUT covers operations that block on slow
+# remote work — Helm ``install --wait`` (up to ~5 min) and the HPC deploy
+# sequence (several mccli/SSH steps: pip installs, binary downloads, …).
+#
+# LONG_TIMEOUT must stay *below* the Ingress ``proxy-read-timeout`` (360 s in
+# the chart) so the browser connection is not cut off before the GUI can
+# render a result page.
+DEFAULT_TIMEOUT = 60
+LONG_TIMEOUT = 300
+
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -56,7 +69,7 @@ def _headers() -> dict:
 # ── Public interface ──────────────────────────────────────────────────
 
 
-def api_get(path: str) -> dict | list:
+def api_get(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict | list:
     """
     Send a GET request to the API.
 
@@ -64,6 +77,8 @@ def api_get(path: str) -> dict | list:
     ----------
     path : str
         Path relative to ``API_BASE_URL``, e.g. ``"/api/jobs"``.
+    timeout : int
+        Read timeout in seconds (default :data:`DEFAULT_TIMEOUT`).
 
     Returns
     -------
@@ -77,12 +92,12 @@ def api_get(path: str) -> dict | list:
     """
     url = f"{API_BASE_URL}{path}"
     logger.debug("API GET %s", url)
-    r = requests.get(url, headers=_headers(), timeout=30)
+    r = requests.get(url, headers=_headers(), timeout=timeout)
     r.raise_for_status()
     return r.json()
 
 
-def api_post(path: str, body: dict | None = None) -> dict:
+def api_post(path: str, body: dict | None = None, timeout: int = DEFAULT_TIMEOUT) -> dict:
     """
     Send a POST request to the API.
 
@@ -92,6 +107,9 @@ def api_post(path: str, body: dict | None = None) -> dict:
         Path relative to ``API_BASE_URL``, e.g. ``"/api/interlink"``.
     body : dict, optional
         JSON-serialisable request body.
+    timeout : int
+        Read timeout in seconds.  Use :data:`LONG_TIMEOUT` for long-running
+        operations (Helm ``install --wait``, HPC deploy).
 
     Returns
     -------
@@ -105,12 +123,12 @@ def api_post(path: str, body: dict | None = None) -> dict:
     """
     url = f"{API_BASE_URL}{path}"
     logger.debug("API POST %s body=%s", url, body)
-    r = requests.post(url, json=body or {}, headers=_headers(), timeout=60)
+    r = requests.post(url, json=body or {}, headers=_headers(), timeout=timeout)
     r.raise_for_status()
     return r.json()
 
 
-def api_delete(path: str) -> dict:
+def api_delete(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     """
     Send a DELETE request to the API.
 
@@ -118,6 +136,8 @@ def api_delete(path: str) -> dict:
     ----------
     path : str
         Path relative to ``API_BASE_URL``, e.g. ``"/api/jobs/my-job"``.
+    timeout : int
+        Read timeout in seconds (default :data:`DEFAULT_TIMEOUT`).
 
     Returns
     -------
@@ -131,6 +151,6 @@ def api_delete(path: str) -> dict:
     """
     url = f"{API_BASE_URL}{path}"
     logger.debug("API DELETE %s", url)
-    r = requests.delete(url, headers=_headers(), timeout=30)
+    r = requests.delete(url, headers=_headers(), timeout=timeout)
     r.raise_for_status()
     return r.json()

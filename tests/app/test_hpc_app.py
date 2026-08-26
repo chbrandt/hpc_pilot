@@ -184,8 +184,9 @@ class TestHpcDeploy:
         _logged_in_client(client)
         captured = {}
 
-        def fake_api_post(url, payload):
+        def fake_api_post(url, payload, timeout=None):
             captured.update(payload)
+            captured["_timeout"] = timeout
             return _SUCCESS
 
         with (
@@ -196,6 +197,26 @@ class TestHpcDeploy:
             client.post(self.URL, data={**self.FORM, "hpc_name": "test-docker"})
 
         assert captured.get("hpc_name") == "test-docker"
+
+    def test_deploy_uses_long_timeout(self, client):
+        """HPC deploy is long-running; the API call must use LONG_TIMEOUT."""
+        from app.api_client import LONG_TIMEOUT
+
+        _logged_in_client(client)
+        captured = {}
+
+        def fake_api_post(url, payload, timeout=None):
+            captured["_timeout"] = timeout
+            return _SUCCESS
+
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+            patch(API_POST_PATCH, side_effect=fake_api_post),
+        ):
+            client.post(self.URL, data=self.FORM)
+
+        assert captured["_timeout"] == LONG_TIMEOUT
 
 
 # ---------------------------------------------------------------------------
