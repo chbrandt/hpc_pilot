@@ -24,8 +24,12 @@ info:
     url: https://github.com/chbrandt/hpc_pilot
 
 servers:
-  - url: http://localhost:5000
-    description: Local development server
+  # Relative URL: Swagger UI ("Try it out") resolves it against the origin
+  # serving this spec — http://localhost:5000 in local dev, https://<fqdn>
+  # behind an Ingress.  Do NOT use an absolute http://localhost:5000 here:
+  # the browser would send "Try it out" requests to the *user's* machine.
+  - url: /
+    description: Same origin as the server hosting this spec (local dev or any FQDN/proxy)
 
 security:
   - bearerAuth: []
