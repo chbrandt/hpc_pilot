@@ -10,10 +10,10 @@
 #     The hostname for the site.
 #     Example: "ngrok.dev"
 
-hostname: ngrok.dev
+hostname: darrel-suprasegmental-podgily.ngrok-free.dev
 
 wstunnel:
-  port: 80
+  port: 443
   local_port: 4000
 
 # Optional: restrict login to users who hold at least one of these

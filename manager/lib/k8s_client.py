@@ -29,7 +29,8 @@ class K8sClient:
 
         Args:
             kubeconfig_path: Path to kubeconfig file.
-                Falls back to KUBECONFIG env var, then ~/.kube/config.
+                Falls back to KUBECONFIG env var, then ~/.kube/config, then
+                the in-cluster ServiceAccount (Helm deployment).
         """
         self.kubeconfig_path = kubeconfig_path or os.environ.get("KUBECONFIG")
         self._load_config()
@@ -38,7 +39,19 @@ class K8sClient:
         self.batch_v1 = client.BatchV1Api()
 
     def _load_config(self):
-        """Load Kubernetes configuration from kubeconfig file."""
+        """
+        Load the Kubernetes configuration.
+
+        Resolution order:
+            1. explicit kubeconfig path (constructor arg or KUBECONFIG env var)
+            2. default kubeconfig location (``~/.kube/config``)
+            3. in-cluster ServiceAccount token (``load_incluster_config``)
+
+        Raises:
+            kubernetes.config.ConfigException
+            If no kubeconfig is available and the process is not running
+            inside a Kubernetes pod (no ServiceAccount token mounted).
+        """
         try:
             if self.kubeconfig_path:
                 config.load_kube_config(config_file=self.kubeconfig_path)
@@ -46,9 +59,20 @@ class K8sClient:
             else:
                 config.load_kube_config()
                 logger.info("Loaded kubeconfig from default location")
-        except config.ConfigException as e:
-            logger.error(f"Failed to load kubeconfig: {e}")
-            raise
+        except (config.ConfigException, FileNotFoundError) as e:
+            # No usable kubeconfig — the normal situation when the manager
+            # runs as a pod (Helm chart): fall back to the pod's
+            # ServiceAccount token.
+            logger.info(f"No kubeconfig available ({e}); trying in-cluster config")
+            try:
+                config.load_incluster_config()
+                logger.info("Loaded in-cluster ServiceAccount configuration")
+            except config.ConfigException:
+                logger.error(
+                    "Failed to load Kubernetes configuration: "
+                    "no kubeconfig and not running in-cluster"
+                )
+                raise
 
     # ── Namespace operations ──────────────────────────────────────────
 

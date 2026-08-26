@@ -274,3 +274,74 @@ class TestJobOperations:
         k8s.batch_v1.delete_namespaced_job.side_effect = ApiException(status=404)
         result = k8s.delete_job("missing", "user-ns")
         assert result["job"]["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# Configuration loading (kubeconfig vs in-cluster ServiceAccount)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigLoading:
+    """K8sClient must fall back to the in-cluster ServiceAccount when no
+    kubeconfig exists — the normal situation for the Helm deployment."""
+
+    def test_falls_back_to_incluster_on_missing_kubeconfig_file(self, monkeypatch):
+        monkeypatch.delenv("KUBECONFIG", raising=False)
+        with (
+            patch(
+                "lib.k8s_client.config.load_kube_config",
+                side_effect=FileNotFoundError("~/.kube/config"),
+            ),
+            patch("lib.k8s_client.config.load_incluster_config") as mock_incluster,
+            patch("lib.k8s_client.client.CoreV1Api"),
+            patch("lib.k8s_client.client.BatchV1Api"),
+        ):
+            K8sClient(kubeconfig_path=None)
+        mock_incluster.assert_called_once()
+
+    def test_falls_back_to_incluster_on_invalid_kubeconfig(self, monkeypatch):
+        from kubernetes.config import ConfigException
+
+        monkeypatch.delenv("KUBECONFIG", raising=False)
+        with (
+            patch(
+                "lib.k8s_client.config.load_kube_config",
+                side_effect=ConfigException("Invalid kube-config file"),
+            ),
+            patch("lib.k8s_client.config.load_incluster_config") as mock_incluster,
+            patch("lib.k8s_client.client.CoreV1Api"),
+            patch("lib.k8s_client.client.BatchV1Api"),
+        ):
+            K8sClient(kubeconfig_path=None)
+        mock_incluster.assert_called_once()
+
+    def test_raises_when_no_kubeconfig_and_not_incluster(self, monkeypatch):
+        from kubernetes.config import ConfigException
+
+        monkeypatch.delenv("KUBECONFIG", raising=False)
+        with (
+            patch(
+                "lib.k8s_client.config.load_kube_config",
+                side_effect=FileNotFoundError("~/.kube/config"),
+            ),
+            patch(
+                "lib.k8s_client.config.load_incluster_config",
+                side_effect=ConfigException("service host/port not set"),
+            ),
+            patch("lib.k8s_client.client.CoreV1Api"),
+            patch("lib.k8s_client.client.BatchV1Api"),
+        ):
+            with pytest.raises(ConfigException):
+                K8sClient(kubeconfig_path=None)
+
+    def test_prefers_kubeconfig_when_available(self, monkeypatch):
+        monkeypatch.delenv("KUBECONFIG", raising=False)
+        with (
+            patch("lib.k8s_client.config.load_kube_config") as mock_kubeconfig,
+            patch("lib.k8s_client.config.load_incluster_config") as mock_incluster,
+            patch("lib.k8s_client.client.CoreV1Api"),
+            patch("lib.k8s_client.client.BatchV1Api"),
+        ):
+            K8sClient(kubeconfig_path="/fake/kubeconfig")
+        mock_kubeconfig.assert_called_once_with(config_file="/fake/kubeconfig")
+        mock_incluster.assert_not_called()

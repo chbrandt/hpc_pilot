@@ -35,12 +35,12 @@ siteConfig:
   # Single fixed hostname the manager and every user's InterLink wstunnel
   # endpoint are exposed on. No wildcard DNS / wildcard TLS needed: each user's
   # tunnel is reached at <hostname>/<namespace> via path-prefix routing.
-  hostname: app.hpc-pilot.test.fedcloud.eu
+  hostname: darrel-suprasegmental-podgily.ngrok-free.dev
 
   wstunnel:
     # Port the wstunnel Ingress listens on (the port the HPC-side wstunnel
     # client connects to).
-    port: 80
+    port: 443
     # Local TCP port on the HPC edge-node that wstunnel forwards to the
     # InterLink plugin.
     localPort: 4000
@@ -54,8 +54,8 @@ siteConfig:
     # - "hpc-wg"
 
 interlinkConfig:
-  chart: oci://ghcr.io/chbrandt/interlink
-  version: null
+  chart: oci://ghcr.io/chbrandt/interlink-helm-chart/interlink
+  version: 0.6.1-egi.5
 
   # You probably don't need to change the values below.
   wstunnel:
@@ -64,7 +64,7 @@ interlinkConfig:
       # Hostname that the wstunnel client uses to connect to the server.
       host: __HOSTNAME__
     # Port on which the Ingress will route traffic to the wstunnel server.
-    externalPort: 80
+    externalPort: 443
     # Port on which the wstunnel server in the InterLink pod listens.
     port: 8080
     # Local port on the pod used to forward to the client.
@@ -112,7 +112,7 @@ ingress:
   tls:
     - secretName: manager-tls
       hosts:
-        - app.hpc-pilot.test.fedcloud.eu
+        - darrel-suprasegmental-podgily.ngrok-free.dev
         # - "*.hpc-pilot.test.fedcloud.eu"
 
 # ── Resource limits ────────────────────────────────────────────────────────────
