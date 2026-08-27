@@ -52,11 +52,10 @@ rules:
   # k8s_client.py creates/lists/reads/deletes batch Jobs whose pods are
   # scheduled on InterLink virtual-kubelet nodes and forwarded to HPC.
   #
-  # `watch` is required because the InterLink virtual-kubelet runs under this
-  # same ServiceAccount and uses client-go informers to watch Jobs — both for
-  # normal job handling and for the node-cleanup Job it creates on uninstall
-  # (without `watch`, that watch gets 403 and `helm uninstall interlink` fails
-  # with "failed to delete release").
+  # `watch` is required by Helm (running under this ServiceAccount) to wait for
+  # the InterLink chart's pre-delete hook Job (`<nodeName>-node-cleanup`) during
+  # `helm uninstall interlink`. Without `watch`, Helm cannot observe the hook
+  # Job completing and the uninstall fails ("failed to delete release").
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "delete"]
