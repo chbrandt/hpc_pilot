@@ -271,9 +271,18 @@ curl -s \
 }
 ```
 
-If no pods exist for the job, or the pod log endpoint is unreachable (e.g.
-the InterLink virtual-kubelet's serving certificate has not been approved),
-the endpoint returns a `404` with `{"error": "..."}`.
+If no pods exist for the job, or the pod log endpoint is unreachable, the
+endpoint returns a `404` with `{"error": "..."}`.
+
+```{note}
+Fetching logs of a pod on an InterLink virtual node is proxied by the API
+server through the virtual-kubelet's serving endpoint (``:10250``). The
+manager automatically approves the virtual-kubelet's
+`kubernetes.io/kubelet-serving` CSR right after install — and, as a
+self-healing fallback, when a log request fails with a TLS handshake error
+(`remote error: tls: internal error`). Without the approved certificate the
+API server cannot fetch any logs from the virtual node.
+```
 
 ---
 
@@ -320,6 +329,12 @@ curl -s -X POST \
 
 ```{note}
 This call blocks for the duration of `helm install --wait` (timeout 5 minutes).
+
+After a successful install the manager also approves the virtual-kubelet's
+`kubernetes.io/kubelet-serving` certificate CSR (Kubernetes ships no
+auto-approval for serving CSRs). This is best-effort and never fails the
+install; it is retried transparently if a pod-log request later fails with
+a TLS handshake error.
 ```
 
 **Response `201`** (installed):

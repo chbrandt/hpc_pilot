@@ -12,6 +12,8 @@ Ingress resources are not supported and are intentionally absent from the API.
 import json
 import logging
 import os
+import time
+from datetime import datetime, timezone
 from typing import Optional
 
 from kubernetes import client, config
@@ -37,6 +39,7 @@ class K8sClient:
         self.core_v1 = client.CoreV1Api()
         # self.apps_v1 = client.AppsV1Api()
         self.batch_v1 = client.BatchV1Api()
+        self.certificates_v1 = client.CertificatesV1Api()
 
     def _load_config(self):
         """
@@ -462,6 +465,112 @@ class K8sClient:
 
     # ── Job output ────────────────────────────────────────────────────
 
+    def approve_pending_csrs(
+        self,
+        namespace: str,
+        timeout: float = 30.0,
+        poll_interval: float = 2.0,
+    ) -> list[str]:
+        """
+        Approve pending kubelet-serving CSRs requested by the InterLink
+        virtual-kubelet's ServiceAccount in *namespace*.
+
+        The InterLink virtual-kubelet creates a ``kubernetes.io/kubelet-serving``
+        CSR for its node serving certificate on startup.  Kubernetes has no
+        built-in auto-approval for *serving* CSRs (only node-bootstrapping
+        *client* CSRs are auto-approved), so without this the API server
+        cannot fetch pod logs from the virtual node — every
+        ``GET /api/jobs/<name>/output`` fails with a TLS handshake error
+        ("remote error: tls: internal error").
+
+        The manager may only approve CSRs it can attribute to a user's own
+        virtual-kubelet, hence the strict matching:
+
+        * signer name is exactly ``kubernetes.io/kubelet-serving``;
+        * the CSR is still pending (no conditions yet);
+        * the requesting username is a ServiceAccount of *namespace* —
+          either the InterLink SA (``virtual-node-<namespace>``) or the
+          manager's own in-cluster SA when running under kubeconfig-less
+          local setups.
+
+        Args:
+            namespace: The user's Kubernetes namespace.
+            timeout: How long to wait (seconds) for a matching CSR to appear
+                (the virtual-kubelet creates it shortly after install).
+            poll_interval: Seconds between CSR list attempts.
+
+        Returns:
+            The list of CSR names that were approved (possibly empty when no
+            matching pending CSR was found).  Errors are logged, not raised —
+            this is a best-effort self-healing helper.
+        """
+        deadline = time.monotonic() + timeout
+        approved: list[str] = []
+        sa_prefixes = (
+            f"system:serviceaccount:{namespace}:virtual-node-{namespace}",
+            f"system:serviceaccount:{namespace}:",
+        )
+
+        while True:
+            try:
+                csrs = self.certificates_v1.list_certificate_signing_request()
+            except ApiException as e:
+                logger.error(f"Failed to list CSRs: {e}")
+                return approved
+
+            for csr in csrs.items:
+                name = csr.metadata.name
+                signer = csr.spec.signer_name
+                requestor = csr.spec.username or ""
+                conditions = csr.status.conditions or []
+
+                if signer != "kubernetes.io/kubelet-serving":
+                    continue
+                if conditions:  # already approved/denied
+                    continue
+                if not any(requestor.startswith(p) for p in sa_prefixes):
+                    continue
+
+                # Plain-dict body: the API server only reads metadata.name
+                # and status.conditions on approval updates, and the
+                # V1CertificateSigningRequest model rejects a body without
+                # a (irrelevant here) spec.
+                body = {
+                    "metadata": {"name": name},
+                    "status": {
+                        "conditions": [
+                            {
+                                "type": "Approved",
+                                "status": "True",
+                                "reason": "HPCPilotAutoApprove",
+                                "message": (
+                                    "Automatically approved by the HPC Pilot "
+                                    "manager (InterLink virtual-kubelet "
+                                    "serving certificate)."
+                                ),
+                                "lastUpdateTime": datetime.now(
+                                    tz=timezone.utc
+                                ).isoformat(),
+                                "lastTransitionTime": datetime.now(
+                                    tz=timezone.utc
+                                ).isoformat(),
+                            }
+                        ]
+                    },
+                }
+                try:
+                    self.certificates_v1.replace_certificate_signing_request_approval(
+                        name=name, body=body
+                    )
+                    approved.append(name)
+                    logger.info(f"Approved pending CSR '{name}' for namespace '{namespace}'")
+                except ApiException as e:
+                    logger.error(f"Failed to approve CSR '{name}': {e}")
+
+            if approved or time.monotonic() >= deadline:
+                return approved
+            time.sleep(poll_interval)
+
     def get_job_output(self, name: str, namespace: str = "default") -> dict:
         """
         Retrieve a job's output (stdout/stderr) via the pod log endpoint.
@@ -481,7 +590,9 @@ class K8sClient:
             or ``{"error": "..."}`` on failure (no pods found, or the
             log endpoint is unreachable — e.g. the InterLink
             virtual-kubelet's serving certificate has not been approved
-            yet, surfaced by Kubernetes as a TLS handshake error).
+            yet, surfaced by Kubernetes as a TLS handshake error; the
+            manager self-heals this by approving the pending CSR and
+            retrying once — see :func:`approve_pending_csrs`).
         """
         try:
             pods = self.core_v1.list_namespaced_pod(
@@ -501,12 +612,28 @@ class K8sClient:
             # deserialization: for non-JSON bodies (raw log text) it
             # str()-mangles ``bytes`` into the literal ``"b'...'"`` repr.
             # We decode the raw bytes ourselves instead.
-            response = self.core_v1.read_namespaced_pod_log(
-                name=pod_name,
-                namespace=namespace,
-                container=container_name,
-                _preload_content=False,
-            )
+            try:
+                response = self._read_pod_log(pod_name, namespace, container_name)
+            except ApiException as e:
+                # ── Self-healing: pending VK serving-cert CSR ────────────
+                # A 500 "remote error: tls: internal error" from the log
+                # endpoint means the InterLink virtual-kubelet's serving
+                # certificate CSR has not been approved — Kubernetes has
+                # no auto-approval for kubelet-*serving* CSRs.  Approve it
+                # and retry once (see approve_pending_csrs()).
+                if e.status == 500 and "tls" in str(e).lower():
+                    approved = self.approve_pending_csrs(
+                        namespace=namespace, timeout=0.0
+                    )
+                    if approved:
+                        response = self._read_pod_log(
+                            pod_name, namespace, container_name
+                        )
+                    else:
+                        raise
+                else:
+                    raise
+
             raw = getattr(response, "data", response)
             if isinstance(raw, bytes):
                 content = raw.decode("utf-8", errors="replace")
@@ -518,3 +645,18 @@ class K8sClient:
         except ApiException as e:
             logger.error(f"Failed to get job output: {e}")
             return {"error": str(e)}
+
+    def _read_pod_log(self, pod_name: str, namespace: str, container_name: str):
+        """
+        Fetch a container log without client-side deserialization.
+
+        Note that HTTP errors (including the API server's 500 proxy error
+        for an unreachable kubelet) still raise ``ApiException`` — the
+        client raises it in ``rest.py`` regardless of ``_preload_content``.
+        """
+        return self.core_v1.read_namespaced_pod_log(
+            name=pod_name,
+            namespace=namespace,
+            container=container_name,
+            _preload_content=False,
+        )

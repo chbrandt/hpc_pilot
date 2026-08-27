@@ -25,10 +25,12 @@ def k8s():
         with (
             patch("lib.k8s_client.client.CoreV1Api") as mock_core,
             patch("lib.k8s_client.client.BatchV1Api") as mock_batch,
+            patch("lib.k8s_client.client.CertificatesV1Api") as mock_certs,
         ):
             c = K8sClient(kubeconfig_path="/fake/kubeconfig")
             c.core_v1 = mock_core.return_value
             c.batch_v1 = mock_batch.return_value
+            c.certificates_v1 = mock_certs.return_value
             yield c
 
 
@@ -368,6 +370,174 @@ class TestJobOperations:
 
 
 # ---------------------------------------------------------------------------
+# CSR auto-approval (InterLink virtual-kubelet serving certificate)
+# ---------------------------------------------------------------------------
+
+
+def _make_csr_mock(
+    name: str,
+    signer: str,
+    requestor: str,
+    conditions: list | None = None,
+):
+    csr = MagicMock()
+    csr.metadata.name = name
+    csr.spec.signer_name = signer
+    csr.spec.username = requestor
+    csr.status.conditions = conditions or []
+    return csr
+
+
+class TestApprovePendingCsrs:
+    NS = "user-abc123"
+
+    def _vk_csr(self):
+        return _make_csr_mock(
+            name="vk-virtual-node-user-abc123-s7vsc",
+            signer="kubernetes.io/kubelet-serving",
+            requestor=f"system:serviceaccount:{self.NS}:virtual-node-{self.NS}",
+        )
+
+    def test_approves_pending_matching_csr(self, k8s):
+        csr = self._vk_csr()
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
+
+        approved = k8s.approve_pending_csrs(self.NS, timeout=0.0)
+
+        assert approved == [csr.metadata.name]
+        k8s.certificates_v1.replace_certificate_signing_request_approval.assert_called_once()
+        body = k8s.certificates_v1.replace_certificate_signing_request_approval.call_args.kwargs["body"]
+        assert body["status"]["conditions"][0]["type"] == "Approved"
+        assert body["metadata"]["name"] == csr.metadata.name
+
+    def test_ignores_csr_with_wrong_signer(self, k8s):
+        csr = _make_csr_mock(
+            name="client-csr",
+            signer="kubernetes.io/kube-apiserver-client",
+            requestor=f"system:serviceaccount:{self.NS}:virtual-node-{self.NS}",
+        )
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
+
+        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+        k8s.certificates_v1.replace_certificate_signing_request_approval.assert_not_called()
+
+    def test_ignores_csr_from_other_namespace(self, k8s):
+        csr = _make_csr_mock(
+            name="vk-virtual-node-other-ns",
+            signer="kubernetes.io/kubelet-serving",
+            requestor="system:serviceaccount:user-other:virtual-node-user-other",
+        )
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
+
+        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+        k8s.certificates_v1.replace_certificate_signing_request_approval.assert_not_called()
+
+    def test_ignores_already_approved_csr(self, k8s):
+        csr = self._vk_csr()
+        csr.status.conditions = [MagicMock()]  # any condition ⇒ not pending
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
+
+        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+        k8s.certificates_v1.replace_certificate_signing_request_approval.assert_not_called()
+
+    def test_list_failure_returns_empty_list(self, k8s):
+        k8s.certificates_v1.list_certificate_signing_request.side_effect = ApiException(
+            status=403
+        )
+        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+
+    def test_approval_failure_is_skipped_not_raised(self, k8s):
+        csr = self._vk_csr()
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
+        k8s.certificates_v1.replace_certificate_signing_request_approval.side_effect = (
+            ApiException(status=403)
+        )
+
+        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+
+    def test_polls_until_csr_appears(self, k8s):
+        """A CSR created shortly after install is picked up by polling."""
+        csr = self._vk_csr()
+        listing = MagicMock()
+        listing.items = []
+        listing_with_csr = MagicMock()
+        listing_with_csr.items = [csr]
+        k8s.certificates_v1.list_certificate_signing_request.side_effect = [
+            listing,
+            listing_with_csr,
+        ]
+
+        with patch("lib.k8s_client.time.sleep") as mock_sleep:
+            approved = k8s.approve_pending_csrs(self.NS, timeout=30.0)
+
+        assert approved == [csr.metadata.name]
+        mock_sleep.assert_called_once()
+
+
+class TestGetJobOutputTlsSelfHealing:
+    """On the API server's kubelet-proxy TLS failure, get_job_output must
+    approve the pending VK CSR and retry the log read once."""
+
+    NS = "user-abc123"
+
+    def _make_pod(self):
+        pod_mock = MagicMock()
+        pod_mock.metadata.name = "myapp-abc123"
+        pod_mock.spec.containers = [MagicMock()]
+        pod_mock.spec.containers[0].name = "myapp"
+        return pod_mock
+
+    def _tls_error(self):
+        exc = ApiException(status=500, reason="Internal Server Error")
+        # ApiException has no `body` constructor kwarg; set it directly
+        # (mirrors what http_resp-based construction would populate).
+        exc.body = '{"message":"remote error: tls: internal error"}'
+        return exc
+
+    def test_tls_error_triggers_approval_and_retry(self, k8s):
+        k8s.core_v1.list_namespaced_pod.return_value.items = [self._make_pod()]
+
+        good_response = MagicMock()
+        good_response.data = b"job output after retry\n"
+        k8s.core_v1.read_namespaced_pod_log.side_effect = [
+            self._tls_error(),
+            good_response,
+        ]
+
+        csr = _make_csr_mock(
+            name="vk-virtual-node-user-abc123-s7vsc",
+            signer="kubernetes.io/kubelet-serving",
+            requestor=f"system:serviceaccount:{self.NS}:virtual-node-{self.NS}",
+        )
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
+
+        result = k8s.get_job_output("myapp", self.NS)
+
+        assert result["content"] == "job output after retry\n"
+        assert k8s.core_v1.read_namespaced_pod_log.call_count == 2
+        k8s.certificates_v1.replace_certificate_signing_request_approval.assert_called_once()
+
+    def test_tls_error_without_pending_csr_returns_error(self, k8s):
+        k8s.core_v1.list_namespaced_pod.return_value.items = [self._make_pod()]
+        k8s.core_v1.read_namespaced_pod_log.side_effect = self._tls_error()
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = []
+
+        result = k8s.get_job_output("myapp", self.NS)
+
+        assert "error" in result
+        assert k8s.core_v1.read_namespaced_pod_log.call_count == 1
+
+    def test_non_tls_error_returns_error_without_approval(self, k8s):
+        k8s.core_v1.list_namespaced_pod.return_value.items = [self._make_pod()]
+        k8s.core_v1.read_namespaced_pod_log.side_effect = ApiException(status=500, reason="Boom")
+
+        result = k8s.get_job_output("myapp", self.NS)
+
+        assert "error" in result
+        k8s.certificates_v1.list_certificate_signing_request.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Configuration loading (kubeconfig vs in-cluster ServiceAccount)
 # ---------------------------------------------------------------------------
 
@@ -386,6 +556,7 @@ class TestConfigLoading:
             patch("lib.k8s_client.config.load_incluster_config") as mock_incluster,
             patch("lib.k8s_client.client.CoreV1Api"),
             patch("lib.k8s_client.client.BatchV1Api"),
+            patch("lib.k8s_client.client.CertificatesV1Api"),
         ):
             K8sClient(kubeconfig_path=None)
         mock_incluster.assert_called_once()
@@ -402,6 +573,7 @@ class TestConfigLoading:
             patch("lib.k8s_client.config.load_incluster_config") as mock_incluster,
             patch("lib.k8s_client.client.CoreV1Api"),
             patch("lib.k8s_client.client.BatchV1Api"),
+            patch("lib.k8s_client.client.CertificatesV1Api"),
         ):
             K8sClient(kubeconfig_path=None)
         mock_incluster.assert_called_once()

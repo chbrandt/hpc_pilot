@@ -103,6 +103,26 @@ def deploy_interlink():
             values_yaml=values_yaml,
             version=version,
         )
+
+        # ── Approve the virtual-kubelet's serving-cert CSR ─────────────
+        # The freshly installed virtual-kubelet requests a
+        # kubelet-serving certificate via a CSR; no Kubernetes controller
+        # auto-approves those, so without this the API server could not
+        # proxy pod logs from the virtual node (TLS handshake errors).
+        # Best-effort: failures are logged inside the helper and do not
+        # fail the install.
+        try:
+            approved = k8s.approve_pending_csrs(namespace=namespace)
+            if approved:
+                logger.info(
+                    "Approved InterLink CSR(s) %s for namespace %s",
+                    approved, namespace,
+                )
+        except Exception as exc:
+            logger.warning(
+                "CSR auto-approval failed for namespace %s: %s", namespace, exc
+            )
+
         code = 201 if result.get("success") else 400
         return _ok(result, code)
 

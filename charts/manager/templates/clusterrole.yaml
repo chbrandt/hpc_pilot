@@ -151,10 +151,17 @@ rules:
 
   # ── CertificateSigningRequests (InterLink virtual-kubelet) ──────────────────
   # The InterLink virtual-kubelet creates/updates/watches CSRs for its node
-  # serving certificate (unless virtualNode.disableCSR is set).
+  # serving certificate (unless virtualNode.disableCSR is set).  Kubernetes
+  # has no built-in auto-approval for kubelet-*serving* CSRs, so the manager
+  # approves them itself (k8s_client.approve_pending_csrs) right after
+  # install and as self-healing on pod-log TLS errors — without this the
+  # API server cannot proxy pod logs from the virtual node.
   - apiGroups: ["certificates.k8s.io"]
     resources: ["certificatesigningrequests"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests/approval"]
+    verbs: ["get", "update"]
 
   # ── Leases (InterLink virtual-kubelet leader election) ──────────────────────
   # The InterLink virtual-kubelet uses coordination leases for leader election.
