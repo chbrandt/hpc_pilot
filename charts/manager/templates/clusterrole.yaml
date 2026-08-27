@@ -7,7 +7,7 @@ plus the permissions the InterLink virtual-kubelet requires (installed via
   • Job CRUD                  (batch/v1 jobs via k8s_client.py, on InterLink nodes)
   • Service / Ingress CRUD     (NodePort services; optional Ingresses)
   • Node + Node/status         (node IP resolution; VK node register/deregister)
-  • Pod + Pod/status           (status polling; VK pod lifecycle)
+  • Pod + Pod/status + Pod/log (status polling; VK pod lifecycle; job output)
   • ConfigMap / Secret / Event (Helm release storage; VK status events)
   • Deployment / ReplicaSet    (so the InterLink chart can create them)
   • ServiceAccount + token     (per-user SA for the InterLink VK pod)
@@ -94,6 +94,14 @@ rules:
   - apiGroups: [""]
     resources: ["pods/status"]
     verbs: ["update", "patch"]
+
+  # ── Pod logs ─────────────────────────────────────────────────────────────────
+  # get: the manager reads job pod stdout/stderr for GET /api/jobs/<name>/output
+  # via read_namespaced_pod_log().  Kubernetes RBAC treats `pods/log` as a
+  # distinct subresource — permissions on `pods` do not cover it.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
 
   # ── ConfigMap access for Helm & InterLink ───────────────────────────────────
   # Helm stores release data as Secrets (below); the InterLink virtual-kubelet

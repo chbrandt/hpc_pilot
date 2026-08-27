@@ -103,6 +103,10 @@ rules:
     resources: ["namespaces", "nodes", "pods"]
     verbs: ["get", "list", "create"]          # pods: read for status polling
 
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]                            # read job pod stdout/stderr (job output)
+
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "delete"]   # watch: InterLink VK informers
