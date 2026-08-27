@@ -17,7 +17,7 @@ manage per-user [InterLink](https://interlink-project.dev) pod deployments.
 |---|---|---|
 | `hpc-pilot` | `Namespace` | Dedicated namespace for the manager |
 | `hpc-pilot-manager` | `ServiceAccount` | In-cluster identity for the pod |
-| `egi-hpc-pilot` | `ClusterRole` | RBAC: namespaces, deployments, services, ingresses, nodes, pods, secrets/configmaps, events, replicasets |
+| `egi-hpc-pilot` | `ClusterRole` | RBAC superset of the InterLink virtual-kubelet role: namespaces, jobs, services, ingresses, nodes (+status), pods (+status), configmaps, secrets, events, deployments, replicasets, serviceaccounts (+token), certificatesigningrequests, leases, and cluster/role RBAC |
 | `egi-hpc-pilot` | `ClusterRoleBinding` | Binds the ClusterRole to the ServiceAccount |
 | `<release>-manager` | `Secret` | Flask session secret key |
 | `<release>-manager-site-config` | `ConfigMap` | `site_config.yaml` (hostname, wstunnel ports, allowed_groups) |

@@ -1,16 +1,38 @@
 {{/*
-ClusterRole — grants the manager the minimum Kubernetes permissions it needs:
-  • Namespace management  (create user namespaces on login)
-  • Job CRUD              (batch/v1 jobs via k8s_client.py, scheduled on InterLink nodes)
-  • Service CRUD          (NodePort services alongside each job, for helm charts)
-  • Ingress CRUD          (optional Ingress resources)
-  • Node read             (to resolve the node IP shown in service_ports)
-  • Pod read              (status polling)
-  • ServiceAccount CRUD   (the InterLink chart creates a per-user SA for its VK pod)
-  • RBAC CRUD             (the InterLink chart creates cluster- & namespace-scoped RBAC for its VK)
+ClusterRole — grants the manager the minimum Kubernetes permissions it needs,
+plus the permissions the InterLink virtual-kubelet requires (installed via
+`helm install interlink` under this same ServiceAccount).
 
-Helm chart management is handled by the `helm` CLI subprocess which inherits
-the same kubeconfig / in-cluster ServiceAccount token — no extra CRDs needed.
+  • Namespace management      (create user namespaces on login)
+  • Job CRUD                  (batch/v1 jobs via k8s_client.py, on InterLink nodes)
+  • Service / Ingress CRUD     (NodePort services; optional Ingresses)
+  • Node + Node/status         (node IP resolution; VK node register/deregister)
+  • Pod + Pod/status           (status polling; VK pod lifecycle)
+  • ConfigMap / Secret / Event (Helm release storage; VK status events)
+  • Deployment / ReplicaSet    (so the InterLink chart can create them)
+  • ServiceAccount + token     (per-user SA for the InterLink VK pod)
+  • CertificateSigningRequests(VK serving-cert CSRs)
+  • Leases                     (VK leader election)
+  • RBAC CRUD                 (the InterLink chart creates cluster- & namespace-
+                              scoped RBAC for its VK)
+
+This ClusterRole is intentionally a *superset* of the permissions granted by the
+InterLink chart's own ClusterRole
+(charts/interlink/.../templates/service-account.yaml).  Kubernetes refuses to let
+a subject create a Role/ClusterRole that grants permissions the subject does not
+already hold ("attempting to grant RBAC permissions not currently held"), and it
+refuses a RoleBinding/ClusterRoleBinding whose referenced Role grants more than the
+subject holds.  Because the manager installs the InterLink chart under its own
+ServiceAccount, the manager must therefore hold every permission that chart will
+grant to its virtual-kubelet — otherwise `helm install interlink` (POST
+/api/interlink) fails on the ClusterRole/ClusterRoleBinding create.
+
+No `escalate`/`bind` verbs are granted: holding the union of permissions is the
+least-privilege way to satisfy the escalation and bind checks without effectively
+becoming cluster-admin.
+
+Helm chart management itself is handled by the `helm` CLI subprocess, which
+inherits the same in-cluster ServiceAccount token — no extra CRDs are needed.
 */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -20,9 +42,11 @@ metadata:
     {{- include "manager.labels" . | nindent 4 }}
 rules:
   # ── Namespace management ────────────────────────────────────────────────────
+  # `watch` is required by the InterLink virtual-kubelet (it watches its own
+  # namespace); the manager itself only needs get/list/create.
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get", "list", "create"]
+    verbs: ["get", "list", "watch", "create"]
 
   # ── Job management (batch/v1) ───────────────────────────────────────────────
   # k8s_client.py creates/lists/reads/deletes batch Jobs whose pods are
@@ -38,62 +62,111 @@ rules:
     verbs: ["get", "list", "watch", "create", "delete"]
 
   # ── Service management ──────────────────────────────────────────────────────
+  # `watch`/`update`/`patch` are required by the InterLink virtual-kubelet (it
+  # watches and reconciles Services); the manager only needs get/list/create/delete.
   - apiGroups: [""]
     resources: ["services"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
   # ── Ingress management ──────────────────────────────────────────────────────
+  # `watch`/`update`/`patch` are required by the InterLink virtual-kubelet.
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
-  # ── Node read (for external IP resolution) ──────────────────────────────────
+  # ── Node management ──────────────────────────────────────────────────────────
+  # get/list: the manager resolves the node external IP shown in service_ports.
+  # create/delete + nodes/status update/patch: the InterLink virtual-kubelet
+  # registers/deregisters its own Node and patches its status.
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["nodes/status"]
+    verbs: ["update", "patch"]
 
-  # ── Pod read (job status polling) ───────────────────────────────────────────
+  # ── Pod management ──────────────────────────────────────────────────────────
+  # get/list: the manager polls job pod status.
+  # watch/create/update/patch/delete + pods/status: the InterLink virtual-kubelet
+  # creates/deletes pods and patches their status as HPC jobs start/stop.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list"]
-
-  # ── ConfigMap / Secret access for Helm ─────────────────────────────────────
-  # Helm stores release data as Secrets in the target namespace.
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["secrets", "configmaps"]
-    verbs: ["get", "list", "create", "update", "delete"]
+    resources: ["pods/status"]
+    verbs: ["update", "patch"]
 
-  # ── Events (Helm and Kubernetes write events on resource changes) ───────────
+  # ── ConfigMap access for Helm & InterLink ───────────────────────────────────
+  # Helm stores release data as Secrets (below); the InterLink virtual-kubelet
+  # also watches/patches ConfigMaps (e.g. its config maps).
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── Secret access for Helm & InterLink ───────────────────────────────────────
+  # Helm release storage (Secrets) plus the InterLink SA-token Secret it creates.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+
+  # ── Events ───────────────────────────────────────────────────────────────────
+  # get/list: the manager can read events; create/patch: the InterLink
+  # virtual-kubelet records pod lifecycle events.
   - apiGroups: [""]
     resources: ["events"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "create", "patch"]
 
   # ── Deployments / ReplicaSets ───────────────────────────────────────────────
-  # Granted so the same identity can run arbitrary `helm install` charts
-  # (e.g. the InterLink chart) that may create Deployments/ReplicaSets.
+  # The manager can run arbitrary `helm install` charts (e.g. InterLink) that
+  # create Deployments/ReplicaSets; `update`/`patch` are needed by the InterLink
+  # virtual-kubelet's deployment reconciliation.
   - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
     verbs: ["get", "list", "create", "delete"]
 
   # ── ServiceAccount management (InterLink chart) ─────────────────────────────
   # The InterLink Helm chart creates a dedicated ServiceAccount
   # (virtual-node-<namespace>) in each user namespace for its virtual-kubelet
-  # pod.  Helm needs `get` for the pre-flight conflict check / three-way
-  # merge lookup, plus `create`/`delete` for install and uninstall.
+  # pod.  `watch` is required by the InterLink virtual-kubelet; the manager needs
+  # get (pre-flight conflict check) + create/delete (install/uninstall).
   - apiGroups: [""]
     resources: ["serviceaccounts"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+
+  # ── ServiceAccount token requests (InterLink virtual-kubelet) ────────────────
+  # The InterLink virtual-kubelet requests short-lived tokens for its SA.
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create", "get", "list"]
+
+  # ── CertificateSigningRequests (InterLink virtual-kubelet) ──────────────────
+  # The InterLink virtual-kubelet creates/updates/watches CSRs for its node
+  # serving certificate (unless virtualNode.disableCSR is set).
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── Leases (InterLink virtual-kubelet leader election) ──────────────────────
+  # The InterLink virtual-kubelet uses coordination leases for leader election.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 
   # ── RBAC management (InterLink chart) ───────────────────────────────────────
   # The InterLink chart creates both cluster-scoped RBAC (a ClusterRole +
-  # ClusterRoleBinding for its virtual-kubelet, so it can manage
-  # pods/nodes/leases/…) and namespace-scoped RBAC (a Role such as
-  # `interlink-node-reader` + RoleBinding, in each user namespace).
-  # `helm install`/`uninstall` therefore needs get/create/delete on all
-  # four RBAC resource kinds.  (Granting clusterrolebindings/rolebindings
-  # lets the manager bind arbitrary roles — an inherent consequence of
-  # running a chart that creates RBAC under its own identity; see the chart
-  # README.)
+  # ClusterRoleBinding for its virtual-kubelet) and namespace-scoped RBAC (a
+  # Role + RoleBinding, e.g. `interlink-node-reader`, in each user namespace).
+  # `helm install`/`uninstall` therefore needs get/create/delete on all four
+  # RBAC resource kinds.
+  #
+  # Granting create on clusterroles/clusterrolebindings lets the manager bind
+  # arbitrary roles — an inherent consequence of running a chart that creates
+  # RBAC under its own identity; see the chart README.  The escalation/bind
+  # checks are satisfied without `escalate`/`bind` verbs because the manager
+  # holds (above) every permission the InterLink ClusterRole grants.
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
     verbs: ["get", "list", "create", "delete"]
