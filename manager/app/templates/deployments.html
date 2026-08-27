@@ -72,6 +72,8 @@
           <button type="submit" class="btn btn-small btn-danger" title="Uninstall release">🗑️ Uninstall</button>
         </form>
         {% else %}
+        <a href="{{ url_for('app_k8s.job_output', namespace=w.namespace, name=w.name) }}"
+          class="btn btn-small btn-secondary" title="View job output">📄 Output</a>
         <form method="post" action="{{ url_for('app_k8s.save_job', namespace=w.namespace, name=w.name) }}"
           style="display:inline;">
           <button type="submit" class="btn btn-small btn-secondary" title="Save job config for re-submission">💾

@@ -12,6 +12,7 @@ GET  /jobs                       List all jobs + Helm releases
 POST /jobs/<ns>/<name>/delete    Delete a job
 GET  /jobs/<ns>/<name>/status    AJAX status poll (JSON)
 POST /jobs/<ns>/<name>/save      Save job config
+GET  /jobs/<ns>/<name>/output    Show job output (stdout/stderr)
 """
 
 import json
@@ -272,3 +273,38 @@ def save_job(namespace, name):
         flash(f"Failed to save configuration: {exc}", "error")
 
     return redirect(url_for("app_k8s.jobs"))
+
+
+@k8s_bp.route("/jobs/<namespace>/<name>/output")
+@require_login
+def job_output(namespace, name):
+    """Show a job's output (stdout/stderr) on a dedicated page."""
+    # Security: only allow reading output from the user's own namespace
+    if namespace != session["namespace"]:
+        flash("You can only view output for jobs in your own namespace.", "error")
+        return redirect(url_for("app_k8s.jobs"))
+
+    error = None
+    content = None
+    job_name = name
+    pod_name = None
+
+    try:
+        data = api_get(f"/api/jobs/{name}/output")
+        content = data.get("content", "")
+        job_name = data.get("name", name)
+        pod_name = data.get("pod")
+    except requests.HTTPError as exc:
+        error = _api_error(exc)
+    except Exception as exc:
+        logger.error("job_output failed: %s", exc)
+        error = str(exc)
+
+    return render_template(
+        "output.html",
+        name=job_name,
+        namespace=namespace,
+        pod=pod_name,
+        content=content,
+        error=error,
+    )

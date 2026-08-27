@@ -191,8 +191,10 @@ base.html  (navbar, flash messages, token-countdown JS)
   ├── helm.html         → POST /helm/install      → helm_result.html
   ├── hpc.html          → POST /hpc/{deploy,status,start,stop} → hpc_result.html
   ├── deployments.html  → (unified workloads view: jobs + interlink)
+  │                       GET  /jobs/<ns>/<name>/output → output.html
   │                       POST /jobs/<ns>/<name>/delete
   │                       POST /releases/<name>/delete
+  ├── output.html       → (job stdout/stderr)     → GET /jobs/<ns>/<name>/output
   └── releases.html     → POST /releases/<name>/delete
                           POST /releases/<name>/save
 ```

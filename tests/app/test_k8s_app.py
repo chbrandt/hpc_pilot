@@ -163,3 +163,58 @@ class TestJobsPage:
         html = resp.data.decode()
         assert "alert-error" in html
         assert "Helm releases" in html
+
+
+# ---------------------------------------------------------------------------
+# GET /jobs/<ns>/<name>/output
+# ---------------------------------------------------------------------------
+
+
+class TestJobOutputPage:
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.get(f"/jobs/{FAKE_NAMESPACE}/my-job/output")
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_wrong_namespace_redirects(self, client, app):
+        """Cross-user namespace attempts must redirect to /jobs."""
+        _logged_in_client(client)
+        with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
+            resp = client.get("/jobs/other-namespace/my-job/output")
+        assert resp.status_code == 302
+        assert "/jobs" in resp.headers["Location"]
+
+    def test_renders_output_content(self, client, app):
+        """A successful API call shows the output content and pod name."""
+        _logged_in_client(client)
+        api_response = {
+            "name": "my-job",
+            "pod": "my-job-abc123",
+            "content": "Submitted to SLURM node vnode-1.\nHello world!\n",
+        }
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_GET_PATCH, return_value=api_response),
+        ):
+            resp = client.get(f"/jobs/{FAKE_NAMESPACE}/my-job/output")
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Hello world!" in html
+        assert "my-job-abc123" in html
+        assert "Submitted to SLURM" in html
+
+    def test_api_error_renders_error_card(self, client, app):
+        """An API failure (e.g. 404) renders an error card, not a crash."""
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_GET_PATCH, side_effect=_http_error(404)),
+        ):
+            resp = client.get(f"/jobs/{FAKE_NAMESPACE}/my-job/output")
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Could not retrieve job output" in html
+        assert "HTTP 404" in html
