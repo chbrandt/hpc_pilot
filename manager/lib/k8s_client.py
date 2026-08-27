@@ -496,9 +496,23 @@ class K8sClient:
                 pod.spec.containers[0].name if pod.spec.containers else name
             )
 
-            content = self.core_v1.read_namespaced_pod_log(
-                name=pod_name, namespace=namespace, container=container_name
+            # ── Read the pod log ────────────────────────────────────────
+            # ``_preload_content=False`` bypasses the client's
+            # deserialization: for non-JSON bodies (raw log text) it
+            # str()-mangles ``bytes`` into the literal ``"b'...'"`` repr.
+            # We decode the raw bytes ourselves instead.
+            response = self.core_v1.read_namespaced_pod_log(
+                name=pod_name,
+                namespace=namespace,
+                container=container_name,
+                _preload_content=False,
             )
+            raw = getattr(response, "data", response)
+            if isinstance(raw, bytes):
+                content = raw.decode("utf-8", errors="replace")
+            else:
+                content = str(raw)
+
             return {"name": name, "pod": pod_name, "content": content}
 
         except ApiException as e:

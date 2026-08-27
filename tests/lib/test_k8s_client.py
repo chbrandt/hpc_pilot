@@ -319,7 +319,11 @@ class TestJobOperations:
         pod_mock.spec.containers = [MagicMock()]
         pod_mock.spec.containers[0].name = "myapp"
         k8s.core_v1.list_namespaced_pod.return_value.items = [pod_mock]
-        k8s.core_v1.read_namespaced_pod_log.return_value = "hello world\n"
+
+        # Raw (non-preloaded) log response: bytes payload on `.data`
+        log_response = MagicMock()
+        log_response.data = b"hello world\n"
+        k8s.core_v1.read_namespaced_pod_log.return_value = log_response
 
         result = k8s.get_job_output("myapp", "user-ns")
         assert result["name"] == "myapp"
@@ -329,8 +333,27 @@ class TestJobOperations:
             namespace="user-ns", label_selector="job-name=myapp"
         )
         k8s.core_v1.read_namespaced_pod_log.assert_called_once_with(
-            name="myapp-abc123", namespace="user-ns", container="myapp"
+            name="myapp-abc123",
+            namespace="user-ns",
+            container="myapp",
+            _preload_content=False,
         )
+
+    def test_get_job_output_decodes_bytes_not_repr(self, k8s):
+        """Regression: raw bytes must be decoded, not str()-mangled to b'...'."""
+        pod_mock = MagicMock()
+        pod_mock.metadata.name = "myapp-abc123"
+        pod_mock.spec.containers = [MagicMock()]
+        pod_mock.spec.containers[0].name = "myapp"
+        k8s.core_v1.list_namespaced_pod.return_value.items = [pod_mock]
+
+        log_response = MagicMock()
+        log_response.data = "café ☕ unicode output\n".encode("utf-8")
+        k8s.core_v1.read_namespaced_pod_log.return_value = log_response
+
+        result = k8s.get_job_output("myapp", "user-ns")
+        assert result["content"] == "café ☕ unicode output\n"
+        assert not result["content"].startswith("b'")
 
     def test_get_job_output_no_pods_returns_error(self, k8s):
         k8s.core_v1.list_namespaced_pod.return_value.items = []
