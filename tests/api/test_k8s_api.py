@@ -44,6 +44,10 @@ def _mock_k8s(**kwargs):
         "delete_job",
         {"job": {"success": True, "name": "myapp"}},
     )
+    m.get_job_output.return_value = kwargs.get(
+        "get_job_output",
+        {"name": "myapp", "pod": "myapp-abc123", "content": "output text\n"},
+    )
     return m
 
 
@@ -387,3 +391,30 @@ class TestDeleteJob:
         with patch(K8S_PATCH, return_value=k8s):
             resp = client.delete("/api/jobs/myapp", headers=headers)
         assert resp.status_code == 400
+# ---------------------------------------------------------------------------
+# GET /api/jobs/<name>/output
+# ---------------------------------------------------------------------------
+
+
+class TestJobOutput:
+    def test_requires_auth(self, client):
+        assert client.get("/api/jobs/myapp/output").status_code == 401
+
+    def test_found_returns_200_with_content(self, client, auth_headers):
+        headers, _ = auth_headers
+        output = {"name": "myapp", "pod": "myapp-abc123", "content": "log output\n"}
+        k8s = _mock_k8s(get_job_output=output)
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.get("/api/jobs/myapp/output", headers=headers)
+        assert resp.status_code == 200
+        data = resp.get_json(force=True)
+        assert data["name"] == "myapp"
+        assert data["content"] == "log output\n"
+        assert "pod" in data
+
+    def test_error_key_returns_404(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(get_job_output={"error": "not found"})
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.get("/api/jobs/missing/output", headers=headers)
+        assert resp.status_code == 404

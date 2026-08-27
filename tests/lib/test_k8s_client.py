@@ -310,6 +310,39 @@ class TestJobOperations:
         result = k8s.delete_job("missing", "user-ns")
         assert result["job"]["success"] is False
 
+    # ── get_job_output ────────────────────────────────────────────────
+
+    def test_get_job_output_success(self, k8s):
+        """Should list pods by job-name label and read their logs."""
+        pod_mock = MagicMock()
+        pod_mock.metadata.name = "myapp-abc123"
+        pod_mock.spec.containers = [MagicMock()]
+        pod_mock.spec.containers[0].name = "myapp"
+        k8s.core_v1.list_namespaced_pod.return_value.items = [pod_mock]
+        k8s.core_v1.read_namespaced_pod_log.return_value = "hello world\n"
+
+        result = k8s.get_job_output("myapp", "user-ns")
+        assert result["name"] == "myapp"
+        assert result["pod"] == "myapp-abc123"
+        assert result["content"] == "hello world\n"
+        k8s.core_v1.list_namespaced_pod.assert_called_once_with(
+            namespace="user-ns", label_selector="job-name=myapp"
+        )
+        k8s.core_v1.read_namespaced_pod_log.assert_called_once_with(
+            name="myapp-abc123", namespace="user-ns", container="myapp"
+        )
+
+    def test_get_job_output_no_pods_returns_error(self, k8s):
+        k8s.core_v1.list_namespaced_pod.return_value.items = []
+        result = k8s.get_job_output("nonexistent", "user-ns")
+        assert "error" in result
+        assert "No pods found" in result["error"]
+
+    def test_get_job_output_api_exception(self, k8s):
+        k8s.core_v1.list_namespaced_pod.side_effect = ApiException(status=403)
+        result = k8s.get_job_output("myapp", "user-ns")
+        assert "error" in result
+
 
 # ---------------------------------------------------------------------------
 # Configuration loading (kubeconfig vs in-cluster ServiceAccount)

@@ -151,6 +151,7 @@ rules:
 | `list_jobs(namespace=None)` | List jobs; return list of dicts with `name`, `image`, `node_name`, `status`, `created` |
 | `get_job_spec(name, namespace)` | Return job spec: `name`, `image`, `node_name`, `env_vars`, `command` |
 | `get_job_status(name, namespace)` | Return `{status, active, ready, succeeded, failed, ...}` |
+| `get_job_output(name, namespace)` | Retrieve job output via pod log endpoint; return `{name, pod, content}` |
 | `delete_job(name, namespace)` | Delete the job; return `{"job": {success, name}}` |
 
 ---
@@ -165,4 +166,5 @@ rules:
 | `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required; `env_vars`, `command` optional) |
 | `GET` | `/api/jobs/<name>` | Return full spec of a job (`name`, `image`, `node_name`, `env_vars`, `command`) |
 | `GET` | `/api/jobs/<name>/status` | Get job status |
+| `GET` | `/api/jobs/<name>/output` | Retrieve job output (stdout/stderr) |
 | `DELETE` | `/api/jobs/<name>` | Delete the job |

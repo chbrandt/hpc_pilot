@@ -219,6 +219,25 @@ components:
         job:
           $ref: "#/components/schemas/OperationResult"
 
+    JobOutput:
+      type: object
+      description: |
+        Job output (stdout/stderr) retrieved through the pod log endpoint.
+        For InterLink-backed jobs, `content` mixes InterLink's own status
+        lines (SLURM submission, node assignment, timing) with the container
+        runtime's actual output — the same content as `kubectl logs`.
+      properties:
+        name:
+          type: string
+          example: my-ubuntu-job
+        pod:
+          type: string
+          example: my-ubuntu-job-abc123
+        content:
+          type: string
+          example: |
+            This pod my-ubuntu-job-abc123/... has been submitted to SLURM ...
+
     # ── Helm ─────────────────────────────────────────────────────────────────
 
     HelmRelease:
@@ -637,6 +656,33 @@ paths:
                 succeeded: 1
                 failed: 0
                 image: docker://ubuntu:22.04
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/jobs/{name}/output:
+    get:
+      tags: [Kubernetes]
+      summary: Retrieve job output
+      description: |
+        Return the job's stdout/stderr as captured through the pod log endpoint.
+
+        For InterLink-backed jobs this includes InterLink's own status lines
+        (SLURM submission, node assignment, timing) followed by the container
+        runtime's output — the same content as `kubectl logs <pod>`.
+      operationId: getJobOutput
+      parameters:
+        - $ref: "#/components/parameters/JobName"
+      responses:
+        "200":
+          description: Job output
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOutput"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

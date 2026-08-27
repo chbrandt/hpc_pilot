@@ -248,6 +248,35 @@ conditions and the `active` / `ready` counters). This endpoint is polled by the
 
 ---
 
+### `GET /api/jobs/<name>/output` — Retrieve job output
+
+Returns the job's stdout/stderr as captured through the pod log endpoint.
+For InterLink-backed jobs this includes InterLink's own status lines (SLURM
+submission, node assignment, timing) followed by the container runtime's
+output — the same content as `kubectl logs <pod>`.
+
+```{code-block} bash
+curl -s \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/jobs/my-job/output | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{
+  "name": "my-job",
+  "pod": "my-job-abc123",
+  "content": "This pod my-job-abc123/... has been submitted to SLURM ...\n"
+}
+```
+
+If no pods exist for the job, or the pod log endpoint is unreachable (e.g.
+the InterLink virtual-kubelet's serving certificate has not been approved),
+the endpoint returns a `404` with `{"error": "..."}`.
+
+---
+
 ### `DELETE /api/jobs/<name>` — Delete a job
 
 Deletes the Deployment. No Service or Ingress is created for jobs, so nothing
@@ -605,6 +634,7 @@ print(resp.json())
 | `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required) |
 | `GET` | `/api/jobs/<name>` | Return full job spec |
 | `GET` | `/api/jobs/<name>/status` | Get job status |
+| `GET` | `/api/jobs/<name>/output` | Retrieve job output (stdout/stderr) |
 | `DELETE` | `/api/jobs/<name>` | Delete a job |
 | `POST` | `/api/interlink` | Install the InterLink singleton chart |
 | `GET` | `/api/interlink` | Get InterLink release values |

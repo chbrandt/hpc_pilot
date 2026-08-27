@@ -459,3 +459,48 @@ class K8sClient:
             return {"job": {"success": True, "name": name}}
         except ApiException as e:
             return {"job": {"success": False, "error": str(e)}}
+
+    # ── Job output ────────────────────────────────────────────────────
+
+    def get_job_output(self, name: str, namespace: str = "default") -> dict:
+        """
+        Retrieve a job's output (stdout/stderr) via the pod log endpoint.
+
+        Locates pods created by the batch/v1 Job (label ``job-name=<name>``)
+        and reads the first pod's container log.  For InterLink-backed
+        jobs the returned text mixes InterLink's own status lines (SLURM
+        submission, node assignment, timing) with the actual container
+        runtime's stdout/stderr — the same content ``kubectl logs`` shows.
+
+        Args:
+            name: The batch/v1 Job name.
+            namespace: The Kubernetes namespace.
+
+        Returns:
+            A dict with ``name``, ``pod``, and ``content`` on success,
+            or ``{"error": "..."}`` on failure (no pods found, or the
+            log endpoint is unreachable — e.g. the InterLink
+            virtual-kubelet's serving certificate has not been approved
+            yet, surfaced by Kubernetes as a TLS handshake error).
+        """
+        try:
+            pods = self.core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=f"job-name={name}"
+            )
+            if not pods.items:
+                return {"error": f"No pods found for job '{name}'"}
+
+            pod = pods.items[0]
+            pod_name = pod.metadata.name
+            container_name = (
+                pod.spec.containers[0].name if pod.spec.containers else name
+            )
+
+            content = self.core_v1.read_namespaced_pod_log(
+                name=pod_name, namespace=namespace, container=container_name
+            )
+            return {"name": name, "pod": pod_name, "content": content}
+
+        except ApiException as e:
+            logger.error(f"Failed to get job output: {e}")
+            return {"error": str(e)}
