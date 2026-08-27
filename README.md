@@ -217,3 +217,4 @@ selection — are already shipped):
 - For the login: besides accepting an access token directly, add a button
   "EGI SSO" triggering access through  authorization code workflow
   interactively through the browser using EGI Check-in AAI (aai.egi.eu, Keycloak)
+ - Remove "save" feature/buttons for HPC and Helm/interlink deployments

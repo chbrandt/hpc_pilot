@@ -39,7 +39,7 @@ tags:
     description: Job operations
   - name: interLink
     description: interLink deployments
-  - name: HPC Nodes
+  - name: HPC
     description: Remote HPC node operations
 
 # ── Components ─────────────────────────────────────────────────────────────────
@@ -420,7 +420,7 @@ paths:
 
   /api/namespaces/ensure:
     post:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Ensure user namespace exists
       description: |
         Idempotently create the authenticated user's personal Kubernetes namespace
@@ -465,7 +465,7 @@ paths:
 
   /api/nodes/interlink:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: List InterLink virtual-kubelet nodes
       description: |
         Return the names of cluster nodes that carry the
@@ -496,7 +496,7 @@ paths:
 
   /api/jobs:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: List jobs
       description: |
         List all container jobs in the authenticated user's namespace.
@@ -521,7 +521,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     post:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Submit a job
       description: |
         Create a Kubernetes Deployment whose pod is scheduled on the specified
@@ -549,6 +549,7 @@ paths:
                   name: my-ubuntu-job
                   image: docker://ubuntu:22.04
                   node_name: vk-node-1
+                  command: "echo Hello World!"
               with_env_and_command:
                 summary: With environment variables and command override
                 value:
@@ -575,7 +576,7 @@ paths:
 
   /api/jobs/{name}:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Get job spec
       description: |
         Return the full specification of a single job as stored in the cluster.
@@ -600,7 +601,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     delete:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Delete a job
       description: |
         Delete the Kubernetes Deployment for this job.
@@ -626,7 +627,7 @@ paths:
 
   /api/jobs/{name}/status:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Get job status
       description: |
         Return the current status for a single job.
@@ -665,7 +666,7 @@ paths:
 
   /api/jobs/{name}/output:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Retrieve job output
       description: |
         Return the job's stdout/stderr as captured through the pod log endpoint.
@@ -694,7 +695,7 @@ paths:
 
   /api/interlink:
     post:
-      tags: [Helm]
+      tags: [interLink]
       summary: Deploy InterLink
       description: |
         Install the InterLink Helm chart into the authenticated user's namespace
@@ -724,7 +725,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     delete:
-      tags: [Helm]
+      tags: [interLink]
       summary: Remove InterLink deployment
       description: Run `helm uninstall` for the InterLink release in the user's namespace.
       operationId: deleteInterlink
@@ -743,7 +744,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     get:
-      tags: [Helm]
+      tags: [interLink]
       summary: Get InterLink deployment values
       description: |
         Return the user-supplied Helm values for the deployed InterLink release.
