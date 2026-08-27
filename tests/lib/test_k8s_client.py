@@ -212,6 +212,41 @@ class TestJobOperations:
         result = k8s.list_jobs(namespace="user-ns")
         assert result == []
 
+    def test_list_jobs_status_failed(self, k8s):
+        job = self._make_job_mock()
+        failed_cond = MagicMock()
+        failed_cond.type = "Failed"
+        failed_cond.status = "True"
+        job.status.conditions = [failed_cond]
+        job.status.failed = 1
+        k8s.batch_v1.list_namespaced_job.return_value.items = [job]
+        result = k8s.list_jobs(namespace="user-ns")
+        assert result[0]["status"] == "failed"
+
+    def test_list_jobs_status_succeeded(self, k8s):
+        job = self._make_job_mock()
+        complete_cond = MagicMock()
+        complete_cond.type = "Complete"
+        complete_cond.status = "True"
+        job.status.conditions = [complete_cond]
+        job.status.succeeded = 1
+        k8s.batch_v1.list_namespaced_job.return_value.items = [job]
+        result = k8s.list_jobs(namespace="user-ns")
+        assert result[0]["status"] == "succeeded"
+
+    def test_list_jobs_status_running(self, k8s):
+        job = self._make_job_mock()
+        job.status.active = 1
+        k8s.batch_v1.list_namespaced_job.return_value.items = [job]
+        result = k8s.list_jobs(namespace="user-ns")
+        assert result[0]["status"] == "running"
+
+    def test_list_jobs_status_unknown(self, k8s):
+        job = self._make_job_mock()
+        k8s.batch_v1.list_namespaced_job.return_value.items = [job]
+        result = k8s.list_jobs(namespace="user-ns")
+        assert result[0]["status"] == "unknown"
+
     # ── get_job_spec ───────────────────────────────────────────────────
 
     def test_get_job_spec_success(self, k8s):

@@ -117,7 +117,7 @@ Each entry (label-filtered to `created-by=hpc-pilot-webapp`):
   "namespace": "user-abc123",
   "image": "ubuntu:22.04",
   "node_name": "virtual-node-user-abc123",
-  "status": "available",
+  "status": "running",
   "created": "2026-08-14 12:34:56"
 }
 ```
@@ -141,19 +141,19 @@ result = k8s.delete_job(name="my-job", namespace="user-abc123")
 {
   "name": "my-job",
   "namespace": "user-abc123",
-  "replicas": 1,
-  "ready_replicas": 1,
-  "available_replicas": 1,
-  "updated_replicas": 1,
-  "replicas_status": "1/1",
-  "status": "available",
+  "ready": 0,
+  "active": 0,
+  "succeeded": 1,
+  "failed": 0,
+  "status": "succeeded",
   "image": "ubuntu:22.04",
   "created": "2026-08-14 12:34:56"
 }
 ```
 
-`status` is `available` / `progressing` / `unknown` (from the Deployment
-conditions).
+`status` is `succeeded` / `failed` / `suspended` / `running` / `unknown`
+(from the batch Job `Complete` / `Failed` / `Suspended` conditions and the
+`active` / `ready` counters).
 
 `delete_job` returns `{"job": {"success": bool, "name" | "error": ...}}`.
 

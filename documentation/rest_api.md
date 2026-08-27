@@ -142,7 +142,7 @@ curl -s \
     "namespace": "user-a3f1b2c4d5e6f7a8",
     "image": "ubuntu:22.04",
     "node_name": "virtual-node-user-a3f1b2c4d5e6f7a8",
-    "status": "available",
+    "status": "running",
     "created": "2026-08-14 12:34:56"
   }
 ]
@@ -231,20 +231,20 @@ curl -s \
 {
   "name": "my-job",
   "namespace": "user-a3f1b2c4d5e6f7a8",
-  "replicas": 1,
-  "ready_replicas": 1,
-  "available_replicas": 1,
-  "updated_replicas": 1,
-  "replicas_status": "1/1",
-  "status": "available",
+  "ready": 0,
+  "active": 0,
+  "succeeded": 1,
+  "failed": 0,
+  "status": "succeeded",
   "image": "ubuntu:22.04",
   "created": "2026-08-14 12:34:56"
 }
 ```
 
-`status` is one of `"available"`, `"progressing"`, or `"unknown"`
-(derived from the Deployment's `Available` / `Progressing` conditions). This
-endpoint is polled by the `status.html` page after a submit.
+`status` is one of `"succeeded"`, `"failed"`, `"suspended"`, `"running"`, or
+`"unknown"` (derived from the batch Job's `Complete` / `Failed` / `Suspended`
+conditions and the `active` / `ready` counters). This endpoint is polled by the
+`status.html` page after a submit until it reaches `succeeded` or `failed`.
 
 ---
 

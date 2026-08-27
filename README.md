@@ -194,7 +194,6 @@ selection — are already shipped):
 ##### Bugs
 
 - In `/api/jobs` POST, validate node_name; reject invalid HPC/node
-- Terminated, failed pod/job run keeps as "progressing" in `/api/jobs` GET
 - 
 
 ##### Improvements

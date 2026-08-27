@@ -153,10 +153,11 @@ submit).
 
 ```json
 {
-  "status": "available | progressing | unknown",
-  "replicas_status": "1/1",
-  "ready_replicas": 1,
-  "replicas": 1
+  "status": "succeeded | failed | suspended | running | unknown",
+  "ready": 0,
+  "active": 0,
+  "succeeded": 1,
+  "failed": 0
 }
 ```
 

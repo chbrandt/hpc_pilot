@@ -258,7 +258,7 @@ class K8sClient:
                 "namespace": namespace,
                 "image": image,
                 "node_name": node_name,
-                "status": "progressing",
+                "status": "running",
             }
         except ApiException as e:
             logger.error(f"Failed to create job: {e}")
@@ -296,7 +296,6 @@ class K8sClient:
 
             result = []
             for dep in jobs.items:
-                ready = dep.status.ready or 0
                 node_selector = dep.spec.template.spec.node_selector or {}
 
                 result.append(
@@ -307,7 +306,7 @@ class K8sClient:
                         if dep.spec.template.spec.containers
                         else "?",
                         "node_name": node_selector.get("kubernetes.io/hostname"),
-                        "status": "available" if ready > 0 else "progressing",
+                        "status": self._job_status(dep),
                         "created": dep.metadata.creation_timestamp.strftime(
                             "%Y-%m-%d %H:%M:%S"
                         )
@@ -383,6 +382,33 @@ class K8sClient:
             logger.error(f"Failed to get job spec: {e}")
             return {"error": str(e)}
 
+    @staticmethod
+    def _job_status(job) -> str:
+        """
+        Map a batch Job's status counters/conditions to a display status.
+
+        A ``batch/v1`` Job exposes its progress through ``.status`` counters
+        (``active``, ``succeeded``, ``failed``, ``ready``) and a ``conditions``
+        list whose entries are typed ``Complete``, ``Failed``, or
+        ``Suspended``.  The condition type is mapped to a display status:
+
+        * ``Complete``   → ``succeeded``
+        * ``Failed``     → ``failed``
+        * ``Suspended``  → ``suspended``
+        * otherwise, an active/ready pod means ``running``, else ``unknown``.
+        """
+        conditions = job.status.conditions or []
+        condition_map = {c.type: c.status for c in conditions}
+        if condition_map.get("Complete") == "True":
+            return "succeeded"
+        if condition_map.get("Failed") == "True":
+            return "failed"
+        if condition_map.get("Suspended") == "True":
+            return "suspended"
+        if (job.status.active or 0) > 0 or (job.status.ready or 0) > 0:
+            return "running"
+        return "unknown"
+
     def get_job_status(self, name: str, namespace: str = "default") -> dict:
         """
         Get detailed status for a single batch Job.
@@ -406,20 +432,6 @@ class K8sClient:
             succeeded = job.status.succeeded or 0
             failed = job.status.failed or 0
 
-            # Determine display status from Job conditions (Complete/Failed/Suspended)
-            conditions = job.status.conditions or []
-            condition_map = {c.type: c.status for c in conditions}
-            if condition_map.get("Complete") == "True":
-                condition = "succeeded"
-            elif condition_map.get("Failed") == "True":
-                condition = "failed"
-            elif condition_map.get("Suspended") == "True":
-                condition = "suspended"
-            elif active > 0 or ready > 0:
-                condition = "running"
-            else:
-                condition = "unknown"
-
             return {
                 "name": job.metadata.name,
                 "namespace": job.metadata.namespace,
@@ -427,7 +439,7 @@ class K8sClient:
                 "active": active,
                 "succeeded": succeeded,
                 "failed": failed,
-                "status": condition,
+                "status": self._job_status(job),
                 "image": job.spec.template.spec.containers[0].image
                 if job.spec.template.spec.containers
                 else "?",

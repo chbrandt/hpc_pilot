@@ -130,8 +130,8 @@ components:
               example: vk-node-1
             status:
               type: string
-              enum: [progressing, available, unknown]
-              example: progressing
+              enum: [succeeded, failed, suspended, running, unknown]
+              example: running
 
     JobSummary:
       type: object
@@ -151,8 +151,8 @@ components:
           example: vk-node-1
         status:
           type: string
-          enum: [available, progressing, unknown]
-          example: available
+          enum: [succeeded, failed, suspended, running, unknown]
+          example: succeeded
         created:
           type: string
           format: date-time
@@ -192,11 +192,20 @@ components:
           example: user-a3f1b2c4d5e6f7a8
         status:
           type: string
-          enum: [available, progressing, unknown]
-          example: available
+          enum: [succeeded, failed, suspended, running, unknown]
+          example: succeeded
         ready:
           type: integer
+          example: 0
+        active:
+          type: integer
+          example: 0
+        succeeded:
+          type: integer
           example: 1
+        failed:
+          type: integer
+          example: 0
         image:
           type: string
           example: docker://ubuntu:22.04
@@ -601,11 +610,13 @@ paths:
       tags: [Kubernetes]
       summary: Get job status
       description: |
-        Return the current rollout status for a single job.
+        Return the current status for a single job.
 
-        The `status` field maps Kubernetes Deployment conditions to display states:
-        - `available` — `Available=True`
-        - `progressing` — `Progressing=True` and not yet available
+        The `status` field maps Kubernetes batch Job conditions to display states:
+        - `succeeded` — `Complete=True`
+        - `failed` — `Failed=True`
+        - `suspended` — `Suspended=True`
+        - `running` — an active/ready pod is running
         - `unknown` — no recognised condition
       operationId: getJobStatus
       parameters:
@@ -620,12 +631,11 @@ paths:
               example:
                 name: my-ubuntu-job
                 namespace: user-a3f1b2c4d5e6f7a8
-                status: available
-                replicas_status: "1/1"
-                ready_replicas: 1
-                available_replicas: 1
-                updated_replicas: 1
-                replicas: 1
+                status: succeeded
+                ready: 0
+                active: 0
+                succeeded: 1
+                failed: 0
                 image: docker://ubuntu:22.04
         "401":
           $ref: "#/components/responses/Unauthorized"

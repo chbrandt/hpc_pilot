@@ -116,7 +116,7 @@ Browser            app/ (k8s_bp)        api_client          api/ (k8s_bp)       
    │                  │                    │◄──────────────────│                    │                  │
    │ render status    │◄────────────────── │                   │                    │                  │
    │◄─────────────────│                    │                   │                    │                  │
-   │  (status.html polls GET /jobs/<name>/status until "available")                │                  │
+   │  (status.html polls GET /jobs/<name>/status until "succeeded"/"failed")            │                  │
 ```
 
 The submitted `Deployment` is pinned to an InterLink virtual-kubelet node;
