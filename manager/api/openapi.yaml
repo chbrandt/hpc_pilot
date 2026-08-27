@@ -41,6 +41,8 @@ tags:
     description: interLink deployments
   - name: HPC
     description: Remote HPC node operations
+  - name: Namespaces
+    description: Manage user space 
 
 # ── Components ─────────────────────────────────────────────────────────────────
 
@@ -416,82 +418,6 @@ components:
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 paths:
-  # ── Kubernetes: Namespace ────────────────────────────────────────────────
-
-  /api/namespaces/ensure:
-    post:
-      tags: [Jobs]
-      summary: Ensure user namespace exists
-      description: |
-        Idempotently create the authenticated user's personal Kubernetes namespace
-        (derived from the Bearer token's `sub` claim).
-
-        Safe to call on every login — returns `{"created": false}` when the
-        namespace already exists.
-      operationId: ensureNamespace
-      responses:
-        "200":
-          description: Namespace already existed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  namespace:
-                    type: string
-                    example: user-a3f1b2c4d5e6f7a8
-                  created:
-                    type: boolean
-                    example: false
-        "201":
-          description: Namespace was created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  namespace:
-                    type: string
-                    example: user-a3f1b2c4d5e6f7a8
-                  created:
-                    type: boolean
-                    example: true
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  # ── Kubernetes: InterLink nodes ──────────────────────────────────────────
-
-  /api/nodes/interlink:
-    get:
-      tags: [Jobs]
-      summary: List InterLink virtual-kubelet nodes
-      description: |
-        Return the names of cluster nodes that carry the
-        `virtual-node.interlink/no-schedule` taint — these are the nodes that
-        forward pods to HPC batch jobs via InterLink.
-
-        Use the returned names as the `node_name` value when submitting a job.
-      operationId: listInterlinkNodes
-      responses:
-        "200":
-          description: List of InterLink node names
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  nodes:
-                    type: array
-                    items:
-                      type: string
-                    example: ["vk-node-1", "vk-node-2"]
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
   # ── Kubernetes: Jobs ─────────────────────────────────────────────────────
 
   /api/jobs:
@@ -774,6 +700,37 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  # InterLink nodes ──────────────────────────────────────────
+
+  /api/nodes/interlink:
+    get:
+      tags: [interLink]
+      summary: List InterLink virtual-kubelet nodes
+      description: |
+        Return the names of cluster nodes that carry the
+        `virtual-node.interlink/no-schedule` taint — these are the nodes that
+        forward pods to HPC batch jobs via InterLink.
+
+        Use the returned names as the `node_name` value when submitting a job.
+      operationId: listInterlinkNodes
+      responses:
+        "200":
+          description: List of InterLink node names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: string
+                    example: ["vk-node-1", "vk-node-2"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   # ── HPC ──────────────────────────────────────────────────────────────────
 
   /api/hpc/nodes:
@@ -957,6 +914,51 @@ paths:
                 $ref: "#/components/schemas/HpcOperationResult"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # Namespaces ────────────────────────────────────────────────
+
+  /api/namespaces/ensure:
+    post:
+      tags: [Namespaces]
+      summary: Ensure user namespace exists
+      description: |
+        Idempotently create the authenticated user's personal Kubernetes namespace
+        (derived from the Bearer token's `sub` claim).
+
+        Safe to call on every login — returns `{"created": false}` when the
+        namespace already exists.
+      operationId: ensureNamespace
+      responses:
+        "200":
+          description: Namespace already existed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  created:
+                    type: boolean
+                    example: false
+        "201":
+          description: Namespace was created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  created:
+                    type: boolean
+                    example: true
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
