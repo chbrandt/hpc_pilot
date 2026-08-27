@@ -118,6 +118,7 @@ kubectl get ingress -n hpc-pilot
 | `interlinkConfig.version` | `null` | Pin a chart version, or `null` for latest |
 | `interlinkConfig.interlink.address` | `http://0.0.0.0` | InterLink API server bind address |
 | `interlinkConfig.interlink.port` | `3000` | InterLink API server port |
+| `interlinkConfig.interlink.disableProjectedVolumes` | `true` | Disable projected service-account token volumes on the virtual-kubelet pod |
 | `interlinkConfig.plugin.address` | `http://0.0.0.0` | Plugin bind address (HPC side) |
 | `interlinkConfig.plugin.port` | `4000` | Plugin port |
 | `interlinkConfig.wstunnel.port` | `8080` | wstunnel server port inside the pod |

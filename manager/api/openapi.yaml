@@ -35,12 +35,12 @@ security:
   - bearerAuth: []
 
 tags:
-  - name: Kubernetes
-    description: Container job operations (Kubernetes + InterLink)
-  - name: Helm
-    description: Helm chart operations
-  - name: HPC
-    description: Remote HPC node operations (wstunnel + supervisord)
+  - name: Jobs
+    description: Job operations
+  - name: interLink
+    description: interLink deployments
+  - name: HPC Nodes
+    description: Remote HPC node operations
 
 # ── Components ─────────────────────────────────────────────────────────────────
 

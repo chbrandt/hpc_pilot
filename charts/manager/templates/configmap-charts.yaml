@@ -26,6 +26,7 @@ data:
             enabled: true
             address: {{ .Values.interlinkConfig.interlink.address | default "http://0.0.0.0" }}
             port: {{ .Values.interlinkConfig.interlink.port | default 3000 }}
+            disableProjectedVolumes: {{ .Values.interlinkConfig.interlink.disableProjectedVolumes }}
           plugin:
             enabled: false
             address: {{ .Values.interlinkConfig.plugin.address | default "http://0.0.0.0" }}
