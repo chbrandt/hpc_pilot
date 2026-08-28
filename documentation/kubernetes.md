@@ -103,6 +103,10 @@ rules:
     resources: ["namespaces", "nodes", "pods"]
     verbs: ["get", "list", "create"]          # pods: read for status polling
 
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]                            # read job pod stdout/stderr (job output)
+
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "delete"]   # watch: InterLink VK informers
@@ -121,13 +125,14 @@ rules:
     verbs: ["get", "list", "create", "update", "delete"]
 
   # The InterLink chart creates a per-user ServiceAccount + cluster-scoped
-  # RBAC (ClusterRole/ClusterRoleBinding) for its virtual-kubelet; helm needs
-  # get/create/delete on these to install and uninstall the chart:
+  # RBAC (ClusterRole/ClusterRoleBinding) for its virtual-kubelet, and a
+  # namespace-scoped Role/RoleBinding (e.g. interlink-node-reader); helm needs
+  # get/create/delete on all of these to install and uninstall the chart:
   - apiGroups: [""]
     resources: ["serviceaccounts"]
     verbs: ["get", "list", "create", "delete"]
   - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["clusterroles", "clusterrolebindings"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
     verbs: ["get", "list", "create", "delete"]
 ```
 
@@ -150,6 +155,8 @@ rules:
 | `list_jobs(namespace=None)` | List jobs; return list of dicts with `name`, `image`, `node_name`, `status`, `created` |
 | `get_job_spec(name, namespace)` | Return job spec: `name`, `image`, `node_name`, `env_vars`, `command` |
 | `get_job_status(name, namespace)` | Return `{status, active, ready, succeeded, failed, ...}` |
+| `get_job_output(name, namespace)` | Retrieve job output via pod log endpoint; return `{name, pod, content}`; self-heals TLS errors by approving the VK serving-cert CSR |
+| `approve_pending_csrs(namespace, timeout, poll_interval)` | Approve pending `kubernetes.io/kubelet-serving` CSRs from the namespace's InterLink virtual-kubelet SA; return the approved CSR names |
 | `delete_job(name, namespace)` | Delete the job; return `{"job": {success, name}}` |
 
 ---
@@ -164,4 +171,5 @@ rules:
 | `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required; `env_vars`, `command` optional) |
 | `GET` | `/api/jobs/<name>` | Return full spec of a job (`name`, `image`, `node_name`, `env_vars`, `command`) |
 | `GET` | `/api/jobs/<name>/status` | Get job status |
+| `GET` | `/api/jobs/<name>/output` | Retrieve job output (stdout/stderr) |
 | `DELETE` | `/api/jobs/<name>` | Delete the job |

@@ -17,7 +17,7 @@ manage per-user [InterLink](https://interlink-project.dev) pod deployments.
 |---|---|---|
 | `hpc-pilot` | `Namespace` | Dedicated namespace for the manager |
 | `hpc-pilot-manager` | `ServiceAccount` | In-cluster identity for the pod |
-| `egi-hpc-pilot` | `ClusterRole` | RBAC: namespaces, deployments, services, ingresses, nodes, pods, secrets/configmaps, events, replicasets |
+| `egi-hpc-pilot` | `ClusterRole` | RBAC superset of the InterLink virtual-kubelet role: namespaces, jobs, services, ingresses, nodes (+status), pods (+status), configmaps, secrets, events, deployments, replicasets, serviceaccounts (+token), certificatesigningrequests (+approval), leases, and cluster/role RBAC |
 | `egi-hpc-pilot` | `ClusterRoleBinding` | Binds the ClusterRole to the ServiceAccount |
 | `<release>-manager` | `Secret` | Flask session secret key |
 | `<release>-manager-site-config` | `ConfigMap` | `site_config.yaml` (hostname, wstunnel ports, allowed_groups) |
@@ -118,6 +118,7 @@ kubectl get ingress -n hpc-pilot
 | `interlinkConfig.version` | `null` | Pin a chart version, or `null` for latest |
 | `interlinkConfig.interlink.address` | `http://0.0.0.0` | InterLink API server bind address |
 | `interlinkConfig.interlink.port` | `3000` | InterLink API server port |
+| `interlinkConfig.interlink.disableProjectedVolumes` | `true` | Disable projected service-account token volumes on the virtual-kubelet pod |
 | `interlinkConfig.plugin.address` | `http://0.0.0.0` | Plugin bind address (HPC side) |
 | `interlinkConfig.plugin.port` | `4000` | Plugin port |
 | `interlinkConfig.wstunnel.port` | `8080` | wstunnel server port inside the pod |

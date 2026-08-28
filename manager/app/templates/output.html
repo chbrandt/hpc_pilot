@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Job Output — HPC Pilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📄 Job Output</h1>
+  <p class="text-muted">
+    Job <strong>{{ name }}</strong> &mdash;
+    Namespace <code class="namespace-badge-inline">{{ namespace }}</code>
+    {% if pod %}&mdash; Pod <code class="text-mono">{{ pod }}</code>{% endif %}
+  </p>
+</div>
+
+{% if error %}
+<div class="alert alert-error">
+  Could not retrieve job output:
+  <pre class="error-detail">{{ error }}</pre>
+</div>
+{% else %}
+<div class="helm-output">
+  <pre class="output-block text-mono" style="max-height:70vh;overflow:auto;white-space:pre-wrap;word-break:break-word;">{{ content }}</pre>
+</div>
+{% endif %}
+
+<div class="form-actions">
+  <a href="{{ url_for('app_k8s.job_output', namespace=namespace, name=name) }}" class="btn btn-secondary">🔄 Refresh</a>
+  <a href="{{ url_for('app_k8s.jobs') }}" class="btn btn-primary">← All Jobs</a>
+</div>
+{% endblock %}

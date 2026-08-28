@@ -75,6 +75,35 @@ class TestDeployInterlink:
         data = resp.get_json(force=True)
         assert data["success"] is True
 
+    def test_approves_vk_csr_after_successful_install(self, client, auth_headers):
+        """POST /api/interlink must approve the virtual-kubelet's pending
+        serving-cert CSR right after a successful helm install."""
+        headers, _ = auth_headers
+        result = {"success": True, "output": "Release installed"}
+        k8s = _mock_k8s(namespace_exists=True)
+        k8s.approve_pending_csrs.return_value = ["vk-virtual-node-user-abc123-x"]
+        p1, p2, p3 = _default_chart_patches()
+        with p1, p2, p3, patch(K8S_PATCH, return_value=k8s), patch(
+            HELM_INSTALL_PATCH, return_value=result
+        ):
+            resp = client.post(self.URL, headers=headers)
+        assert resp.status_code == 201
+        k8s.approve_pending_csrs.assert_called_once()
+
+    def test_csr_approval_failure_does_not_fail_install(self, client, auth_headers):
+        """CSR approval is best-effort: an exception must not flip a
+        successful install into a 5xx."""
+        headers, _ = auth_headers
+        result = {"success": True, "output": "Release installed"}
+        k8s = _mock_k8s(namespace_exists=True)
+        k8s.approve_pending_csrs.side_effect = RuntimeError("rbac denied")
+        p1, p2, p3 = _default_chart_patches()
+        with p1, p2, p3, patch(K8S_PATCH, return_value=k8s), patch(
+            HELM_INSTALL_PATCH, return_value=result
+        ):
+            resp = client.post(self.URL, headers=headers)
+        assert resp.status_code == 201
+
     def test_helm_failure_returns_400(self, client, auth_headers):
         headers, _ = auth_headers
         result = {"success": False, "output": "", "error": "already installed"}

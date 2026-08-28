@@ -63,6 +63,7 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_REPO }}:test-${{ github.sha }}
+            ${{ env.IMAGE_REPO }}:test
 
       - name: Package manager Helm chart
         run: |

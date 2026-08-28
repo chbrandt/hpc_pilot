@@ -159,18 +159,20 @@ selection — are already shipped):
 
 #### General
 
-- Change `/api/namespaces/ensure` to `/api/init`.
+- Change `/api/namespaces/ensure` to POST/DELETE `/api/userspace/`.
+- Implement /health endpoint
+- Unify all configuration attributes manager demands into one "config.yaml".
+- 
 
 #### HPC
 
 ##### Bugs
 
-- Fix empty
+- 
 
 ##### Improvements
 
-- Change `/api/hpc/deploy` to a GET with hpc node name as a query parameter.
-- Change `/api/hpc/status` to a GET with hpc node name as a query parameter.
+- Change /api/hpc/status from POST to GET
 - Check output from `/api/hpc/status` for `status` and `error` fields, and
   return a 404 if the node is not deployed.
 - Change `/api/hpc/nodes` to `/api/hpc/list`; with optional query parameter
@@ -184,17 +186,16 @@ selection — are already shipped):
 
 ##### Improvements
 
-- Change `/api/interlink` POST (deploy) to required the HPC node it is to bind.
-- Unify all configuration attributes manager demands into one "config.yaml".
-- Move `/api/nodes/interlink` to OpenAPI "Helm" section.
-- Rename OpenAPI section "Helm" to "interLink".
+- Change `/api/interlink` POST (deploy) to require the HPC node "name" to bind
+- Valid names are HPC nodes options (/api/hpc/nodes)
+- Move `/api/nodes/interlink` to `/api/interlink/nodes`.
+- GET/DELETE `/api/interlink` to accept an attribute /api/interlink/{name}
 
 #### Jobs
 
 ##### Bugs
 
 - In `/api/jobs` POST, validate node_name; reject invalid HPC/node
-- Terminated, failed pod/job run keeps as "progressing" in `/api/jobs` GET
 - 
 
 ##### Improvements
@@ -205,3 +206,15 @@ selection — are already shipped):
   The latter will accept Pod (yaml) manifests and run as it is;
   The former, keep the simplify format, with a well-defined set of attibutes
   received at the endpoint to merge with a pod template.
+
+### (Web) App
+
+#### Improvements
+
+- Landing page ("Home"): list of "Jobs" and "HPC Nodes"
+- Other pages are: "Submit Job" and "Manage Nodes"
+- Manage Nodes has two sessions corresponding to "Deploy Chart" and "Deploy HPC"
+- For the login: besides accepting an access token directly, add a button
+  "EGI SSO" triggering access through  authorization code workflow
+  interactively through the browser using EGI Check-in AAI (aai.egi.eu, Keycloak)
+ - Remove "save" feature/buttons for HPC and Helm/interlink deployments

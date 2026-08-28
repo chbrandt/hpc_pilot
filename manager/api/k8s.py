@@ -25,6 +25,9 @@ GET  /api/jobs/<name>
 GET  /api/jobs/<name>/status
     Get detailed status for a single job.
 
+GET  /api/jobs/<name>/output
+    Retrieve the job's output (stdout/stderr) via the pod log endpoint.
+
 DELETE /api/jobs/<name>
     Delete a job.
 """
@@ -211,6 +214,23 @@ def job_status(name: str):
         return _ok(status)
     except Exception as exc:
         logger.error("job_status failed: %s", exc)
+        return _err(str(exc), 500)
+
+
+@k8s_bp.route("/jobs/<name>/output", methods=["GET"])
+@require_token
+def job_output(name: str):
+    """Retrieve a job's output (stdout/stderr) via the pod log endpoint."""
+    claims = get_request_claims()
+    namespace = claims["namespace"]
+    try:
+        k8s = _get_k8s()
+        output = k8s.get_job_output(name=name, namespace=namespace)
+        if "error" in output:
+            return _err(output["error"], 404)
+        return _ok(output)
+    except Exception as exc:
+        logger.error("job_output failed: %s", exc)
         return _err(str(exc), 500)
 
 

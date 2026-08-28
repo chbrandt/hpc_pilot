@@ -104,6 +104,7 @@ interlink:
   enabled: true
   address: http://0.0.0.0
   port: 3000
+  disableProjectedVolumes: true  # no projected service-account token volumes on the VK pod
 
 plugin:
   enabled: false            # deployed on the HPC edge-node, not in the pod

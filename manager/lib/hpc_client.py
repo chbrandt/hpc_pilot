@@ -144,17 +144,23 @@ def _copy_mccli(
             timeout=timeout,
         )
         stdout = result.stdout.decode(errors="replace").replace("\r\n", "\n")
+        stderr = result.stderr.decode(errors="replace").replace("\r\n", "\n")
 
-        # There is never stderr/unsuccsessful returncode from mccli!
-        # stderr = result.stderr.decode(errors="replace").replace("\r\n", "\n")
-        # success = result.returncode == 0
-        success = not len(stdout.strip())  # mccli scp outputs nothing on success
-
-        return {
-            "success": success,
-            "output": f"File copied successfully." if success else "",
-            "error": stdout if not success else "",
-        }
+        # Success requires a zero exit code.  The previous heuristic — "scp
+        # succeeded iff stdout is empty" — is wrong: `scp -q` writes errors to
+        # *stderr* (with a non-zero return code), leaving stdout empty even on
+        # failure, so failed copies were silently reported as successes and
+        # later steps (e.g. start_supervisord) failed with a misleading
+        # "config file not found".
+        if result.returncode != 0:
+            error = stderr.strip() or stdout.strip() or f"scp failed (exit {result.returncode})"
+            logger.error("mccli scp failed (rc=%s): %s", result.returncode, error)
+            return {"success": False, "output": "", "error": error}
+        # rc==0 but stderr non-empty: warn (some servers print banners) but
+        # treat the copy as successful.
+        if stderr.strip():
+            logger.warning("mccli scp succeeded with stderr: %s", stderr.strip())
+        return {"success": True, "output": "File copied successfully.", "error": ""}
     except subprocess.TimeoutExpired:
         return {
             "success": False,
@@ -225,18 +231,24 @@ def _run_mccli(
             timeout=timeout,
         )
         stdout = result.stdout.decode(errors="replace").replace("\r\n", "\n")
+        stderr = result.stderr.decode(errors="replace").replace("\r\n", "\n")
 
-        # There is never stderr/unsuccsessful returncode from mccli!
-        # stderr = result.stderr.decode(errors="replace").replace("\r\n", "\n")
-        # success = result.returncode == 0
-        success = "__MCCLI_COMMAND_FAILED__" not in stdout
+        # The remote command is wrapped with `|| echo __MCCLI_COMMAND_FAILED__`,
+        # so the marker appears iff the remote command exited non-zero.
+        command_failed = "__MCCLI_COMMAND_FAILED__" in stdout
         stdout = stdout.replace("__MCCLI_COMMAND_FAILED__", "").strip()
 
-        return {
-            "success": success,
-            "output": stdout if success else "",
-            "error": stdout if not success else "",
-        }
+        # mccli itself may fail (auth/connection) with a non-zero return code
+        # and the message on stderr — surface that too (previously stderr was
+        # discarded, so such failures were invisible).
+        if command_failed or result.returncode != 0:
+            parts = [p for p in (stdout, stderr.strip()) if p]
+            error = "\n".join(parts) or f"remote command failed (exit {result.returncode})"
+            logger.error("mccli ssh failed (rc=%s): %s", result.returncode, error)
+            return {"success": False, "output": "", "error": error}
+        if stderr.strip():
+            logger.debug("mccli ssh stderr: %s", stderr.strip())
+        return {"success": True, "output": stdout, "error": ""}
     except subprocess.TimeoutExpired:
         return {
             "success": False,
@@ -252,6 +264,42 @@ def _run_mccli(
                 "Install the motley-cue client: pip install mccli"
             ),
         }
+
+
+def _copy_via_stdin_mccli(
+    token: str,
+    hpc_host: str,
+    ssh_port: int,
+    local_path: str,
+    remote_path: str,
+    timeout: int = _SHORT_TIMEOUT,
+) -> dict:
+    """
+    Copy a local file to the remote node by piping its content over the SSH
+    *exec* channel (``cat > <remote>``).
+
+    This is a fallback for :func:`_copy_mccli` (which uses the SFTP/scp
+    channel) for hosts where the scp channel is unavailable — e.g. some
+    motley-cue endpoints that only permit command execution.  It uses the
+    same ``mccli ssh`` path that every other remote command uses, so it works
+    wherever ``runner(...)`` works.
+
+    Returns
+    -------
+    dict  ``{success, output, error}``
+    """
+    with open(local_path, "rb") as f:
+        data = f.read()
+
+    # `cat` reads the piped stdin and writes it to the remote file.  The
+    # `|| echo __MCCLI_COMMAND_FAILED__` appended by _run_mccli marks failure
+    # (e.g. permission denied writing the file).
+    cmd = f"cat > {remote_path}"
+    logger.info("mccli -> %s: cat (stdin) > %s", hpc_host, remote_path)
+    result = _run_mccli(token, hpc_host, ssh_port, cmd, stdin_data=data, timeout=timeout)
+    if result["success"]:
+        result["output"] = "File copied successfully (via cat over ssh)."
+    return result
 
 
 # def _sh_quote(value: str) -> str:
@@ -384,8 +432,22 @@ def deploy(
     # Build a runner that dispatches every remote command through _run_mccli.
     def runner(command: str, stdin_data: Optional[bytes] = None, timeout: int = _SHORT_TIMEOUT) -> dict:
         return _run_mccli(token, hpc_host, ssh_port, command, stdin_data=stdin_data, timeout=timeout)
+
     def copier(local_path: str, remote_path: str, timeout: int = _SHORT_TIMEOUT) -> dict:
-        return _copy_mccli(token, hpc_host, ssh_port, local_path, remote_path, timeout=timeout)
+        """Copy a file to the remote node.
+
+        Tries the scp/SFTP channel first; on failure (common on motley-cue
+        endpoints that only allow command execution) falls back to piping the
+        file over the ssh exec channel, which works wherever `runner` works.
+        """
+        result = _copy_mccli(token, hpc_host, ssh_port, local_path, remote_path, timeout=timeout)
+        if result["success"]:
+            return result
+        logger.warning(
+            "scp copy of %s failed (%s); falling back to cat-over-ssh",
+            local_path, result.get("error", ""),
+        )
+        return _copy_via_stdin_mccli(token, hpc_host, ssh_port, local_path, remote_path, timeout=timeout)
 
     logger.info(
         "Deploying HPC stack to %s (wstunnel → wss://%s:%s, plugin=%s)",
@@ -410,7 +472,10 @@ def deploy(
         result = step_fn()
         if result.get("output"):
             step_output = f"[{step_name}] {result['output']}"
-            print(step_output)
+            # Log with a timestamp so step outputs are visible in the server
+            # log (previously they were only `print`-ed to stdout, unbuffered
+            # and interleaved, so failures were hard to diagnose).
+            logger.info("Deploy step '%s' output: %s", step_name, result["output"])
             all_output.append(step_output)
         if not result["success"]:
             logger.error(
@@ -467,7 +532,7 @@ def undeploy(token: str, hpc_host: str, ssh_port: int = 22) -> dict:
         result = step_fn()
         if result.get("output"):
             step_output = f"[{step_name}] {result['output']}"
-            print(step_output)
+            logger.info("Undeploy step '%s' output: %s", step_name, result["output"])
             all_output.append(step_output)
         if not result["success"]:
             logger.error(

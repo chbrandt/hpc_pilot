@@ -142,7 +142,7 @@ curl -s \
     "namespace": "user-a3f1b2c4d5e6f7a8",
     "image": "ubuntu:22.04",
     "node_name": "virtual-node-user-a3f1b2c4d5e6f7a8",
-    "status": "available",
+    "status": "running",
     "created": "2026-08-14 12:34:56"
   }
 ]
@@ -231,20 +231,58 @@ curl -s \
 {
   "name": "my-job",
   "namespace": "user-a3f1b2c4d5e6f7a8",
-  "replicas": 1,
-  "ready_replicas": 1,
-  "available_replicas": 1,
-  "updated_replicas": 1,
-  "replicas_status": "1/1",
-  "status": "available",
+  "ready": 0,
+  "active": 0,
+  "succeeded": 1,
+  "failed": 0,
+  "status": "succeeded",
   "image": "ubuntu:22.04",
   "created": "2026-08-14 12:34:56"
 }
 ```
 
-`status` is one of `"available"`, `"progressing"`, or `"unknown"`
-(derived from the Deployment's `Available` / `Progressing` conditions). This
-endpoint is polled by the `status.html` page after a submit.
+`status` is one of `"succeeded"`, `"failed"`, `"suspended"`, `"running"`, or
+`"unknown"` (derived from the batch Job's `Complete` / `Failed` / `Suspended`
+conditions and the `active` / `ready` counters). This endpoint is polled by the
+`status.html` page after a submit until it reaches `succeeded` or `failed`.
+
+---
+
+### `GET /api/jobs/<name>/output` — Retrieve job output
+
+Returns the job's stdout/stderr as captured through the pod log endpoint.
+For InterLink-backed jobs this includes InterLink's own status lines (SLURM
+submission, node assignment, timing) followed by the container runtime's
+output — the same content as `kubectl logs <pod>`.
+
+```{code-block} bash
+curl -s \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/jobs/my-job/output | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{
+  "name": "my-job",
+  "pod": "my-job-abc123",
+  "content": "This pod my-job-abc123/... has been submitted to SLURM ...\n"
+}
+```
+
+If no pods exist for the job, or the pod log endpoint is unreachable, the
+endpoint returns a `404` with `{"error": "..."}`.
+
+```{note}
+Fetching logs of a pod on an InterLink virtual node is proxied by the API
+server through the virtual-kubelet's serving endpoint (``:10250``). The
+manager automatically approves the virtual-kubelet's
+`kubernetes.io/kubelet-serving` CSR right after install — and, as a
+self-healing fallback, when a log request fails with a TLS handshake error
+(`remote error: tls: internal error`). Without the approved certificate the
+API server cannot fetch any logs from the virtual node.
+```
 
 ---
 
@@ -291,6 +329,12 @@ curl -s -X POST \
 
 ```{note}
 This call blocks for the duration of `helm install --wait` (timeout 5 minutes).
+
+After a successful install the manager also approves the virtual-kubelet's
+`kubernetes.io/kubelet-serving` certificate CSR (Kubernetes ships no
+auto-approval for serving CSRs). This is best-effort and never fails the
+install; it is retried transparently if a pod-log request later fails with
+a TLS handshake error.
 ```
 
 **Response `201`** (installed):
@@ -605,6 +649,7 @@ print(resp.json())
 | `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required) |
 | `GET` | `/api/jobs/<name>` | Return full job spec |
 | `GET` | `/api/jobs/<name>/status` | Get job status |
+| `GET` | `/api/jobs/<name>/output` | Retrieve job output (stdout/stderr) |
 | `DELETE` | `/api/jobs/<name>` | Delete a job |
 | `POST` | `/api/interlink` | Install the InterLink singleton chart |
 | `GET` | `/api/interlink` | Get InterLink release values |

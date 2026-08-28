@@ -35,12 +35,14 @@ security:
   - bearerAuth: []
 
 tags:
-  - name: Kubernetes
-    description: Container job operations (Kubernetes + InterLink)
-  - name: Helm
-    description: Helm chart operations
+  - name: Jobs
+    description: Job operations
+  - name: interLink
+    description: interLink deployments
   - name: HPC
-    description: Remote HPC node operations (wstunnel + supervisord)
+    description: Remote HPC node operations
+  - name: Namespaces
+    description: Manage user space 
 
 # ── Components ─────────────────────────────────────────────────────────────────
 
@@ -130,8 +132,8 @@ components:
               example: vk-node-1
             status:
               type: string
-              enum: [progressing, available, unknown]
-              example: progressing
+              enum: [succeeded, failed, suspended, running, unknown]
+              example: running
 
     JobSummary:
       type: object
@@ -151,8 +153,8 @@ components:
           example: vk-node-1
         status:
           type: string
-          enum: [available, progressing, unknown]
-          example: available
+          enum: [succeeded, failed, suspended, running, unknown]
+          example: succeeded
         created:
           type: string
           format: date-time
@@ -192,11 +194,20 @@ components:
           example: user-a3f1b2c4d5e6f7a8
         status:
           type: string
-          enum: [available, progressing, unknown]
-          example: available
+          enum: [succeeded, failed, suspended, running, unknown]
+          example: succeeded
         ready:
           type: integer
+          example: 0
+        active:
+          type: integer
+          example: 0
+        succeeded:
+          type: integer
           example: 1
+        failed:
+          type: integer
+          example: 0
         image:
           type: string
           example: docker://ubuntu:22.04
@@ -209,6 +220,25 @@ components:
       properties:
         job:
           $ref: "#/components/schemas/OperationResult"
+
+    JobOutput:
+      type: object
+      description: |
+        Job output (stdout/stderr) retrieved through the pod log endpoint.
+        For InterLink-backed jobs, `content` mixes InterLink's own status
+        lines (SLURM submission, node assignment, timing) with the container
+        runtime's actual output — the same content as `kubectl logs`.
+      properties:
+        name:
+          type: string
+          example: my-ubuntu-job
+        pod:
+          type: string
+          example: my-ubuntu-job-abc123
+        content:
+          type: string
+          example: |
+            This pod my-ubuntu-job-abc123/... has been submitted to SLURM ...
 
     # ── Helm ─────────────────────────────────────────────────────────────────
 
@@ -388,87 +418,11 @@ components:
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 paths:
-  # ── Kubernetes: Namespace ────────────────────────────────────────────────
-
-  /api/namespaces/ensure:
-    post:
-      tags: [Kubernetes]
-      summary: Ensure user namespace exists
-      description: |
-        Idempotently create the authenticated user's personal Kubernetes namespace
-        (derived from the Bearer token's `sub` claim).
-
-        Safe to call on every login — returns `{"created": false}` when the
-        namespace already exists.
-      operationId: ensureNamespace
-      responses:
-        "200":
-          description: Namespace already existed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  namespace:
-                    type: string
-                    example: user-a3f1b2c4d5e6f7a8
-                  created:
-                    type: boolean
-                    example: false
-        "201":
-          description: Namespace was created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  namespace:
-                    type: string
-                    example: user-a3f1b2c4d5e6f7a8
-                  created:
-                    type: boolean
-                    example: true
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  # ── Kubernetes: InterLink nodes ──────────────────────────────────────────
-
-  /api/nodes/interlink:
-    get:
-      tags: [Kubernetes]
-      summary: List InterLink virtual-kubelet nodes
-      description: |
-        Return the names of cluster nodes that carry the
-        `virtual-node.interlink/no-schedule` taint — these are the nodes that
-        forward pods to HPC batch jobs via InterLink.
-
-        Use the returned names as the `node_name` value when submitting a job.
-      operationId: listInterlinkNodes
-      responses:
-        "200":
-          description: List of InterLink node names
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  nodes:
-                    type: array
-                    items:
-                      type: string
-                    example: ["vk-node-1", "vk-node-2"]
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
   # ── Kubernetes: Jobs ─────────────────────────────────────────────────────
 
   /api/jobs:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: List jobs
       description: |
         List all container jobs in the authenticated user's namespace.
@@ -493,7 +447,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     post:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Submit a job
       description: |
         Create a Kubernetes Deployment whose pod is scheduled on the specified
@@ -521,6 +475,7 @@ paths:
                   name: my-ubuntu-job
                   image: docker://ubuntu:22.04
                   node_name: vk-node-1
+                  command: "echo Hello World!"
               with_env_and_command:
                 summary: With environment variables and command override
                 value:
@@ -547,7 +502,7 @@ paths:
 
   /api/jobs/{name}:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Get job spec
       description: |
         Return the full specification of a single job as stored in the cluster.
@@ -572,7 +527,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     delete:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Delete a job
       description: |
         Delete the Kubernetes Deployment for this job.
@@ -598,14 +553,16 @@ paths:
 
   /api/jobs/{name}/status:
     get:
-      tags: [Kubernetes]
+      tags: [Jobs]
       summary: Get job status
       description: |
-        Return the current rollout status for a single job.
+        Return the current status for a single job.
 
-        The `status` field maps Kubernetes Deployment conditions to display states:
-        - `available` — `Available=True`
-        - `progressing` — `Progressing=True` and not yet available
+        The `status` field maps Kubernetes batch Job conditions to display states:
+        - `succeeded` — `Complete=True`
+        - `failed` — `Failed=True`
+        - `suspended` — `Suspended=True`
+        - `running` — an active/ready pod is running
         - `unknown` — no recognised condition
       operationId: getJobStatus
       parameters:
@@ -620,13 +577,39 @@ paths:
               example:
                 name: my-ubuntu-job
                 namespace: user-a3f1b2c4d5e6f7a8
-                status: available
-                replicas_status: "1/1"
-                ready_replicas: 1
-                available_replicas: 1
-                updated_replicas: 1
-                replicas: 1
+                status: succeeded
+                ready: 0
+                active: 0
+                succeeded: 1
+                failed: 0
                 image: docker://ubuntu:22.04
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/jobs/{name}/output:
+    get:
+      tags: [Jobs]
+      summary: Retrieve job output
+      description: |
+        Return the job's stdout/stderr as captured through the pod log endpoint.
+
+        For InterLink-backed jobs this includes InterLink's own status lines
+        (SLURM submission, node assignment, timing) followed by the container
+        runtime's output — the same content as `kubectl logs <pod>`.
+      operationId: getJobOutput
+      parameters:
+        - $ref: "#/components/parameters/JobName"
+      responses:
+        "200":
+          description: Job output
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOutput"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -638,7 +621,7 @@ paths:
 
   /api/interlink:
     post:
-      tags: [Helm]
+      tags: [interLink]
       summary: Deploy InterLink
       description: |
         Install the InterLink Helm chart into the authenticated user's namespace
@@ -668,7 +651,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     delete:
-      tags: [Helm]
+      tags: [interLink]
       summary: Remove InterLink deployment
       description: Run `helm uninstall` for the InterLink release in the user's namespace.
       operationId: deleteInterlink
@@ -687,7 +670,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     get:
-      tags: [Helm]
+      tags: [interLink]
       summary: Get InterLink deployment values
       description: |
         Return the user-supplied Helm values for the deployed InterLink release.
@@ -714,6 +697,37 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # InterLink nodes ──────────────────────────────────────────
+
+  /api/nodes/interlink:
+    get:
+      tags: [interLink]
+      summary: List InterLink virtual-kubelet nodes
+      description: |
+        Return the names of cluster nodes that carry the
+        `virtual-node.interlink/no-schedule` taint — these are the nodes that
+        forward pods to HPC batch jobs via InterLink.
+
+        Use the returned names as the `node_name` value when submitting a job.
+      operationId: listInterlinkNodes
+      responses:
+        "200":
+          description: List of InterLink node names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: string
+                    example: ["vk-node-1", "vk-node-2"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -900,6 +914,51 @@ paths:
                 $ref: "#/components/schemas/HpcOperationResult"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # Namespaces ────────────────────────────────────────────────
+
+  /api/namespaces/ensure:
+    post:
+      tags: [Namespaces]
+      summary: Ensure user namespace exists
+      description: |
+        Idempotently create the authenticated user's personal Kubernetes namespace
+        (derived from the Bearer token's `sub` claim).
+
+        Safe to call on every login — returns `{"created": false}` when the
+        namespace already exists.
+      operationId: ensureNamespace
+      responses:
+        "200":
+          description: Namespace already existed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  created:
+                    type: boolean
+                    example: false
+        "201":
+          description: Namespace was created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  created:
+                    type: boolean
+                    example: true
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":

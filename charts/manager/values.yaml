@@ -9,7 +9,7 @@ namespace: hpc-pilot
 # ── Container image ────────────────────────────────────────────────────────────
 image:
   repository: ghcr.io/chbrandt/hpc-pilot-manager
-  tag: 0.3.3
+  tag: latest
   pullPolicy: Always
   # pullSecrets:
   #   - name: my-registry-secret
@@ -78,6 +78,9 @@ interlinkConfig:
     port: 3000
     # Address that the InterLink API server binds to inside the InterLink pod.
     address: http://0.0.0.0
+    # Disable projected service-account token volumes on the virtual-kubelet
+    # pod (avoids mounting K8s secrets into HPC-side jobs).
+    disableProjectedVolumes: true
 
   plugin:
     # Port on which the plugin API server in the HPC edge-node listens.
