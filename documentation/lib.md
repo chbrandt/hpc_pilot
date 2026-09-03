@@ -204,7 +204,7 @@ result = helm_get_values(release_name="interlink-test-echo", namespace="user-abc
 ```
 
 Returns the user-supplied values as a raw YAML string (`values_yaml` is `None`
-when no custom values were provided). Used by the GUI's "save release" feature.
+when no custom values were provided). Exposed to operators through `GET /api/interlink`.
 
 ### `helm_uninstall`
 

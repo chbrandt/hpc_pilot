@@ -223,17 +223,6 @@ recovered `hpc_name`.
 
 ---
 
-### `POST /releases/<name>/save`
-
-Read the InterLink release values (forwards to
-`GET /api/interlink?hpc_name=<name>`) and save them to the user's
-saved-config store as a reusable Helm template.
-
-**Auth:** Required
-**Response:** Redirect to `/jobs`
-
----
-
 ## HPC Routes (`app/hpc.py`)
 
 All HPC routes are mounted under the `/hpc` prefix. They render forms or result

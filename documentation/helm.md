@@ -138,7 +138,7 @@ helm_get_values(release_name="interlink-test-echo", namespace="user-abc123")
 ```
 
 Runs `helm get values interlink-test-echo --namespace <ns> --output yaml`.
-Used by the GUI's "save release" feature.
+Exposed to operators through `GET /api/interlink`.
 
 ---
 

@@ -8,8 +8,7 @@ Routes
 ------
 GET  /releases                  List Helm releases
 POST /releases/<name>/delete    Uninstall the InterLink release
-POST /releases/<name>/save      Save InterLink release config
-GET  /helm                      Deploy-a-Chart form
+GET  /helm                      Deploy InterLink form
 POST /helm/install              Submit the InterLink install form
 """
 
@@ -148,38 +147,3 @@ def helm_install_route():
         chart="",
         namespace=namespace,
     )
-
-
-@helm_bp.route("/releases/<name>/save", methods=["POST"])
-@require_login
-def save_release(name):
-    """Read the InterLink Helm release values from the cluster and save it."""
-    from lib.saved_deployments import save_config
-
-    namespace = session["namespace"]
-    hpc_name = _hpc_name_from_release(name)
-
-    try:
-        values_result = api_get("/api/interlink", params={"hpc_name": hpc_name})
-        values_yaml = values_result.get("values_yaml")
-
-        config = {
-            "release_name": name,
-            "chart": "oci://ghcr.io/chbrandt/interlink",
-            "version": None,
-            "hpc_name": hpc_name,
-            "values_yaml": values_yaml,
-        }
-        save_config(namespace=namespace, kind="helm", config=config)
-        flash(
-            f"Configuration for release '{name}' saved. Load it from the Deploy Chart page.",
-            "success",
-        )
-    except requests.HTTPError as exc:
-        msg = _api_error(exc)
-        flash(f"Could not read release values: {msg}", "error")
-    except Exception as exc:
-        logger.error("Save release failed: %s", exc)
-        flash(f"Failed to save release configuration: {exc}", "error")
-
-    return redirect(url_for("app_k8s.jobs"))

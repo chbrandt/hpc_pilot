@@ -62,10 +62,6 @@
       {# ── Actions ── #}
       <td style="white-space:nowrap;">
         {% if w.kind == 'helm' %}
-        <form method="post" action="{{ url_for('app_helm.save_release', name=w.name) }}" style="display:inline;">
-          <button type="submit" class="btn btn-small btn-secondary" title="Save chart config for re-deployment">💾
-            Save</button>
-        </form>
         <form method="post" action="{{ url_for('app_helm.delete_release', name=w.name) }}"
           onsubmit="return confirm('Uninstall Helm release {{ w.name }}? This will delete all resources it manages.');"
           style="display:inline;">
