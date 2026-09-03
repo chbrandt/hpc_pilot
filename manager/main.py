@@ -27,7 +27,7 @@ FLASK_SECRET_KEY Flask session secret (change in production!)
 import logging
 import os
 
-from flask import Flask
+from flask import Flask, jsonify
 
 # ── Logging ───────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -88,6 +88,12 @@ def create_app() -> Flask:
         config={"app_name": "HPC Pilot API"},
     )
     app.register_blueprint(swaggerui_bp, url_prefix="/api/docs")
+
+    # ── Public health endpoint (liveness probe, no auth) ──────
+    @app.route("/health", methods=["GET"])
+    def health():
+        """Liveness probe -- public, returns a simple JSON status."""
+        return jsonify({"status": "Service alive"})
 
     # ── Context processor — injects current_user into every template ──
     @app.context_processor

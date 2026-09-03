@@ -66,6 +66,27 @@ Error body:
 
 ---
 
+(api-health)=
+
+## Health - `/health`
+
+### `GET /health` - Service liveness probe
+
+Public endpoint (no authentication) that returns a simple JSON status.
+Useful for Kubernetes liveness/readiness probes and load-balancer checks.
+
+``` bash
+curl https://manager.example.org/health
+```
+
+**Response:**
+
+``` json
+{"status": "Service alive"}
+```
+
+---
+
 (api-k8s)=
 
 ## Kubernetes Jobs — `/api/namespaces`, `/api/nodes`, `/api/jobs`

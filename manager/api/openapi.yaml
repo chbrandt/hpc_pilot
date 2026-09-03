@@ -43,6 +43,8 @@ tags:
     description: Remote HPC node operations
   - name: Namespaces
     description: Manage user space 
+  - name: Health
+    description: Service liveness
 
 # ── Components ─────────────────────────────────────────────────────────────────
 
@@ -418,6 +420,29 @@ components:
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Service liveness probe
+      description: |
+        Public endpoint (no authentication) returning a simple JSON status.
+        Useful for Kubernetes liveness/readiness probes and load balancers.
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: Service alive
+
   # ── Kubernetes: Jobs ─────────────────────────────────────────────────────
 
   /api/jobs:
