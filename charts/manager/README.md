@@ -122,11 +122,13 @@ kubectl get ingress -n hpc-pilot
 | `interlinkConfig.plugin.address` | `http://0.0.0.0` | Plugin bind address (HPC side) |
 | `interlinkConfig.plugin.port` | `4000` | Plugin port |
 | `interlinkConfig.wstunnel.port` | `8080` | wstunnel server port inside the pod |
-| `interlinkConfig.wstunnel.ingress.host` | `__HOSTNAME__` | wstunnel ingress host (placeholder) |
-| `interlinkConfig.wstunnel.externalPort` | `80` | Port the Ingress routes to wstunnel |
-| `interlinkConfig.wstunnel.internalPort` | `4000` | Local port forwarded to the client |
-| `interlinkConfig.wstunnel.secret` | `__NAMESPACE__` | wstunnel path-prefix secret |
 | `interlinkConfig.wstunnel.logLevel` | `debug` | wstunnel log level |
+
+The wstunnel **ingress host**, **external port**, **internal port** and
+**secret** are deliberately not configurable here — they are derived from
+`siteConfig.hostname`, `siteConfig.wstunnel.port`,
+`siteConfig.wstunnel.localPort` and the per-user namespace, so every user's
+tunnel stays consistent with the site-level routing configuration.
 
 Placeholder tokens resolved per-user at seed time (only these two are used):
 
@@ -155,7 +157,8 @@ Placeholder tokens resolved per-user at seed time (only these two are used):
 | `ingress.pathType` | `Prefix` | Path type |
 | `ingress.port` | `80` | Backend service port |
 | `ingress.annotations` | see values | Extra annotations (timeouts are pre-configured) |
-| `ingress.tls` | `[]` | TLS configuration |
+| `ingress.tls.enabled` | `true` | Enable TLS for `siteConfig.hostname` |
+| `ingress.tls.secretName` | `manager-tls` | Secret holding the TLS certificate |
 
 > The Ingress host is `siteConfig.hostname` (not a separate `ingress.host`
 > value). The chart does **not** require a wildcard record — a single-host
@@ -183,12 +186,13 @@ Manager derives namespace: user-<hash>   ←── from token "sub" claim
   │
   ▼
 POST /api/interlink
-  │   helm install interlink oci://ghcr.io/chbrandt/interlink \
+  │   helm install interlink-<hpc_name> oci://ghcr.io/chbrandt/interlink \
   │     --namespace user-<hash> \
-  │     --values -   (wstunnel.ingress.host = __HOSTNAME__, secret = __NAMESPACE__)
+  │     --values -   (wstunnel.ingress.host = siteConfig.hostname, secret = __NAMESPACE__)
   │
   ▼
 InterLink pod created in user-<hash> namespace:
+  ├── virtual-kubelet node: vk-node-<hash>-<hpc_name>
   ├── interLink API server container  (port 3000)
   ├── wstunnel server container       (port 8080)
   └── nginx Ingress:  <hostname>/<namespace>  →  wstunnel:8080   (path-prefix)

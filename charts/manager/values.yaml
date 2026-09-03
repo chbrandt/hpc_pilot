@@ -58,20 +58,16 @@ interlinkConfig:
   version: 0.6.1-egi.5
 
   # You probably don't need to change the values below.
+  #
+  # Note: the wstunnel ingress host, external port, internal port and secret
+  # are NOT configurable here — they are derived from `siteConfig`
+  # (hostname, wstunnel.port, wstunnel.localPort) and from the per-user
+  # namespace (`__NAMESPACE__`), so every user's tunnel stays consistent
+  # with the site-level routing configuration.
   wstunnel:
     logLevel: debug
-    ingress:
-      # Hostname that the wstunnel client uses to connect to the server.
-      host: __HOSTNAME__
-    # Port on which the Ingress will route traffic to the wstunnel server.
-    externalPort: 443
     # Port on which the wstunnel server in the InterLink pod listens.
     port: 8080
-    # Local port on the pod used to forward to the client.
-    internalPort: 4000
-    # Secret value used for authenticating wstunnel clients. Must match the
-    # value configured in the InterLink pod's wstunnel server.
-    secret: "__NAMESPACE__"
 
   interlink:
     # Port on which the InterLink API server in the InterLink pod listens.
@@ -113,10 +109,11 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "360"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "360"
   tls:
-    - secretName: manager-tls
-      hosts:
-        - darrel-suprasegmental-podgily.ngrok-free.dev
-        # - "*.hpc-pilot.test.fedcloud.eu"
+    # TLS for siteConfig.hostname. The chart derives the host list from
+    # siteConfig.hostname — only the secret name is configurable here.
+    enabled: true
+    secretName: manager-tls
+    # - A certificate for siteConfig.hostname must exist in the secret.
 
 # ── Resource limits ────────────────────────────────────────────────────────────
 resources:

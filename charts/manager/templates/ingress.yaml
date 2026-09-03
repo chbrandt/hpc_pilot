@@ -14,9 +14,11 @@ spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className | quote }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if .Values.ingress.tls.enabled }}
   tls:
-    {{- toYaml .Values.ingress.tls | nindent 4 }}
+    - secretName: {{ .Values.ingress.tls.secretName }}
+      hosts:
+        - {{ .Values.siteConfig.hostname }}
   {{- end }}
   rules:
     - host: "{{ .Values.siteConfig.hostname | replace "\"" "" }}"
