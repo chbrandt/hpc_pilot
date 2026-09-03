@@ -1,0 +1,66 @@
+# Roadmap
+
+Items to fix or improve.
+
+## Codebase/Repository
+
+ID | Task | Priority
+-- | ---- | --------
+CR1 | Split the codebase in three parts: API-App, GUI-App, Helm-Chart | low
+-- | ---- | --------
+
+## Manager (Helm) Chart
+
+ID | Task | Priority
+-- | ---- | --------
+HC1 | Remove redundant attributes in manager/values.yaml | high
+-- | ---- | --------
+
+## API-App
+
+ID | Task | Priority
+-- | ---- | --------
+AA1 | Remove `/api/namespaces/ensure` to POST/DELETE `/api/userspace/`. | low
+AA2 | Implement GET /health endpoint, public call, return simple JSON "Service alive". | high
+AA3 | Combine configuration of interlink vk-node with hpc deployment, meaning there will be one hpc target for each interlink virtual node. | high
+AA4 | Merge configuration attributes into one configuration file (manager/charts_config.yaml, manager/site_config.yaml, manager/hpc/.yaml). | medium
+AA5 | Add a `--config` flag for launching the manager with a custom config path. | low
+-- | ---- | --------
+
+
+### HPC
+
+ID | Task | Priority
+-- | ---- | --------
+HT1 | Change /api/hpc/status from POST to GET. | medium
+-- | ---- | --------
+
+
+### interLink
+
+ID | Task | Priority
+-- | ---- | --------
+IT1 | Change `/api/interlink` POST (deploy) to require the HPC node "name", which will refer to the name in configuration. Name the vk-node as 'vk-node-<user-hash>-<name>'. Relates to task AA3 | high
+-- | ---- | --------
+
+
+### Jobs
+
+ID | Task | Priority
+-- | ---- | --------
+JT1 | In `/api/jobs` POST, validate node name; reject invalid HPC/node. | medium
+JT2 | Include `cpu` and `memory` in the attributes of `/api/jobs` POST. | medium
+JT3 | Change POST `/api/jobs` to POST `/api/jobs/preset`. | medium
+JT4 | Create a POST and `/api/jobs/spec`, accepting a Pod manifest's "spec". | medium
+-- | ---- | --------
+
+## GUI-App 
+
+ID | Task | Priority 
+-- | ---- | --------
+GA1 | Landing page ("Home"): list of Jobs and interlink/HPC Nodes deployed. | high  
+GA2 | Update "Submit Job" page when Tasks JT2, JT3, JT4 are implemented. | medium
+GA3 | Merge "Charts and HPC" pages into one "Manage Nodes". Relates to tasks IT1 and AA3. | high
+GA4 | Improve login page. Besides accepting an access token directly, add a button "EGI Check-in" triggering access through authorization code workflow interactively through the browser using EGI Check-in AAI (aai.egi.eu, Keycloak). | high
+GA5 | Remove "save" feature/buttons for HPC and Helm/interlink deployments | high
+-- | ---- | --------
