@@ -45,6 +45,7 @@ HT1 | Change /api/hpc/status from POST to GET. | medium | [x]
 ID | Task | Priority | Status
 -- | ---- | -------- | ------
 IT1 | Change `/api/interlink` POST (deploy) to require the HPC node "name", which will refer to the name in configuration. Name the vk-node as 'vk-node-<user-hash>-<name>'. Relates to task AA3 | high | [x]
+IT2 | Rename (GET) `/api/nodes/interlink` to `/api/interlink/nodes` | low | [ ]
 -- | ---- | -------- | ------
 
 
