@@ -24,6 +24,9 @@ def _mock_k8s(**kwargs):
     m.create_namespace.return_value = kwargs.get(
         "create_namespace", {"success": True, "namespace": "user-testns"}
     )
+    m.delete_namespace.return_value = kwargs.get(
+        "delete_namespace", {"success": True, "namespace": "user-testns"}
+    )
     m.list_interlink_nodes.return_value = kwargs.get(
         "list_interlink_nodes", ["vk-node"]
     )
@@ -52,18 +55,20 @@ def _mock_k8s(**kwargs):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/namespaces/ensure
+# POST/DELETE /api/userspace/
 # ---------------------------------------------------------------------------
 
 
-class TestEnsureNamespace:
-    URL = "/api/namespaces/ensure"
+class TestUserspace:
+    URL = "/api/userspace/"
 
-    def test_requires_auth(self, client):
+    # -- POST (ensure) --
+
+    def test_post_requires_auth(self, client):
         resp = client.post(self.URL)
         assert resp.status_code == 401
 
-    def test_namespace_already_exists_returns_200_created_false(self, client, auth_headers):
+    def test_post_namespace_exists_returns_200_created_false(self, client, auth_headers):
         headers, ns = auth_headers
         k8s = _mock_k8s(namespace_exists=True)
         with patch(K8S_PATCH, return_value=k8s):
@@ -73,7 +78,7 @@ class TestEnsureNamespace:
         assert data["created"] is False
         assert data["namespace"] == ns
 
-    def test_new_namespace_returns_201_created_true(self, client, auth_headers):
+    def test_post_new_namespace_returns_201_created_true(self, client, auth_headers):
         headers, ns = auth_headers
         k8s = _mock_k8s(
             namespace_exists=False,
@@ -85,7 +90,7 @@ class TestEnsureNamespace:
         data = resp.get_json(force=True)
         assert data["created"] is True
 
-    def test_create_namespace_failure_returns_500(self, client, auth_headers):
+    def test_post_create_namespace_failure_returns_500(self, client, auth_headers):
         headers, ns = auth_headers
         k8s = _mock_k8s(
             namespace_exists=False,
@@ -95,6 +100,40 @@ class TestEnsureNamespace:
             resp = client.post(self.URL, headers=headers)
         assert resp.status_code == 500
 
+
+    # -- DELETE (teardown) --
+
+    def test_delete_requires_auth(self, client):
+        resp = client.delete(self.URL)
+        assert resp.status_code == 401
+
+    def test_delete_success_returns_200_deleted_true(self, client, auth_headers):
+        headers, ns = auth_headers
+        k8s = _mock_k8s(namespace_exists=True)
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.delete(self.URL, headers=headers)
+        assert resp.status_code == 200
+        data = resp.get_json(force=True)
+        assert data["deleted"] is True
+        assert data["namespace"] == ns
+
+    def test_delete_absent_namespace_returns_200_deleted_false(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(namespace_exists=False)
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.delete(self.URL, headers=headers)
+        assert resp.status_code == 200
+        assert resp.get_json(force=True)["deleted"] is False
+
+    def test_delete_failure_returns_500(self, client, auth_headers):
+        headers, ns = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            delete_namespace={"success": False, "error": "denied"},
+        )
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.delete(self.URL, headers=headers)
+        assert resp.status_code == 500
 
 # ---------------------------------------------------------------------------
 # GET /api/nodes/interlink

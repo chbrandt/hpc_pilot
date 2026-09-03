@@ -140,7 +140,7 @@ def login():
 
         # Auto-create the user's namespace if it doesn't exist yet (via API)
         try:
-            result = api_post("/api/namespaces/ensure")
+            result = api_post("/api/userspace/")
             if result.get("created"):
                 logger.info(
                     "Auto-created namespace '%s' for %s...", namespace, sub[:20]

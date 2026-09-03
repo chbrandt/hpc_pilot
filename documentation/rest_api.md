@@ -97,7 +97,7 @@ batch job on the connected HPC site, so **replica counts, CPU/memory requests
 and limits, container ports, Services and Ingresses are not supported** and are
 not part of the API (see [kubernetes.md](kubernetes.md)).
 
-### `POST /api/namespaces/ensure` — Ensure the user namespace exists
+### `POST /api/userspace/` — Ensure the user namespace exists
 
 Idempotently create the caller's personal namespace (derived from the token
 `sub` claim). Safe to call on every login — returns `"created": false` when the
@@ -106,7 +106,7 @@ namespace already exists.
 ```{code-block} bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/namespaces/ensure | jq .
+  https://manager.example.org/api/userspace/ | jq .
 ```
 
 **Response `200`** (already exists):
@@ -120,6 +120,27 @@ curl -s -X POST \
 ```{code-block} json
 {"namespace": "user-a3f1b2c4d5e6f7a8", "created": true}
 ```
+
+---
+
+### `DELETE /api/userspace/` — Delete the user namespace
+
+Delete the caller's personal namespace and every resource inside it (jobs,
+InterLink releases). The namespace is derived from the token, so users can
+only ever delete their own.
+
+```{code-block} bash
+curl -s -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/userspace/ | jq .
+```
+
+**Response `200`**:
+
+```{code-block} json
+{"namespace": "user-a3f1b2c4d5e6f7a8", "deleted": true}
+```
+
 
 ---
 
@@ -663,7 +684,8 @@ print(resp.json())
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/namespaces/ensure` | Idempotently create the user's personal namespace |
+| `POST` | `/api/userspace/` | Idempotently create the user's personal namespace |
+| `DELETE` | `/api/userspace/` | Delete the user's namespace and all its resources |
 | `GET` | `/api/nodes/interlink` | List InterLink virtual-kubelet node names |
 | `GET` | `/api/jobs` | List jobs in the user's namespace |
 | `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required) |

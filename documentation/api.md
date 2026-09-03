@@ -41,7 +41,7 @@ Validate the submitted EGI Check-in access token and start a session.
 On success the manager also:
 
 1. Derives the user's namespace from the `sub` claim.
-2. Calls `POST /api/namespaces/ensure` to create it (if missing).
+2. Calls `POST /api/userspace/` to create it (if missing).
 3. Calls `POST /api/saved/seed` to seed the default chart presets.
 
 **Form fields:**

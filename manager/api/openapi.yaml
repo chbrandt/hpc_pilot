@@ -946,7 +946,7 @@ paths:
 
   # Namespaces ────────────────────────────────────────────────
 
-  /api/namespaces/ensure:
+  /api/userspace/:
     post:
       tags: [Namespaces]
       summary: Ensure user namespace exists
@@ -954,9 +954,9 @@ paths:
         Idempotently create the authenticated user's personal Kubernetes namespace
         (derived from the Bearer token's `sub` claim).
 
-        Safe to call on every login — returns `{"created": false}` when the
+        Safe to call on every login — returns {"created": false} when the
         namespace already exists.
-      operationId: ensureNamespace
+      operationId: createUserSpace
       responses:
         "200":
           description: Namespace already existed
@@ -982,6 +982,32 @@ paths:
                     type: string
                     example: user-a3f1b2c4d5e6f7a8
                   created:
+                    type: boolean
+                    example: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Namespaces]
+      summary: Delete user namespace
+      description: |
+        Delete the authenticated user's personal Kubernetes namespace and
+        every resource inside it (jobs, InterLink releases, …).  The namespace
+        is derived from the Bearer token, so users can only delete their own.
+      operationId: deleteUserSpace
+      responses:
+        "200":
+          description: Namespace deleted (or already absent)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  deleted:
                     type: boolean
                     example: true
         "401":

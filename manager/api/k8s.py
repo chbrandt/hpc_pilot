@@ -5,9 +5,12 @@ All routes are JSON-only and protected by Bearer-token auth.
 
 Endpoints
 ---------
-POST /api/namespaces/ensure
+POST /api/userspace/
     Idempotently create the user's personal namespace (derived from the token sub
     claim).  Safe to call on every login — does nothing if the namespace exists.
+
+DELETE /api/userspace/
+    Delete the user's personal namespace and every resource inside it.
 
 GET  /api/nodes/interlink
     Return the list of InterLink virtual-kubelet node names available in the cluster.
@@ -65,9 +68,9 @@ def _err(message: str, code: int = 400):
 # ── Routes ────────────────────────────────────────────────────────────
 
 
-@k8s_bp.route("/namespaces/ensure", methods=["POST"])
+@k8s_bp.route("/userspace/", methods=["POST"])
 @require_token
-def ensure_namespace():
+def create_userspace():
     """
     Idempotently create the user's personal namespace.
 
@@ -87,9 +90,34 @@ def ensure_namespace():
             return _ok({"namespace": namespace, "created": True}, 201)
         return _err(f"Failed to create namespace: {result.get('error')}", 500)
     except Exception as exc:
-        logger.error("ensure_namespace failed: %s", exc)
+        logger.error("create_userspace failed: %s", exc)
         return _err(str(exc), 500)
 
+
+@k8s_bp.route("/userspace/", methods=["DELETE"])
+@require_token
+def delete_userspace():
+    """
+    Delete the user's personal namespace and every resource inside it.
+
+    This is the teardown counterpart of POST /api/userspace/ — the
+    namespace is derived from the Bearer token 'sub' claim, so users
+    can only ever delete their own namespace.
+    """
+    claims = get_request_claims()
+    namespace = claims["namespace"]
+    try:
+        k8s = _get_k8s()
+        if not k8s.namespace_exists(namespace):
+            return _ok({"namespace": namespace, "deleted": False})
+        result = k8s.delete_namespace(namespace)
+        if result["success"]:
+            logger.info("delete_userspace: deleted '%s'", namespace)
+            return _ok({"namespace": namespace, "deleted": True})
+        return _err(f"Failed to delete namespace: {result.get('error')}", 500)
+    except Exception as exc:
+        logger.error("delete_userspace failed: %s", exc)
+        return _err(str(exc), 500)
 
 @k8s_bp.route("/nodes/interlink", methods=["GET"])
 @require_token

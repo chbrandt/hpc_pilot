@@ -155,7 +155,7 @@ On first login the manager:
 2. If `allowed_groups` is set, fetches entitlements from the UserInfo endpoint
    and checks group membership.
 3. Derives a deterministic namespace: `user-<sha256(sub)[:16]>`.
-4. Creates the namespace in the cluster (`POST /api/namespaces/ensure`).
+4. Creates the namespace in the cluster (`POST /api/userspace/`).
 5. Seeds the default chart presets (`POST /api/saved/seed`), including the
    InterLink chart, into `/app/data/<namespace>.json`.
 

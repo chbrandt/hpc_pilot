@@ -123,6 +123,24 @@ class K8sClient:
         except ApiException:
             return False
 
+    def delete_namespace(self, name: str) -> dict:
+        """
+        Delete a namespace (and, cascading, every resource inside it).
+
+        Args:
+            name: Namespace name.
+
+        Returns:
+            dict with success status and details.
+        """
+        try:
+            self.core_v1.delete_namespace(name=name)
+            logger.info(f"Deleted namespace: {name}")
+            return {"success": True, "namespace": name}
+        except ApiException as e:
+            logger.error(f"Failed to delete namespace: {e}")
+            return {"success": False, "error": str(e)}
+
     # ── InterLink node discovery ──────────────────────────────────────
 
     def list_interlink_nodes(self) -> list[str]:

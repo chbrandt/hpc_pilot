@@ -38,7 +38,7 @@ User pastes token → POST /login
 8. Store {token, claims, namespace} in Flask session
         │
         ▼
-9. POST /api/namespaces/ensure  (auto-create the namespace if missing)
+9. POST /api/userspace/  (auto-create the namespace if missing)
         │
         ▼
 10. POST /api/saved/seed  (seed default chart presets for the user)

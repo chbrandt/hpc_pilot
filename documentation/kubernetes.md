@@ -165,7 +165,8 @@ rules:
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/namespaces/ensure` | Idempotently create the user's personal namespace |
+| `POST` | `/api/userspace/` | Idempotently create the user's personal namespace |
+| `DELETE` | `/api/userspace/` | Delete the user's namespace and all its resources |
 | `GET` | `/api/nodes/interlink` | List InterLink virtual-kubelet node names (`{"nodes": [...]}`) |
 | `GET` | `/api/jobs` | List jobs in the user's namespace |
 | `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required; `env_vars`, `command` optional) |
