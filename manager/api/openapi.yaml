@@ -35,6 +35,8 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: Health
+    description: Service liveness
   - name: Jobs
     description: Job operations
   - name: interLink
@@ -43,8 +45,6 @@ tags:
     description: Remote HPC node operations
   - name: Namespaces
     description: Manage user space 
-  - name: Health
-    description: Service liveness
 
 # ── Components ─────────────────────────────────────────────────────────────────
 
