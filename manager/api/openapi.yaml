@@ -861,19 +861,19 @@ paths:
                 $ref: "#/components/schemas/HpcOperationResult"
 
   /api/hpc/status:
-    post:
+    get:
       tags: [HPC]
       summary: Query HPC service status
       description: Run `supervisorctl status` on the remote HPC node and return the output.
       operationId: hpcStatus
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/HpcNameBody"
-            example:
-              hpc_name: test-echo
+      parameters:
+        - name: hpc_name
+          in: query
+          required: true
+          description: HPC node name (from GET /api/hpc/nodes)
+          schema:
+            type: string
+          example: test-echo
       responses:
         "200":
           description: Status retrieved successfully

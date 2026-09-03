@@ -16,9 +16,9 @@ DELETE /api/hpc/deploy
     Stop all services and remove the HPC Pilot installation from the remote node.
     JSON body: hpc_name.
 
-POST /api/hpc/status
+GET  /api/hpc/status
     Query supervisorctl status on the remote HPC node.
-    JSON body: hpc_name.
+    Query parameter: hpc_name.
 
 POST /api/hpc/start
     Start all supervisord-managed services.
@@ -184,14 +184,14 @@ def hpc_undeploy():
     return _ok(result, code)
 
 
-@hpc_bp.route("/status", methods=["POST"])
+@hpc_bp.route("/status", methods=["GET"])
 @require_token
 def hpc_status():
-    """Query supervisorctl status on the remote HPC node."""
+    """Query supervisorctl status on the remote HPC node (hpc_name query param)."""
     claims = get_request_claims()
     token = claims["_token"]
 
-    body = request.get_json(silent=True) or {}
+    body = {"hpc_name": request.args.get("hpc_name", "")}
     try:
         hpc_cfg = _resolve_hpc(body)
     except ValueError as exc:

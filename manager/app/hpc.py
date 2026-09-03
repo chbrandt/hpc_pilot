@@ -9,7 +9,7 @@ Routes (all under /hpc prefix)
 ------
 GET  /hpc                   HPC deployment form
 POST /hpc/deploy            Run setup.sh on remote HPC node via mccli
-POST /hpc/status            Query supervisorctl status on remote node
+GET  /hpc/status            Query supervisorctl status on remote node
 POST /hpc/start             Start managed services (supervisorctl start all)
 POST /hpc/stop              Stop managed services (supervisorctl stop all)
 """
@@ -20,7 +20,7 @@ import requests
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from app.auth import require_login
-from app.api_client import LONG_TIMEOUT, api_post
+from app.api_client import LONG_TIMEOUT, api_get, api_post
 from api.site_config import load_site_config
 from lib.hpc_config import list_hpc_nodes
 
@@ -117,18 +117,18 @@ def hpc_deploy():
     )
 
 
-@hpc_bp.route("/status", methods=["POST"])
+@hpc_bp.route("/status", methods=["GET"])
 @require_login
 def hpc_status():
     """Query supervisorctl status on the remote HPC node."""
-    hpc_name = request.form.get("hpc_name", "").strip()
+    hpc_name = request.args.get("hpc_name", "").strip()
 
     if not hpc_name:
         flash("HPC node selection is required.", "error")
         return redirect(url_for("app_hpc.hpc_page"))
 
     try:
-        result = api_post("/api/hpc/status", {"hpc_name": hpc_name})
+        result = api_get("/api/hpc/status", params={"hpc_name": hpc_name})
     except requests.HTTPError as exc:
         result = {"success": False, "error": _api_error(exc)}
     except Exception as exc:

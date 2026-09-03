@@ -69,7 +69,7 @@ def _headers() -> dict:
 # ── Public interface ──────────────────────────────────────────────────
 
 
-def api_get(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict | list:
+def api_get(path: str, timeout: int = DEFAULT_TIMEOUT, params: dict | None = None) -> dict | list:
     """
     Send a GET request to the API.
 
@@ -79,6 +79,8 @@ def api_get(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict | list:
         Path relative to ``API_BASE_URL``, e.g. ``"/api/jobs"``.
     timeout : int
         Read timeout in seconds (default :data:`DEFAULT_TIMEOUT`).
+    params : dict, optional
+        URL query parameters appended to the request.
 
     Returns
     -------
@@ -92,7 +94,7 @@ def api_get(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict | list:
     """
     url = f"{API_BASE_URL}{path}"
     logger.debug("API GET %s", url)
-    r = requests.get(url, headers=_headers(), timeout=timeout)
+    r = requests.get(url, headers=_headers(), timeout=timeout, params=params)
     r.raise_for_status()
     return r.json()
 

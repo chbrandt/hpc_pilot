@@ -181,7 +181,7 @@ class TestHpcUndeploy:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/hpc/status
+# GET /api/hpc/status
 # ---------------------------------------------------------------------------
 
 
@@ -189,11 +189,11 @@ class TestHpcStatus:
     URL = "/api/hpc/status"
 
     def test_requires_auth(self, client):
-        assert client.post(self.URL, json={}).status_code == 401
+        assert client.get(self.URL).status_code == 401
 
     def test_missing_hpc_name_returns_400(self, client, auth_headers):
         headers, _ = auth_headers
-        resp = client.post(self.URL, json={}, headers=headers)
+        resp = client.get(self.URL, headers=headers)
         assert resp.status_code == 400
 
     def test_success_returns_200(self, client, auth_headers):
@@ -202,8 +202,8 @@ class TestHpcStatus:
             patch(HPC_CONFIG, return_value=_FAKE_HPC_CONFIG),
             patch(f"{HPC_CLIENT}.get_status", return_value=_SUCCESS),
         ):
-            resp = client.post(
-                self.URL, json={"hpc_name": "test-echo"}, headers=headers
+            resp = client.get(
+                self.URL, query_string={"hpc_name": "test-echo"}, headers=headers
             )
         assert resp.status_code == 200
 
@@ -213,8 +213,8 @@ class TestHpcStatus:
             patch(HPC_CONFIG, return_value=_FAKE_HPC_CONFIG),
             patch(f"{HPC_CLIENT}.get_status", return_value=_FAILURE),
         ):
-            resp = client.post(
-                self.URL, json={"hpc_name": "test-echo"}, headers=headers
+            resp = client.get(
+                self.URL, query_string={"hpc_name": "test-echo"}, headers=headers
             )
         assert resp.status_code == 500
 

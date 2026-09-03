@@ -553,15 +553,14 @@ curl -s -X DELETE \
 ---
 
 
-### `POST /api/hpc/status` — Query service status
+### `GET /api/hpc/status` — Query service status
 
 Calls `supervisorctl status` on the remote node.
 
 ```{code-block} bash
-curl -s -X POST \
+curl -s -G \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"hpc_name": "test-echo"}' \
+  --data-urlencode "hpc_name=test-echo" \
   https://manager.example.org/api/hpc/status | jq .
 ```
 
@@ -679,7 +678,7 @@ print(resp.json())
 | `GET` | `/api/hpc/nodes` | List available HPC nodes |
 | `POST` | `/api/hpc/deploy` | Deploy wstunnel on an HPC node |
 | `DELETE` | `/api/hpc/deploy` | Stop & uninstall the HPC deployment |
-| `POST` | `/api/hpc/status` | Query HPC service status |
+| `GET` | `/api/hpc/status` | Query HPC service status |
 | `POST` | `/api/hpc/start` | Start HPC services |
 | `POST` | `/api/hpc/stop` | Stop HPC services |
 | `GET` | `/api/openapi.yaml` | Raw OpenAPI 3.1 spec |

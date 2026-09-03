@@ -23,6 +23,7 @@ import requests
 
 GET_SESSION_USER_PATCH = "app.auth.get_session_user"
 API_POST_PATCH = "app.hpc.api_post"
+API_GET_PATCH = "app.hpc.api_get"
 LOAD_SITE_CONFIG_PATCH = "app.hpc.load_site_config"
 LIST_HPC_NODES_PATCH = "app.hpc.list_hpc_nodes"
 
@@ -238,7 +239,7 @@ class TestHpcDeploy:
 
 
 # ---------------------------------------------------------------------------
-# POST /hpc/status
+# GET /hpc/status
 # ---------------------------------------------------------------------------
 
 
@@ -246,36 +247,36 @@ class TestHpcStatus:
     URL = "/hpc/status"
 
     def test_redirects_when_not_logged_in(self, client):
-        resp = client.post(self.URL, data={"hpc_name": "test-echo"})
+        resp = client.get(self.URL)
         assert resp.status_code == 302
         assert "/login" in resp.headers["Location"]
 
     def test_missing_hpc_name_redirects(self, client):
         _logged_in_client(client)
         with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
-            resp = client.post(self.URL, data={"hpc_name": ""}, follow_redirects=False)
+            resp = client.get(self.URL, follow_redirects=False)
         assert resp.status_code == 302
 
     def test_success_renders_result(self, client):
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(API_POST_PATCH, return_value=_SUCCESS),
+            patch(API_GET_PATCH, return_value=_SUCCESS),
         ):
-            resp = client.post(self.URL, data={"hpc_name": "test-echo"})
+            resp = client.get(self.URL, query_string={"hpc_name": "test-echo"})
         assert resp.status_code == 200
 
     def test_failure_renders_result(self, client):
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(API_POST_PATCH, return_value=_FAILURE),
+            patch(API_GET_PATCH, return_value=_FAILURE),
         ):
-            resp = client.post(self.URL, data={"hpc_name": "test-echo"})
+            resp = client.get(self.URL, query_string={"hpc_name": "test-echo"})
         assert resp.status_code == 200
 
 
-# ---------------------------------------------------------------------------
+
 # POST /hpc/start  and  POST /hpc/stop
 # ---------------------------------------------------------------------------
 

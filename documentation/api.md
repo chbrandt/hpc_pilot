@@ -253,15 +253,15 @@ Deploy the HPC Pilot stack on the selected node (forwards to
 `POST /api/hpc/deploy` with `{"hpc_name": ...}`).
 
 **Auth:** Required
-**Form fields:** `hpc_name` (required)
+**Query parameters:** `hpc_name` (required)
 **Response:** `hpc_result.html` with the deploy outcome
 
 ---
 
-### `POST /hpc/status`
+### `GET /hpc/status`
 
 Query `supervisorctl status` on the selected node (forwards to
-`POST /api/hpc/status`).
+`GET /api/hpc/status` with `?hpc_name=`).
 
 **Auth:** Required
 **Form fields:** `hpc_name` (required)
