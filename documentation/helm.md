@@ -1,15 +1,19 @@
 # Helm Integration
 
-The manager uses Helm to deploy the **InterLink virtual-kubelet pod** — the
-only Helm release it manages. The `helm_client.py` module wraps the `helm` CLI
-using `subprocess.run()`; no Helm Python SDK is used (subprocess calls are
+The manager uses Helm to deploy **InterLink virtual-kubelet pods** — the only
+kind of Helm release it manages. The `helm_client.py` module wraps the `helm`
+CLI using `subprocess.run()`; no Helm Python SDK is used (subprocess calls are
 preferred for reliability and version-independence).
 
-The InterLink release is a **singleton**: a user may deploy at most one. Its
-chart reference, version and default values are defined once in
+The manager deploys **one InterLink release per (user, HPC node) pair**: the
+release is named `interlink-<hpc_name>` and its virtual-kubelet node
+`vk-node-<user-hash>-<hpc_name>`, so a user may have several InterLink
+instances at once, one per configured HPC target. Chart reference, version
+and default values are defined once in
 [`charts_config.yaml`](../manager/charts_config.yaml) and installed via the
-[`/api/interlink`](rest_api.md#api-helm) endpoint (no arbitrary chart is
-accepted at runtime). See [configuration.md](configuration.md#charts-configyaml).
+[`/api/interlink`](rest_api.md#api-helm) endpoint, which additionally
+requires an `hpc_name` and overrides `nodeName` accordingly (no arbitrary
+chart is accepted at runtime). See [configuration.md](configuration.md#charts-configyaml).
 
 ---
 
@@ -47,10 +51,10 @@ The `chart` value in `charts_config.yaml` is passed **directly** to
 
 ```python
 helm_install(
-    release_name="interlink",
+    release_name="interlink-test-echo",  # interlink-<hpc_name>
     chart="oci://ghcr.io/chbrandt/interlink",
     namespace="user-abc123",
-    values_yaml="...",   # resolved from charts_config.yaml
+    values_yaml="...",   # resolved from charts_config.yaml, nodeName overridden
     version=None,        # optional — pin chart version
 )
 ```
@@ -58,7 +62,7 @@ helm_install(
 translates to:
 
 ```bash
-helm install interlink oci://ghcr.io/chbrandt/interlink \
+helm install interlink-test-echo oci://ghcr.io/chbrandt/interlink \
   --namespace user-abc123 \
   --wait \
   --timeout=5m0s \
@@ -129,12 +133,12 @@ manager Helm chart (see [`charts/manager/README.md`](../charts/manager/README.md
 ## Get values
 
 ```python
-helm_get_values(release_name="interlink", namespace="user-abc123")
+helm_get_values(release_name="interlink-test-echo", namespace="user-abc123")
 # → {"success": True, "values_yaml": "nodeName: ...\n...", "error": None}
 ```
 
-Runs `helm get values interlink --namespace <ns> --output yaml`. Used by the
-GUI's "save release" feature.
+Runs `helm get values interlink-test-echo --namespace <ns> --output yaml`.
+Used by the GUI's "save release" feature.
 
 ---
 
@@ -146,20 +150,20 @@ helm_list(namespace="user-abc123")
 #     "revision": "1", "status": "deployed", "chart": "...", ...}]
 ```
 
-Runs `helm list --namespace <ns> --output json`. (The REST API exposes only the
-managed `interlink` release; `helm_list` itself lists all releases in the
-namespace and is primarily a library-level helper.)
+Runs `helm list --namespace <ns> --output json`. (The REST API exposes only
+the managed `interlink-<hpc_name>` releases; `helm_list` itself lists all
+releases in the namespace and is primarily a library-level helper.)
 
 ---
 
 ## Uninstall
 
 ```python
-helm_uninstall(release_name="interlink", namespace="user-abc123")
-# → {"success": True, "output": "release \"interlink\" uninstalled\n", "error": None}
+helm_uninstall(release_name="interlink-test-echo", namespace="user-abc123")
+# → {"success": True, "output": "release \"interlink-test-echo\" uninstalled\n", "error": None}
 ```
 
-Runs `helm uninstall interlink --namespace user-abc123`.
+Runs `helm uninstall interlink-test-echo --namespace user-abc123`.
 
 ---
 

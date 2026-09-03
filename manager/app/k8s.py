@@ -167,31 +167,37 @@ def jobs():
         logger.error("Could not list jobs: %s", exc)
 
     # ── Helm releases ─────────────────────────────────────────────────
-    # The only managed Helm release is 'interlink'; check its presence
-    # via GET /api/interlink (returns {"success": true, ...} when deployed).
-    try:
-        result = api_get("/api/interlink")
-        if result.get("success"):
-            workloads.append(
-                {
-                    "kind": "helm",
-                    "name": "interlink",
-                    "namespace": session["namespace"],
-                    "detail": "oci://ghcr.io/chbrandt/interlink",
-                    "status": "deployed",
-                    "created": "",
-                }
-            )
-    except requests.HTTPError as exc:
-        # 404 means the InterLink release simply isn't deployed yet — that's
-        # a normal state, not an error.  Surface any other failure (e.g. 500
-        # when the helm CLI / cluster is unreachable) to the user.
-        if exc.response is None or exc.response.status_code != 404:
-            errors.append(f"Helm releases: {_api_error(exc)}")
-            logger.error("Could not list Helm releases: %s", exc)
-    except Exception as exc:
-        errors.append(f"Helm releases: {exc}")
-        logger.error("Could not list Helm releases: %s", exc)
+    # One InterLink release may exist per configured HPC node
+    # (interlink-<hpc_name>); check each individually via
+    # GET /api/interlink?hpc_name=<name> (returns {"success": true, ...}
+    # when deployed, 404 when not).
+    from lib.hpc_config import list_hpc_nodes
+
+    for node in list_hpc_nodes():
+        hpc_name = node["name"]
+        try:
+            result = api_get("/api/interlink", params={"hpc_name": hpc_name})
+            if result.get("success"):
+                workloads.append(
+                    {
+                        "kind": "helm",
+                        "name": f"interlink-{hpc_name}",
+                        "namespace": session["namespace"],
+                        "detail": f"HPC node: {hpc_name}",
+                        "status": "deployed",
+                        "created": "",
+                    }
+                )
+        except requests.HTTPError as exc:
+            # 404 means no release is deployed on this HPC node yet — that's
+            # a normal state, not an error.  Surface any other failure (e.g.
+            # 500 when the helm CLI / cluster is unreachable) to the user.
+            if exc.response is None or exc.response.status_code != 404:
+                errors.append(f"Helm releases ({hpc_name}): {_api_error(exc)}")
+                logger.error("Could not list Helm release for %s: %s", hpc_name, exc)
+        except Exception as exc:
+            errors.append(f"Helm releases ({hpc_name}): {exc}")
+            logger.error("Could not list Helm release for %s: %s", hpc_name, exc)
 
     namespace = session["namespace"]
     error = "; ".join(errors) if errors else None

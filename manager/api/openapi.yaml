@@ -716,17 +716,25 @@ paths:
       summary: Deploy InterLink
       description: |
         Install the InterLink Helm chart into the authenticated user's namespace
-        (auto-created if absent) using the default chart configuration defined
-        in *charts_config.yaml*.
+        (auto-created if absent), bound to a specific HPC node.
 
-        No request body is required — all chart settings (reference, version,
-        and values) come from the server-side configuration.
+        One InterLink virtual-kubelet is deployed per (user, HPC node) pair:
+        the Helm release is named `interlink-<hpc_name>` and the
+        virtual-kubelet node `vk-node-<user-hash>-<hpc_name>`. All other
+        chart settings (reference, version, values) come from the
+        server-side *charts_config.yaml*.
 
         This call is **synchronous** and blocks until `helm install --wait
         --timeout=5m0s` completes (up to five minutes).
-
-        Only one InterLink deployment per user is allowed.
       operationId: deployInterlink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HpcNameBody"
+            example:
+              hpc_name: test-echo
       responses:
         "201":
           description: InterLink chart installed successfully
@@ -744,8 +752,18 @@ paths:
     delete:
       tags: [interLink]
       summary: Remove InterLink deployment
-      description: Run `helm uninstall` for the InterLink release in the user's namespace.
+      description: |
+        Run `helm uninstall` for the InterLink release (`interlink-<hpc_name>`)
+        bound to the given HPC node in the user's namespace.
       operationId: deleteInterlink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HpcNameBody"
+            example:
+              hpc_name: test-echo
       responses:
         "200":
           description: InterLink release uninstalled successfully
@@ -764,8 +782,17 @@ paths:
       tags: [interLink]
       summary: Get InterLink deployment values
       description: |
-        Return the user-supplied Helm values for the deployed InterLink release.
+        Return the user-supplied Helm values for the InterLink release
+        (`interlink-<hpc_name>`) bound to the given HPC node.
       operationId: getInterlinkValues
+      parameters:
+        - name: hpc_name
+          in: query
+          required: true
+          description: HPC node name (from GET /api/hpc/nodes)
+          schema:
+            type: string
+          example: test-echo
       responses:
         "200":
           description: Values retrieved successfully
@@ -784,6 +811,8 @@ paths:
                   error:
                     type: string
                     nullable: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

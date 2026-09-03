@@ -19,10 +19,8 @@
   <thead>
     <tr>
       <th>Release</th>
-      <th>Chart</th>
-      <th>App Version</th>
+      <th>HPC Node</th>
       <th>Status</th>
-      <th>Last Deployed</th>
       <th>Actions</th>
     </tr>
   </thead>
@@ -30,12 +28,10 @@
     {% for rel in releases %}
     <tr>
       <td><strong>{{ rel.name }}</strong></td>
-      <td class="text-mono">{{ rel.chart }}</td>
-      <td class="text-mono">{{ rel.app_version or '—' }}</td>
+      <td class="text-mono">{{ rel.hpc_name or '—' }}</td>
       <td>
         <span class="badge badge-{{ rel.status }}">{{ rel.status }}</span>
       </td>
-      <td>{{ rel.updated }}</td>
       <td>
         <form method="post" action="{{ url_for('app_helm.delete_release', name=rel.name) }}"
           onsubmit="return confirm('Uninstall release {{ rel.name }}? This will delete all resources it manages.');"

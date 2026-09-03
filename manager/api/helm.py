@@ -3,27 +3,37 @@ api/helm.py — REST endpoints for InterLink Helm chart operations.
 
 All routes are JSON-only and protected by Bearer-token auth.
 
+One InterLink virtual-kubelet is deployed per (user, HPC node) pair: the
+Helm release is named interlink-<hpc_name> and the virtual-kubelet node
+vk-node-<user-hash>-<hpc_name>, so a user may deploy multiple InterLink
+nodes, one per configured HPC target (see manager/hpc/*.yaml).
+
 Endpoints
 ---------
 POST /api/interlink
-    Install the InterLink Helm chart using defaults from charts_config.yaml.
+    Install the InterLink Helm chart for a given hpc_name, using defaults
+    from charts_config.yaml.
 
 GET  /api/interlink
-    Return the current values for the deployed InterLink Helm release.
+    Return the current values for the InterLink Helm release bound to a
+    given hpc_name.
 
 DELETE /api/interlink
-    Uninstall the InterLink Helm release.
+    Uninstall the InterLink Helm release bound to a given hpc_name.
 """
 
 import json
 import logging
 import os
 
+import yaml
+
 from flask import Blueprint, request
 
 from api.auth import get_request_claims, require_token
 from api.site_config import load_site_config
 from lib.helm_client import helm_get_values, helm_install, helm_uninstall
+from lib.hpc_config import load_hpc_config
 from lib.k8s_client import K8sClient
 from lib.saved_deployments import _resolve_placeholders, load_default_charts
 
@@ -31,8 +41,9 @@ logger = logging.getLogger(__name__)
 
 helm_bp = Blueprint("api_helm", __name__, url_prefix="/api")
 
-# Release name used by the interlink default chart
-_INTERLINK_RELEASE = "interlink"
+# Stable key used to look up the InterLink chart entry in charts_config.yaml.
+# This is independent of the per-HPC Helm release name (interlink-<hpc_name>).
+_INTERLINK_CHART_KEY = "interlink"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -50,10 +61,31 @@ def _err(message: str, code: int = 400):
     return json.dumps({"error": message}), code, {"Content-Type": "application/json"}
 
 
+def _interlink_release_name(hpc_name: str) -> str:
+    """
+    Return the Helm release name for the InterLink deployment on *hpc_name*.
+    One InterLink virtual-kubelet is deployed per (user, HPC node) pair,
+    so each HPC target gets its own release: interlink-<hpc_name>.
+    """
+    return f"interlink-{hpc_name}"
+
+
+def _vk_node_name(namespace: str, hpc_name: str) -> str:
+    """
+    Return the virtual-kubelet node name for the (user, HPC node) pair.
+
+    Pattern: vk-node-<user-hash>-<hpc_name>, where <user-hash> is the
+    16-hex-char hash of the user sub claim - the same digest used by
+    derive_namespace (user-<hash>).
+    """
+    user_hash = namespace.removeprefix("user-")
+    return f"vk-node-{user_hash}-{hpc_name}"
+
+
 def _get_interlink_chart_config() -> dict | None:
     """Return the interlink default-chart config entry, or None if not found."""
     for chart in load_default_charts():
-        if chart.get("release_name", "").lower() == _INTERLINK_RELEASE:
+        if chart.get("release_name", "").lower() == _INTERLINK_CHART_KEY:
             return chart
     return None
 
@@ -65,15 +97,29 @@ def _get_interlink_chart_config() -> dict | None:
 @require_token
 def deploy_interlink():
     """
-    Install the InterLink Helm chart into the user's namespace.
+    Install the InterLink Helm chart into the user's namespace,
+    bound to a specific HPC node.
 
-    All chart settings (chart reference, version, and default values) are read
-    from *charts_config.yaml*.  No request body is required.
+    JSON body keys:
+        hpc_name*  str  HPC node name (from manager/hpc/*.yaml) served by
+                        this virtual-kubelet (required).
 
-    Only one InterLink deployment per user is allowed (singleton constraint).
+    The release is named interlink-<hpc_name> and the virtual-kubelet node
+    vk-node-<user-hash>-<hpc_name>: one InterLink virtual node per
+    (user, HPC target) pair.  All other chart settings come from
+    *charts_config.yaml*.
     """
     claims = get_request_claims()
     namespace = claims["namespace"]
+
+    body = request.get_json(silent=True) or {}
+    hpc_name = body.get("hpc_name", "").strip()
+    if not hpc_name:
+        return _err("'hpc_name' is required.")
+    try:
+        load_hpc_config(hpc_name)
+    except ValueError as exc:
+        return _err(str(exc))
 
     chart_cfg = _get_interlink_chart_config()
     if chart_cfg is None:
@@ -83,12 +129,19 @@ def deploy_interlink():
     version = chart_cfg.get("version") or None
     raw_values = chart_cfg.get("values_yaml") or ""
     site_cfg = load_site_config()
-    values_yaml = _resolve_placeholders(raw_values, namespace, site_cfg) or None
+    values_yaml = _resolve_placeholders(raw_values, namespace, site_cfg) or ""
+
+    # Pin the virtual-kubelet node name to this (user, HPC) pair
+    values = yaml.safe_load(values_yaml) or {}
+    values["nodeName"] = _vk_node_name(namespace, hpc_name)
+    values_yaml = yaml.safe_dump(values) or None
+
+    release_name = _interlink_release_name(hpc_name)
 
     try:
         k8s = _get_k8s()
 
-        # ── Singleton guard ───────────────────────────────────────────
+        # ── Namespace preparation ─────────────────────────────────────
         if not k8s.namespace_exists(namespace):
             ns_result = k8s.create_namespace(namespace)
             if not ns_result["success"]:
@@ -97,7 +150,7 @@ def deploy_interlink():
                 )
 
         result = helm_install(
-            release_name=_INTERLINK_RELEASE,
+            release_name=release_name,
             chart=chart,
             namespace=namespace,
             values_yaml=values_yaml,
@@ -134,12 +187,22 @@ def deploy_interlink():
 @helm_bp.route("/interlink", methods=["GET"])
 @require_token
 def get_interlink_values():
-    """Return the current values for the deployed InterLink Helm release."""
+    """
+    Return the current values for the deployed InterLink Helm release.
+
+    Query parameters:
+        hpc_name*  str  HPC node name identifying which InterLink release to
+                        inspect (required; each HPC target has its own
+                        release, interlink-<hpc_name>).
+    """
     claims = get_request_claims()
     namespace = claims["namespace"]
+    hpc_name = request.args.get("hpc_name", "").strip()
+    if not hpc_name:
+        return _err("'hpc_name' is required.")
     try:
         result = helm_get_values(
-            release_name=_INTERLINK_RELEASE, namespace=namespace
+            release_name=_interlink_release_name(hpc_name), namespace=namespace
         )
         if not result.get("success"):
             return _err(result.get("error", "Could not retrieve values"), 404)
@@ -152,12 +215,22 @@ def get_interlink_values():
 @helm_bp.route("/interlink", methods=["DELETE"])
 @require_token
 def delete_interlink():
-    """Uninstall the InterLink Helm release."""
+    """
+    Uninstall the InterLink Helm release.
+
+    JSON body keys:
+        hpc_name*  str  HPC node name identifying which InterLink release to
+                        remove (required).
+    """
     claims = get_request_claims()
     namespace = claims["namespace"]
+    body = request.get_json(silent=True) or {}
+    hpc_name = body.get("hpc_name", "").strip()
+    if not hpc_name:
+        return _err("'hpc_name' is required.")
     try:
         result = helm_uninstall(
-            release_name=_INTERLINK_RELEASE, namespace=namespace
+            release_name=_interlink_release_name(hpc_name), namespace=namespace
         )
         if result.get("success"):
             return _ok(result)

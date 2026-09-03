@@ -9,12 +9,18 @@
 #     release_name: Default Helm release name proposed to the user.
 #     chart       : Chart reference accepted by `helm install` (OCI, repo/name, URL).
 #     version     : Pin a specific chart version, or null for latest.
-#     singleton   : If true, a user may not deploy more than one instance of this chart.
+#     singleton   : If true, only one instance of this chart per (user, HPC node)
+#                   pair may exist. The InterLink release name embeds the HPC
+#                   node (interlink-<hpc_name>), so one release is deployed per
+#                   configured HPC target.
 #     description : Human-readable description shown in the UI.
 #     values_yaml : Default values passed to `helm install --values -` (raw YAML string).
 #                   The following placeholder tokens are substituted per-user at seed time:
 #                     __NAMESPACE__       → the user's Kubernetes namespace (e.g. user-a3f1b2c4d5e6f7a8)
 #                     __HOSTNAME__  → site_config.hostname (e.g. dev.local)
+#                   Note: `nodeName` is overridden at deploy time by the manager
+#                   to vk-node-<user-hash>-<hpc_name> — one virtual-kubelet node
+#                   per (user, HPC node) pair.
 
 default_charts:
   - kind: helm
@@ -24,7 +30,9 @@ default_charts:
     singleton: true
     description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
     values_yaml: |
-      nodeName: virtual-node-__NAMESPACE__
+      # NOTE: nodeName is overridden at deploy time to
+      # vk-node-<user-hash>-<hpc_name> — see api/helm.py.
+      nodeName: vk-node
 
       interlink:
         enabled: true

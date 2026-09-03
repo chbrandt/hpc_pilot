@@ -110,8 +110,9 @@ Submit a new job (forwards to `POST /api/jobs/preset`).
 ### `GET /jobs`
 
 List all workloads in the user's namespace: container **jobs** (from
-`GET /api/jobs`) and the InterLink Helm release (from `GET /api/interlink`),
-merged into a single unified table.
+`GET /api/jobs`) and the InterLink Helm release(s) — one per configured HPC
+node, from `GET /api/interlink?hpc_name=<name>` — merged into a single
+unified table.
 
 **Auth:** Required
 **Response:** `deployments.html` with `workloads` list
@@ -178,8 +179,9 @@ user's saved-config store as a reusable container template.
 
 ### `GET /helm`
 
-Render the "Deploy a Chart" form. The form is pre-populated with the user's
-saved Helm configs (the InterLink preset is auto-seeded on first login).
+Render the "Deploy InterLink" form. The HPC-node dropdown is populated from
+`manager/hpc/*.yaml` (via `lib.hpc_config.list_hpc_nodes`); all other chart
+settings come from `charts_config.yaml`.
 
 **Auth:** Required
 **Response:** `helm.html`
@@ -188,22 +190,22 @@ saved Helm configs (the InterLink preset is auto-seeded on first login).
 
 ### `POST /helm/install`
 
-Submit the InterLink Helm install form. The form fields are read for display
-purposes only; the backend always calls `POST /api/interlink` (the only managed
-Helm release), which installs the chart using the defaults from
-`charts_config.yaml`.
+Submit the InterLink Helm install form (forwards to `POST /api/interlink`
+with `{"hpc_name": ...}`), which installs the chart bound to the selected HPC
+node using the defaults from `charts_config.yaml`.
 
 **Auth:** Required
-**Form fields:** `release_name`, `chart` (used for display in the result page)
+**Form fields:** `hpc_name` (required)
 **Response:** `helm_result.html` with the install outcome
 
 ---
 
 ### `GET /releases`
 
-List Helm releases in the user's namespace. Since `interlink` is the only
-managed release, the table is a single-item list populated from
-`GET /api/interlink` (empty when not yet deployed).
+List InterLink Helm releases in the user's namespace. One release may exist
+per configured HPC node (`interlink-<hpc_name>`); each is checked
+individually via `GET /api/interlink?hpc_name=<name>` (empty rows for HPC
+nodes with no deployed release).
 
 **Auth:** Required
 **Response:** `releases.html`
@@ -212,7 +214,9 @@ managed release, the table is a single-item list populated from
 
 ### `POST /releases/<name>/delete`
 
-Uninstall the InterLink Helm release (forwards to `DELETE /api/interlink`).
+Uninstall the InterLink Helm release identified by `name`
+(`interlink-<hpc_name>`); forwards to `DELETE /api/interlink` with the
+recovered `hpc_name`.
 
 **Auth:** Required
 **Response:** Redirect to `/jobs`
@@ -221,8 +225,9 @@ Uninstall the InterLink Helm release (forwards to `DELETE /api/interlink`).
 
 ### `POST /releases/<name>/save`
 
-Read the InterLink release values (forwards to `GET /api/interlink`) and save
-them to the user's saved-config store as a reusable Helm template.
+Read the InterLink release values (forwards to
+`GET /api/interlink?hpc_name=<name>`) and save them to the user's
+saved-config store as a reusable Helm template.
 
 **Auth:** Required
 **Response:** Redirect to `/jobs`

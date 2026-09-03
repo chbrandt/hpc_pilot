@@ -174,7 +174,7 @@ Requires Helm 3 on `$PATH`; inherits the process `KUBECONFIG`.
 
 ```{code-block} python
 result = helm_install(
-    release_name="interlink",
+    release_name="interlink-test-echo",  # interlink-<hpc_name>
     chart="oci://ghcr.io/chbrandt/interlink",
     namespace="user-abc123",
     values_yaml="...",   # optional raw YAML string (passed via --values -)
@@ -199,7 +199,7 @@ Returns a normalised list (`name`, `namespace`, `revision`, `updated`,
 ### `helm_get_values`
 
 ```{code-block} python
-result = helm_get_values(release_name="interlink", namespace="user-abc123")
+result = helm_get_values(release_name="interlink-test-echo", namespace="user-abc123")
 # -> {"success": bool, "values_yaml": str | None, "error": str | None}
 ```
 
@@ -209,7 +209,7 @@ when no custom values were provided). Used by the GUI's "save release" feature.
 ### `helm_uninstall`
 
 ```{code-block} python
-result = helm_uninstall(release_name="interlink", namespace="user-abc123")
+result = helm_uninstall(release_name="interlink-test-echo", namespace="user-abc123")
 # -> {"success": bool, "output": str, "error": str | None}
 ```
 

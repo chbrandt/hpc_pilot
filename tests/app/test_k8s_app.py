@@ -28,6 +28,7 @@ import requests
 GET_SESSION_USER_PATCH = "app.auth.get_session_user"
 # Patch the names as they exist in app.k8s's own namespace (imported via `from`)
 API_GET_PATCH = "app.k8s.api_get"
+LIST_HPC_NODES_PATCH = "lib.hpc_config.list_hpc_nodes"
 
 FAKE_NAMESPACE = "user-testnamespace1234"
 FAKE_USER = {
@@ -36,6 +37,9 @@ FAKE_USER = {
     "exp": 9999999999,
     "iss": "https://aai.egi.eu",
 }
+FAKE_HPC_NODES = [
+    {"name": "test-echo", "hostname": "161.9.255.206", "ssh_port": 22, "plugin": "echo"},
+]
 
 
 def _logged_in_client(client):
@@ -96,6 +100,7 @@ class TestJobsPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(API_GET_PATCH, side_effect=[[], _http_error(404)]),
         ):
             resp = client.get(self.URL)
@@ -116,6 +121,7 @@ class TestJobsPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(API_GET_PATCH, side_effect=[jobs, _http_error(404)]),
         ):
             resp = client.get(self.URL)
@@ -135,6 +141,7 @@ class TestJobsPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(
                 API_GET_PATCH,
                 side_effect=[[], {"success": True, "values_yaml": "nodeName: vk\n"}],
@@ -144,7 +151,7 @@ class TestJobsPage:
 
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert "interlink" in html
+        assert "interlink-test-echo" in html
         assert "deployed" in html
 
     def test_interlink_500_shows_error_message(self, client, app):
@@ -155,6 +162,7 @@ class TestJobsPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(API_GET_PATCH, side_effect=[[], _http_error(500)]),
         ):
             resp = client.get(self.URL)

@@ -384,21 +384,27 @@ curl -s -X DELETE \
 
 ## InterLink Chart — `/api/interlink`
 
-The manager manages exactly **one** Helm release per user — the InterLink
-virtual-kubelet pod. The release is named `interlink`, is a singleton (a user
-may not deploy more than one), and its chart reference, version and default
-values are read from `charts_config.yaml` (see [helm.md](helm.md)).
+The manager deploys **one InterLink Helm release per (user, HPC node) pair**.
+Each release is named `interlink-<hpc_name>` and its virtual-kubelet node is
+named `vk-node-<user-hash>-<hpc_name>`, so a user may run multiple InterLink
+virtual-kubelet nodes at once — one per configured HPC target (see
+`manager/hpc/*.yaml`). Chart reference, version and default values are read
+from `charts_config.yaml` (see [helm.md](helm.md)); only `nodeName` is
+overridden per (user, HPC node) pair.
 
 ### `POST /api/interlink` — Deploy InterLink
 
-Install the InterLink chart into the user's namespace using the defaults from
-`charts_config.yaml`. No request body is required; per-user placeholders
-(`__NAMESPACE__`, `__HOSTNAME__`) in the default values are resolved
-server-side from the token and `site_config.yaml`.
+Install the InterLink chart into the user's namespace, bound to `hpc_name`.
+Per-user placeholders (`__NAMESPACE__`, `__HOSTNAME__`) in the default values
+are resolved server-side from the token and `site_config.yaml`.
+
+**Request body:** `hpc_name` (required) — HPC node name from `GET /api/hpc/nodes`.
 
 ```{code-block} bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hpc_name": "test-echo"}' \
   https://manager.example.org/api/interlink | jq .
 ```
 
@@ -418,7 +424,7 @@ a TLS handshake error.
 {"success": true, "output": "...helm output...", "error": null}
 ```
 
-**Response `400`** (singleton already deployed / install failed):
+**Response `400`** (missing/invalid `hpc_name`, or install failed):
 
 ```{code-block} json
 {"error": "..."}
@@ -428,11 +434,14 @@ a TLS handshake error.
 
 ### `GET /api/interlink` — Get InterLink values
 
-Return the user-supplied values for the deployed InterLink release.
+Return the user-supplied values for the InterLink release bound to `hpc_name`.
+
+**Query parameters:** `hpc_name` (required).
 
 ```{code-block} bash
-curl -s \
+curl -s -G \
   -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "hpc_name=test-echo" \
   https://manager.example.org/api/interlink | jq .
 ```
 
@@ -452,16 +461,20 @@ curl -s \
 
 ### `DELETE /api/interlink` — Uninstall InterLink
 
+**Request body:** `hpc_name` (required).
+
 ```{code-block} bash
 curl -s -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hpc_name": "test-echo"}' \
   https://manager.example.org/api/interlink | jq .
 ```
 
 **Response `200`:**
 
 ```{code-block} json
-{"success": true, "output": "release \"interlink\" uninstalled\n", "error": null}
+{"success": true, "output": "release \"interlink-test-echo\" uninstalled\n", "error": null}
 ```
 
 ---
@@ -727,9 +740,9 @@ print(resp.json())
 | `GET` | `/api/jobs/<name>/status` | Get job status |
 | `GET` | `/api/jobs/<name>/output` | Retrieve job output (stdout/stderr) |
 | `DELETE` | `/api/jobs/<name>` | Delete a job |
-| `POST` | `/api/interlink` | Install the InterLink singleton chart |
-| `GET` | `/api/interlink` | Get InterLink release values |
-| `DELETE` | `/api/interlink` | Uninstall the InterLink release |
+| `POST` | `/api/interlink` | Install InterLink for a given `hpc_name` |
+| `GET` | `/api/interlink` | Get InterLink release values for a given `hpc_name` |
+| `DELETE` | `/api/interlink` | Uninstall the InterLink release for a given `hpc_name` |
 | `POST` | `/api/saved/seed` | Seed default chart configs for the user |
 | `GET` | `/api/hpc/nodes` | List available HPC nodes |
 | `POST` | `/api/hpc/deploy` | Deploy wstunnel on an HPC node |

@@ -1,57 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}Deploy a Chart — HPC Pilot{% endblock %}
+{% block title %}Deploy InterLink — HPC Pilot{% endblock %}
 
 {% block content %}
-<h1>Deploy a Helm Chart</h1>
+<h1>Deploy InterLink</h1>
 
 {% if error %}
     <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
-{# ── Saved configurations panel ── #}
-{% if saved_configs %}
-<div class="saved-configs-panel">
-    <div class="saved-configs-header">
-        <span class="saved-configs-title">💾 Saved Configurations</span>
-        <span class="text-muted" style="font-size:0.85rem;">Select one to pre-fill the form below.</span>
-    </div>
-    <div class="saved-configs-body">
-        <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-            <select id="saved-config-select" class="saved-config-select"
-                    onchange="loadSavedConfig(this.value)">
-                <option value="">— choose a saved config —</option>
-                {% for cfg in saved_configs %}
-                <option value="{{ cfg.id }}">
-                    {{ cfg.release_name }} — {{ cfg.chart }}
-                    (saved {{ cfg.saved_at[:10] }})
-                </option>
-                {% endfor %}
-            </select>
-        </div>
-        <ul class="saved-config-list">
-            {% for cfg in saved_configs %}
-            <li class="saved-config-item">
-                <span class="saved-config-name">{{ cfg.release_name }}</span>
-                <span class="text-muted text-mono" style="font-size:0.8rem;">{{ cfg.chart }}</span>
-                <form method="post"
-                      action="{{ url_for('app_saved.delete_saved_config', config_id=cfg.id) }}"
-                      onsubmit="return confirm('Remove saved config \'{{ cfg.release_name }}\'?');"
-                      style="display:inline; margin-left:auto;">
-                    <button type="submit" class="btn btn-tiny btn-danger"
-                            title="Remove saved config">✕</button>
-                </form>
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-</div>
-{% endif %}
-
 <p class="text-muted">
-    Deploy any multi-container workload packaged as a Helm chart.
-    For single-container workloads, use the
-    <a href="{{ url_for('app_k8s.index') }}">Deploy Container</a> page instead.
+    Deploy an InterLink virtual-kubelet node bound to one of your configured
+    HPC targets. One InterLink release is created per (user, HPC node) pair;
+    all chart settings other than the target come from <code>charts_config.yaml</code>.
 </p>
 
 <form action="{{ url_for('app_helm.helm_install_route') }}" method="post"
@@ -62,23 +23,25 @@
         <legend>Required</legend>
 
         <div class="form-group">
-            <label for="release_name">Release Name <span class="required">*</span></label>
-            <input type="text" id="release_name" name="release_name" required
-                   placeholder="my-release"
-                   pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
-                   title="Lowercase alphanumeric and hyphens, max 63 chars">
-            <span class="help-text">Unique name for this Helm release in your namespace.</span>
-        </div>
-
-        <div class="form-group">
-            <label for="chart">Chart Reference <span class="required">*</span></label>
-            <input type="text" id="chart" name="chart" required
-                   placeholder="oci://registry-1.docker.io/bitnamicharts/nginx">
+            <label for="hpc_name">HPC Node <span class="required">*</span></label>
+            {% if hpc_nodes %}
+            <select id="hpc_name" name="hpc_name" required>
+                <option value="">— select an HPC node —</option>
+                {% for node in hpc_nodes %}
+                <option value="{{ node.name }}">{{ node.name }} ({{ node.hostname }})</option>
+                {% endfor %}
+            </select>
+            {% else %}
+            <select id="hpc_name" name="hpc_name" required disabled>
+                <option value="">— no HPC nodes configured —</option>
+            </select>
+            <span class="help-text" style="color:#EF8300;">
+                No HPC nodes found in <code>manager/hpc/*.yaml</code>.
+            </span>
+            {% endif %}
             <span class="help-text">
-                Any reference accepted by <code>helm install</code>:
-                <code>oci://…</code> (OCI registry), a chart from an already-added
-                repo (<code>repo/chart</code>), or a direct
-                <code>https://…tgz</code> URL.
+                One InterLink release (<code>interlink-&lt;hpc_name&gt;</code>) and virtual-kubelet
+                node (<code>vk-node-&lt;user-hash&gt;-&lt;hpc_name&gt;</code>) is created per target.
             </span>
         </div>
 
@@ -93,37 +56,9 @@
         </div>
     </fieldset>
 
-    <!-- Chart Version -->
-    <fieldset>
-        <legend>Version <span class="optional">(optional)</span></legend>
-
-        <div class="form-group" style="max-width: 240px;">
-            <label for="version">Chart Version</label>
-            <input type="text" id="version" name="version"
-                   placeholder="e.g. 18.2.3">
-            <span class="help-text">Leave blank to use the latest version.</span>
-        </div>
-    </fieldset>
-
-    <!-- Values Override -->
-    <fieldset>
-        <legend>Values Override <span class="optional">(optional)</span></legend>
-
-        <div class="form-group">
-            <label for="values_yaml">Custom Values (YAML)</label>
-            <textarea id="values_yaml" name="values_yaml"
-                      class="values-textarea"
-                      placeholder="# Paste your values.yaml overrides here&#10;# Example:&#10;# replicaCount: 2&#10;# service:&#10;#   type: NodePort"></textarea>
-            <span class="help-text">
-                Equivalent to <code>helm install --values -</code>.
-                Only the fields you specify here will override chart defaults.
-            </span>
-        </div>
-    </fieldset>
-
     <div class="form-actions">
         <button type="submit" class="btn btn-primary" id="helm-submit-btn">
-            ⎈ Install Chart
+            ⎈ Deploy InterLink
         </button>
         <span id="helm-installing-msg" class="installing-msg" style="display:none;">
             <span class="spinner"></span>
@@ -135,23 +70,6 @@
 
 {% block scripts %}
 <script>
-    // ── Saved config data ─────────────────────────────────────────────
-    const SAVED_CONFIGS = {{ saved_configs | tojson }};
-
-    function loadSavedConfig(configId) {
-        if (!configId) return;
-        const cfg = SAVED_CONFIGS.find(c => c.id === configId);
-        if (!cfg) return;
-
-        document.getElementById('release_name').value = cfg.release_name || '';
-        document.getElementById('chart').value = cfg.chart || '';
-        document.getElementById('version').value = cfg.version || '';
-        document.getElementById('values_yaml').value = cfg.values_yaml || '';
-
-        // Scroll to form top
-        document.querySelector('.deploy-form').scrollIntoView({behavior: 'smooth'});
-    }
-
     /* Disable button + show spinner on form submit */
     document.getElementById('helm-form').addEventListener('submit', function () {
         const btn = document.getElementById('helm-submit-btn');

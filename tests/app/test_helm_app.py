@@ -24,10 +24,14 @@ GET_SESSION_USER_PATCH = "app.auth.get_session_user"
 # Patch the names as they exist in app.helm's own namespace (imported via `from`)
 API_GET_PATCH = "app.helm.api_get"
 API_POST_PATCH = "app.helm.api_post"
-LIST_CONFIGS_PATCH = "app.helm.list_configs"
+API_DELETE_PATCH = "app.helm.api_delete"
+LIST_HPC_NODES_PATCH = "app.helm.list_hpc_nodes"
 
 FAKE_NAMESPACE = "user-testnamespace1234"
 FAKE_USER = {"sub": "test-sub", "namespace": FAKE_NAMESPACE, "exp": 9999999999, "iss": "https://aai.egi.eu"}
+FAKE_HPC_NODES = [
+    {"name": "test-echo", "hostname": "161.9.255.206", "ssh_port": 22, "plugin": "echo"},
+]
 
 
 def _logged_in_client(client):
@@ -75,6 +79,7 @@ class TestReleasesPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(API_GET_PATCH, side_effect=_http_error(404)),
         ):
             resp = client.get(self.URL)
@@ -93,13 +98,14 @@ class TestReleasesPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(API_GET_PATCH, return_value={"success": True, "values_yaml": "nodeName: vk\n"}),
         ):
             resp = client.get(self.URL)
 
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert "interlink" in html
+        assert "interlink-test-echo" in html
         assert "deployed" in html
 
     def test_api_server_error_shows_error_message(self, client):
@@ -109,6 +115,7 @@ class TestReleasesPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(API_GET_PATCH, side_effect=_http_error(500)),
         ):
             resp = client.get(self.URL)
@@ -125,6 +132,7 @@ class TestReleasesPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(API_GET_PATCH, side_effect=_http_error(404)),
         ):
             resp = client.get(self.URL)
@@ -150,36 +158,26 @@ class TestHelmDeployPage:
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_CONFIGS_PATCH, return_value=[]),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
         ):
             resp = client.get(self.URL)
 
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert "Deploy a Helm Chart" in html
+        assert "Deploy InterLink" in html
         assert 'action="/helm/install"' in html
 
-    def test_renders_saved_configs_when_present(self, client):
-        """Saved helm configs should be listed in the form."""
-        saved = [
-            {
-                "id": "abc123",
-                "release_name": "interlink",
-                "chart": "oci://ghcr.io/chbrandt/interlink",
-                "version": None,
-                "values_yaml": "",
-                "saved_at": "2026-06-01T00:00:00",
-            }
-        ]
+    def test_renders_hpc_nodes_when_present(self, client):
+        """Configured HPC nodes should be listed in the form's dropdown."""
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_CONFIGS_PATCH, return_value=saved),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
         ):
             resp = client.get(self.URL)
 
         assert resp.status_code == 200
-        assert b"interlink" in resp.data
+        assert b"test-echo" in resp.data
 
 
 # ---------------------------------------------------------------------------
@@ -189,17 +187,18 @@ class TestHelmDeployPage:
 
 class TestHelmInstallRoute:
     URL = "/helm/install"
-    FORM_DATA = {
-        "release_name": "interlink",
-        "chart": "oci://ghcr.io/chbrandt/interlink",
-        "version": "",
-        "values_yaml": "",
-    }
+    FORM_DATA = {"hpc_name": "test-echo"}
 
     def test_redirects_when_not_logged_in(self, client):
         resp = client.post(self.URL, data=self.FORM_DATA)
         assert resp.status_code == 302
         assert "/login" in resp.headers["Location"]
+
+    def test_missing_hpc_name_redirects(self, client):
+        _logged_in_client(client)
+        with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
+            resp = client.post(self.URL, data={}, follow_redirects=False)
+        assert resp.status_code == 302
 
     def test_successful_install_renders_success_page(self, client):
         """A successful API call should render helm_result.html with success."""
@@ -214,7 +213,7 @@ class TestHelmInstallRoute:
         assert resp.status_code == 200
         html = resp.data.decode()
         assert "Chart Installed" in html
-        assert "interlink" in html
+        assert "interlink-test-echo" in html
 
     def test_failed_install_renders_failure_page(self, client):
         """When the API returns success=False, the failure page should be rendered."""

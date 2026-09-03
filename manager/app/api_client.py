@@ -130,7 +130,7 @@ def api_post(path: str, body: dict | None = None, timeout: int = DEFAULT_TIMEOUT
     return r.json()
 
 
-def api_delete(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+def api_delete(path: str, body: dict | None = None, timeout: int = DEFAULT_TIMEOUT) -> dict:
     """
     Send a DELETE request to the API.
 
@@ -138,6 +138,8 @@ def api_delete(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     ----------
     path : str
         Path relative to ``API_BASE_URL``, e.g. ``"/api/jobs/my-job"``.
+    body : dict, optional
+        JSON-serialisable request body (e.g. ``{"hpc_name": "test-echo"}``).
     timeout : int
         Read timeout in seconds (default :data:`DEFAULT_TIMEOUT`).
 
@@ -152,7 +154,7 @@ def api_delete(path: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
         On 4xx / 5xx responses.
     """
     url = f"{API_BASE_URL}{path}"
-    logger.debug("API DELETE %s", url)
-    r = requests.delete(url, headers=_headers(), timeout=timeout)
+    logger.debug("API DELETE %s body=%s", url, body)
+    r = requests.delete(url, json=body, headers=_headers(), timeout=timeout)
     r.raise_for_status()
     return r.json()

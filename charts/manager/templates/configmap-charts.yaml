@@ -21,7 +21,8 @@ data:
         singleton: true
         description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
         values_yaml: |
-          nodeName: virtual-node-__NAMESPACE__
+          # NOTE: nodeName is overridden at deploy time (vk-node-<user-hash>-<hpc_name>)
+          nodeName: vk-node
           interlink:
             enabled: true
             address: {{ .Values.interlinkConfig.interlink.address | default "http://0.0.0.0" }}

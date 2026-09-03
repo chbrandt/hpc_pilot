@@ -18,7 +18,7 @@ cluster as a Kubernetes Deployment managed by the
 | Feature | Description |
 | --- | --- |
 | **Job submission** | Form-driven submission of container jobs pinned to InterLink virtual-kubelet nodes (InterLink forwards them to HPC batch jobs) |
-| **InterLink deployment** | Deploy the singleton InterLink chart (wstunnel server + virtual-kubelet) per user, with per-user placeholder resolution from `charts_config.yaml` |
+| **InterLink deployment** | Deploy InterLink virtual-kubelet nodes (wstunnel server + virtual-kubelet), one per (user, HPC node) pair, with per-user placeholder resolution from `charts_config.yaml` |
 | **HPC node management** | Install/start/stop/status/uninstall the wstunnel client + supervisord + InterLink plugin on a remote HPC edge-node via `mccli` |
 | **Unified workloads view** | Single page listing container jobs and the InterLink Helm release |
 | **EGI Check-in auth** | Token-based authentication; user namespace derived deterministically from the `sub` claim |
