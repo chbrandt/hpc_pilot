@@ -439,19 +439,22 @@ def _make_csr_mock(
 
 class TestApprovePendingCsrs:
     NS = "user-abc123"
+    NODE = "vk-node-abc123-test-slurm"
 
     def _vk_csr(self):
         return _make_csr_mock(
-            name="vk-virtual-node-user-abc123-s7vsc",
+            name=f"vk-{self.NODE}-s7vsc",
             signer="kubernetes.io/kubelet-serving",
-            requestor=f"system:serviceaccount:{self.NS}:virtual-node-{self.NS}",
+            requestor=f"system:serviceaccount:{self.NS}:{self.NODE}",
         )
 
     def test_approves_pending_matching_csr(self, k8s):
         csr = self._vk_csr()
         k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
 
-        approved = k8s.approve_pending_csrs(self.NS, timeout=0.0)
+        approved = k8s.approve_pending_csrs(
+            self.NS, node_names=[self.NODE], timeout=0.0
+        )
 
         assert approved == [csr.metadata.name]
         k8s.certificates_v1.replace_certificate_signing_request_approval.assert_called_once()
@@ -463,19 +466,49 @@ class TestApprovePendingCsrs:
         csr = _make_csr_mock(
             name="client-csr",
             signer="kubernetes.io/kube-apiserver-client",
-            requestor=f"system:serviceaccount:{self.NS}:virtual-node-{self.NS}",
+            requestor=f"system:serviceaccount:{self.NS}:{self.NODE}",
         )
         k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
 
-        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+        assert k8s.approve_pending_csrs(
+            self.NS, node_names=[self.NODE], timeout=0.0
+        ) == []
         k8s.certificates_v1.replace_certificate_signing_request_approval.assert_not_called()
 
     def test_ignores_csr_from_other_namespace(self, k8s):
         csr = _make_csr_mock(
-            name="vk-virtual-node-other-ns",
+            name="vk-other-ns",
             signer="kubernetes.io/kubelet-serving",
-            requestor="system:serviceaccount:user-other:virtual-node-user-other",
+            requestor="system:serviceaccount:user-other:vk-node-other-ns-test",
         )
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
+
+        assert k8s.approve_pending_csrs(
+            self.NS, node_names=[self.NODE], timeout=0.0
+        ) == []
+        k8s.certificates_v1.replace_certificate_signing_request_approval.assert_not_called()
+
+    def test_ignores_csr_from_other_node_same_namespace(self, k8s):
+        """Least-privilege: a kubelet-serving CSR from a *different* node/SA in
+        the same namespace must not be approved (regression for the old
+        catch-all prefix that matched any SA in the namespace)."""
+        other_csr = _make_csr_mock(
+            name="vk-other-node-xyz-abc",
+            signer="kubernetes.io/kubelet-serving",
+            requestor=f"system:serviceaccount:{self.NS}:vk-node-abc123-other-hpc",
+        )
+        k8s.certificates_v1.list_certificate_signing_request.return_value.items = [
+            other_csr
+        ]
+
+        assert k8s.approve_pending_csrs(
+            self.NS, node_names=[self.NODE], timeout=0.0
+        ) == []
+        k8s.certificates_v1.replace_certificate_signing_request_approval.assert_not_called()
+
+    def test_does_not_approve_when_no_node_names_given(self, k8s):
+        """Empty node_names must be a safe no-op, not a catch-all."""
+        csr = self._vk_csr()
         k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
 
         assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
@@ -486,14 +519,18 @@ class TestApprovePendingCsrs:
         csr.status.conditions = [MagicMock()]  # any condition ⇒ not pending
         k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
 
-        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+        assert k8s.approve_pending_csrs(
+            self.NS, node_names=[self.NODE], timeout=0.0
+        ) == []
         k8s.certificates_v1.replace_certificate_signing_request_approval.assert_not_called()
 
     def test_list_failure_returns_empty_list(self, k8s):
         k8s.certificates_v1.list_certificate_signing_request.side_effect = ApiException(
             status=403
         )
-        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+        assert k8s.approve_pending_csrs(
+            self.NS, node_names=[self.NODE], timeout=0.0
+        ) == []
 
     def test_approval_failure_is_skipped_not_raised(self, k8s):
         csr = self._vk_csr()
@@ -502,7 +539,9 @@ class TestApprovePendingCsrs:
             ApiException(status=403)
         )
 
-        assert k8s.approve_pending_csrs(self.NS, timeout=0.0) == []
+        assert k8s.approve_pending_csrs(
+            self.NS, node_names=[self.NODE], timeout=0.0
+        ) == []
 
     def test_polls_until_csr_appears(self, k8s):
         """A CSR created shortly after install is picked up by polling."""
@@ -517,7 +556,9 @@ class TestApprovePendingCsrs:
         ]
 
         with patch("lib.k8s_client.time.sleep") as mock_sleep:
-            approved = k8s.approve_pending_csrs(self.NS, timeout=30.0)
+            approved = k8s.approve_pending_csrs(
+                self.NS, node_names=[self.NODE], timeout=30.0
+            )
 
         assert approved == [csr.metadata.name]
         mock_sleep.assert_called_once()
@@ -528,12 +569,14 @@ class TestGetJobOutputTlsSelfHealing:
     approve the pending VK CSR and retry the log read once."""
 
     NS = "user-abc123"
+    NODE = "vk-node-abc123-test-slurm"
 
     def _make_pod(self):
         pod_mock = MagicMock()
         pod_mock.metadata.name = "myapp-abc123"
         pod_mock.spec.containers = [MagicMock()]
         pod_mock.spec.containers[0].name = "myapp"
+        pod_mock.spec.node_name = self.NODE
         return pod_mock
 
     def _tls_error(self):
@@ -554,16 +597,24 @@ class TestGetJobOutputTlsSelfHealing:
         ]
 
         csr = _make_csr_mock(
-            name="vk-virtual-node-user-abc123-s7vsc",
+            name=f"vk-{self.NODE}-s7vsc",
             signer="kubernetes.io/kubelet-serving",
-            requestor=f"system:serviceaccount:{self.NS}:virtual-node-{self.NS}",
+            requestor=f"system:serviceaccount:{self.NS}:{self.NODE}",
         )
         k8s.certificates_v1.list_certificate_signing_request.return_value.items = [csr]
 
-        result = k8s.get_job_output("myapp", self.NS)
+        with patch.object(
+            k8s, "approve_pending_csrs", wraps=k8s.approve_pending_csrs
+        ) as mock_approve:
+            result = k8s.get_job_output("myapp", self.NS)
 
         assert result["content"] == "job output after retry\n"
         assert k8s.core_v1.read_namespaced_pod_log.call_count == 2
+        mock_approve.assert_called_once_with(
+            namespace=self.NS,
+            node_names=[self.NODE],
+            timeout=0.0,
+        )
         k8s.certificates_v1.replace_certificate_signing_request_approval.assert_called_once()
 
     def test_tls_error_without_pending_csr_returns_error(self, k8s):
@@ -575,6 +626,20 @@ class TestGetJobOutputTlsSelfHealing:
 
         assert "error" in result
         assert k8s.core_v1.read_namespaced_pod_log.call_count == 1
+
+    def test_tls_error_without_node_name_does_not_approve(self, k8s):
+        """Self-heal must not attempt approval (or approve a CSR) when the pod
+        has no spec.nodeName to attribute the CSR to."""
+        pod = self._make_pod()
+        pod.spec.node_name = ""
+        k8s.core_v1.list_namespaced_pod.return_value.items = [pod]
+        k8s.core_v1.read_namespaced_pod_log.side_effect = self._tls_error()
+
+        result = k8s.get_job_output("myapp", self.NS)
+
+        assert "error" in result
+        assert k8s.core_v1.read_namespaced_pod_log.call_count == 1
+        k8s.certificates_v1.list_certificate_signing_request.assert_not_called()
 
     def test_non_tls_error_returns_error_without_approval(self, k8s):
         k8s.core_v1.list_namespaced_pod.return_value.items = [self._make_pod()]

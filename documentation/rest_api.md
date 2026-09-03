@@ -352,11 +352,17 @@ endpoint returns a `404` with `{"error": "..."}`.
 ```{note}
 Fetching logs of a pod on an InterLink virtual node is proxied by the API
 server through the virtual-kubelet's serving endpoint (``:10250``). The
-manager automatically approves the virtual-kubelet's
-`kubernetes.io/kubelet-serving` CSR right after install — and, as a
-self-healing fallback, when a log request fails with a TLS handshake error
-(`remote error: tls: internal error`). Without the approved certificate the
-API server cannot fetch any logs from the virtual node.
+InterLink chart is deployed with ``virtualNode.disableCSR: true``, so the
+virtual-kubelet serves that endpoint with a self-signed certificate that the
+kube-apiserver accepts (it runs with ``--kubelet-insecure-tls``) and no
+kubelet-serving CertificateSigningRequest is created.
+
+On clusters that verify kubelet certificates against a CA (no
+``--kubelet-insecure-tls``), ``disableCSR`` must be false; the manager then
+auto-approves the ``kubernetes.io/kubelet-serving`` CSR right after install
+and, as a self-healing fallback, when a log request fails with a TLS handshake
+error (``remote error: tls: internal error``). Without an approved, cluster-CA
+signed certificate the API server cannot fetch logs from the virtual node.
 ```
 
 ---
@@ -411,11 +417,15 @@ curl -s -X POST \
 ```{note}
 This call blocks for the duration of `helm install --wait` (timeout 5 minutes).
 
-After a successful install the manager also approves the virtual-kubelet's
+The InterLink chart is installed with `virtualNode.disableCSR: true`, so its
+virtual-kubelet serves the `:10250` log endpoint with a self-signed certificate
+(valid when the kube-apiserver runs with `--kubelet-insecure-tls`).
+
+On clusters that verify kubelet certificates against a CA, `disableCSR` must be
+false; the manager then best-effort approves the virtual-kubelet's
 `kubernetes.io/kubelet-serving` certificate CSR (Kubernetes ships no
-auto-approval for serving CSRs). This is best-effort and never fails the
-install; it is retried transparently if a pod-log request later fails with
-a TLS handshake error.
+auto-approval for serving CSRs). This never fails the install, and is retried
+transparently if a pod-log request later fails with a TLS handshake error.
 ```
 
 **Response `201`** (installed):

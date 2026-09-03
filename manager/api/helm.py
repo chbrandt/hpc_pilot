@@ -157,15 +157,22 @@ def deploy_interlink():
             version=version,
         )
 
-        # ── Approve the virtual-kubelet's serving-cert CSR ─────────────
-        # The freshly installed virtual-kubelet requests a
-        # kubelet-serving certificate via a CSR; no Kubernetes controller
-        # auto-approves those, so without this the API server could not
-        # proxy pod logs from the virtual node (TLS handshake errors).
+        # ── Approve the virtual-kubelet's serving-cert CSR (fallback) ──
+        # InterLink is deployed with virtualNode.disableCSR: true by default,
+        # so the virtual-kubelet serves :10250 with a self-signed cert and no
+        # CSR is created.  On clusters that verify kubelet certs against a CA,
+        # disableCSR is false and the freshly installed virtual-kubelet
+        # requests a kubelet-serving certificate via a CSR; no Kubernetes
+        # controller auto-approves those, so without this the API server could
+        # not proxy pod logs from the virtual node (TLS handshake errors).
         # Best-effort: failures are logged inside the helper and do not
-        # fail the install.
+        # fail the install.  The node name is the (user, HPC) virtual-kubelet
+        # node that the freshly installed VK's ServiceAccount is named after.
         try:
-            approved = k8s.approve_pending_csrs(namespace=namespace)
+            approved = k8s.approve_pending_csrs(
+                namespace=namespace,
+                node_names=[_vk_node_name(namespace, hpc_name)],
+            )
             if approved:
                 logger.info(
                     "Approved InterLink CSR(s) %s for namespace %s",

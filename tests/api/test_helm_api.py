@@ -113,12 +113,12 @@ class TestDeployInterlink:
         assert call_kwargs["release_name"] == f"interlink-{_HPC_NAME}"
 
     def test_approves_vk_csr_after_successful_install(self, client, auth_headers):
-        """POST /api/interlink must approve the virtual-kubelet's pending
-        serving-cert CSR right after a successful helm install."""
-        headers, _ = auth_headers
+        """POST /api/interlink must approve only the freshly installed
+        virtual-kubelet's serving-cert CSR, identified by its node-name SA."""
+        headers, fake_ns = auth_headers
         result = {"success": True, "output": "Release installed"}
         k8s = _mock_k8s(namespace_exists=True)
-        k8s.approve_pending_csrs.return_value = ["vk-virtual-node-user-abc123-x"]
+        k8s.approve_pending_csrs.return_value = ["vk-vk-node-fcbc139581fea03d-test-echo-x"]
         p1, p2, p3, p4 = _default_chart_patches()
         with p1, p2, p3, p4, patch(K8S_PATCH, return_value=k8s), patch(
             HELM_INSTALL_PATCH, return_value=result
@@ -126,6 +126,12 @@ class TestDeployInterlink:
             resp = client.post(self.URL, json=self.BODY, headers=headers)
         assert resp.status_code == 201
         k8s.approve_pending_csrs.assert_called_once()
+        call_kwargs = k8s.approve_pending_csrs.call_args[1]
+        # The VK SA == the node name vk-node-<user-hash>-<hpc_name>
+        assert call_kwargs["namespace"] == fake_ns
+        assert call_kwargs["node_names"] == [
+            f"vk-node-{fake_ns.removeprefix('user-')}-{_HPC_NAME}"
+        ]
 
     def test_csr_approval_failure_does_not_fail_install(self, client, auth_headers):
         """CSR approval is best-effort: an exception must not flip a

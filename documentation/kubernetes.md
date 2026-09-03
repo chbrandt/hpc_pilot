@@ -155,8 +155,8 @@ rules:
 | `list_jobs(namespace=None)` | List jobs; return list of dicts with `name`, `image`, `node_name`, `status`, `created` |
 | `get_job_spec(name, namespace)` | Return job spec: `name`, `image`, `node_name`, `env_vars`, `command` |
 | `get_job_status(name, namespace)` | Return `{status, active, ready, succeeded, failed, ...}` |
-| `get_job_output(name, namespace)` | Retrieve job output via pod log endpoint; return `{name, pod, content}`; self-heals TLS errors by approving the VK serving-cert CSR |
-| `approve_pending_csrs(namespace, timeout, poll_interval)` | Approve pending `kubernetes.io/kubelet-serving` CSRs from the namespace's InterLink virtual-kubelet SA; return the approved CSR names |
+| `get_job_output(name, namespace)` | Retrieve job output via pod log endpoint; return `{name, pod, content}`; self-heals TLS errors by approving the VK serving-cert CSR (matched by the pod's `spec.nodeName` SA) when `virtualNode.disableCSR: false` |
+| `approve_pending_csrs(namespace, node_names, timeout, poll_interval)` | Approve pending `kubernetes.io/kubelet-serving` CSRs whose requestor is exactly the given node-name ServiceAccounts (`system:serviceaccount:<ns>:<node_name>`, only relevant when `virtualNode.disableCSR: false`); return the approved CSR names |
 | `delete_job(name, namespace)` | Delete the job; return `{"job": {success, name}}` |
 
 ---

@@ -23,6 +23,8 @@ data:
         values_yaml: |
           # NOTE: nodeName is overridden at deploy time (vk-node-<user-hash>-<hpc_name>)
           nodeName: vk-node
+          virtualNode:
+            disableCSR: {{ .Values.interlinkConfig.virtualNode.disableCSR }}
           interlink:
             enabled: true
             address: {{ .Values.interlinkConfig.interlink.address | default "http://0.0.0.0" }}

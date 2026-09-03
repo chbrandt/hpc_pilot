@@ -104,6 +104,9 @@ like this (with placeholders that are resolved per-user at install time):
 ```yaml
 nodeName: virtual-node-__NAMESPACE__
 
+virtualNode:
+  disableCSR: true   # no kubelet-serving CSR; self-signed cert for :10250 (apiserver --kubelet-insecure-tls)
+
 interlink:
   enabled: true
   address: http://0.0.0.0

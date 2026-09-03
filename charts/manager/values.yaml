@@ -69,6 +69,16 @@ interlinkConfig:
     # Port on which the wstunnel server in the InterLink pod listens.
     port: 8080
 
+  virtualNode:
+    # Do not request a cluster-signed kubelet serving certificate via a CSR.
+    # With disableCSR true the virtual-kubelet serves its :10250 endpoint with
+    # a self-signed cert, which the kube-apiserver accepts when running with
+    # --kubelet-insecure-tls (the InterLink chart's HTTP.insecure /
+    # kubeletHTTP.insecure defaults).  Avoids the kubelet-serving CSR
+    # approval/signing pipeline that otherwise gates job output retrieval on
+    # TLS verification.
+    disableCSR: true
+
   interlink:
     # Port on which the InterLink API server in the InterLink pod listens.
     port: 3000

@@ -14,7 +14,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -576,6 +576,7 @@ class K8sClient:
     def approve_pending_csrs(
         self,
         namespace: str,
+        node_names: Iterable[str] = (),
         timeout: float = 30.0,
         poll_interval: float = 2.0,
     ) -> list[str]:
@@ -584,25 +585,32 @@ class K8sClient:
         virtual-kubelet's ServiceAccount in *namespace*.
 
         The InterLink virtual-kubelet creates a ``kubernetes.io/kubelet-serving``
-        CSR for its node serving certificate on startup.  Kubernetes has no
-        built-in auto-approval for *serving* CSRs (only node-bootstrapping
-        *client* CSRs are auto-approved), so without this the API server
-        cannot fetch pod logs from the virtual node — every
+        CSR for its node serving certificate on startup — but only when the
+        chart is deployed with ``virtualNode.disableCSR: false`` (the manager
+        defaults to ``disableCSR: true``, in which case this helper is a no-op).
+        Kubernetes has no built-in auto-approval for *serving* CSRs (only
+        node-bootstrapping *client* CSRs are auto-approved), so without this the
+        API server cannot fetch pod logs from the virtual node — every
         ``GET /api/jobs/<name>/output`` fails with a TLS handshake error
         ("remote error: tls: internal error").
 
-        The manager may only approve CSRs it can attribute to a user's own
-        virtual-kubelet, hence the strict matching:
+        The virtual-kubelet runs under a ServiceAccount whose name **is the
+        node name** (the InterLink chart's ``serviceAccountName`` is set to
+        ``nodeName``, so e.g. node ``vk-node-<hash>-<hpc>`` is served by the
+        ``vk-node-<hash>-<hpc>`` ServiceAccount).  The manager may therefore
+        only approve CSRs it can attribute to one of the given node names —
+        an exact match, no prefixing catch-alls:
 
         * signer name is exactly ``kubernetes.io/kubelet-serving``;
         * the CSR is still pending (no conditions yet);
-        * the requesting username is a ServiceAccount of *namespace* —
-          either the InterLink SA (``virtual-node-<namespace>``) or the
-          manager's own in-cluster SA when running under kubeconfig-less
-          local setups.
+        * the requesting username is exactly ``system:serviceaccount:<namespace>:<node_name>``
+          for one of the ``node_names`` supplied.
 
         Args:
             namespace: The user's Kubernetes namespace.
+            node_names: The virtual-kubelet node names (== their ServiceAccount
+                names) whose serving-cert CSRs may be approved.  When empty,
+                nothing is approved.
             timeout: How long to wait (seconds) for a matching CSR to appear
                 (the virtual-kubelet creates it shortly after install).
             poll_interval: Seconds between CSR list attempts.
@@ -614,10 +622,10 @@ class K8sClient:
         """
         deadline = time.monotonic() + timeout
         approved: list[str] = []
-        sa_prefixes = (
-            f"system:serviceaccount:{namespace}:virtual-node-{namespace}",
-            f"system:serviceaccount:{namespace}:",
-        )
+        allowed_requestors = {
+            f"system:serviceaccount:{namespace}:{node_name}"
+            for node_name in node_names
+        }
 
         while True:
             try:
@@ -636,7 +644,7 @@ class K8sClient:
                     continue
                 if conditions:  # already approved/denied
                     continue
-                if not any(requestor.startswith(p) for p in sa_prefixes):
+                if requestor not in allowed_requestors:
                     continue
 
                 # Plain-dict body: the API server only reads metadata.name
@@ -698,9 +706,10 @@ class K8sClient:
             or ``{"error": "..."}`` on failure (no pods found, or the
             log endpoint is unreachable — e.g. the InterLink
             virtual-kubelet's serving certificate has not been approved
-            yet, surfaced by Kubernetes as a TLS handshake error; the
-            manager self-heals this by approving the pending CSR and
-            retrying once — see :func:`approve_pending_csrs`).
+            yet when ``virtualNode.disableCSR`` is false, surfaced by
+            Kubernetes as a TLS handshake error; the manager self-heals
+            this by approving the pending CSR and retrying once — see
+            :func:`approve_pending_csrs`).
         """
         try:
             pods = self.core_v1.list_namespaced_pod(
@@ -726,12 +735,20 @@ class K8sClient:
                 # ── Self-healing: pending VK serving-cert CSR ────────────
                 # A 500 "remote error: tls: internal error" from the log
                 # endpoint means the InterLink virtual-kubelet's serving
-                # certificate CSR has not been approved — Kubernetes has
-                # no auto-approval for kubelet-*serving* CSRs.  Approve it
+                # certificate has not been approved — relevant when
+                # virtualNode.disableCSR is false (Kubernetes has no
+                # auto-approval for kubelet-*serving* CSRs).  Approve it
                 # and retry once (see approve_pending_csrs()).
                 if e.status == 500 and "tls" in str(e).lower():
+                    # The pod's spec.nodeName is the virtual-kubelet node,
+                    # whose ServiceAccount (== node name) requested the CSR.
+                    node_name = getattr(pod.spec, "node_name", "") or ""
+                    if not node_name:
+                        raise
                     approved = self.approve_pending_csrs(
-                        namespace=namespace, timeout=0.0
+                        namespace=namespace,
+                        node_names=[node_name],
+                        timeout=0.0,
                     )
                     if approved:
                         response = self._read_pod_log(

@@ -34,6 +34,16 @@ default_charts:
       # vk-node-<user-hash>-<hpc_name> — see api/helm.py.
       nodeName: vk-node
 
+      virtualNode:
+        # Do not request a cluster-signed kubelet serving certificate via a
+        # CertificateSigningRequest.  With disableCSR true the virtual-kubelet
+        # serves its :10250 endpoint with a self-signed certificate, which the
+        # kube-apiserver accepts when it runs with --kubelet-insecure-tls (the
+        # InterLink chart's HTTP.insecure/kubeletHTTP.insecure defaults).  This
+        # avoids the whole kubelet-serving CSR approval/signing pipeline that
+        # otherwise gates `GET /api/jobs/<name>/output` on TLS verification.
+        disableCSR: true
+
       interlink:
         enabled: true
         address: http://0.0.0.0

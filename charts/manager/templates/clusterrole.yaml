@@ -151,9 +151,13 @@ rules:
 
   # ── CertificateSigningRequests (InterLink virtual-kubelet) ──────────────────
   # The InterLink virtual-kubelet creates/updates/watches CSRs for its node
-  # serving certificate (unless virtualNode.disableCSR is set).  Kubernetes
-  # has no built-in auto-approval for kubelet-*serving* CSRs, so the manager
-  # approves them itself (k8s_client.approve_pending_csrs) right after
+  # serving certificate when virtualNode.disableCSR is false.  By default the
+  # manager deploys InterLink with disableCSR: true, so the VK serves its
+  # :10250 endpoint with a self-signed cert (accepted when the kube-apiserver
+  # runs with --kubelet-insecure-tls) and no CSR is created.  On clusters that
+  # verify kubelet certs against a CA, disableCSR is instead held false, and
+  # Kubernetes has no built-in auto-approval for kubelet-*serving* CSRs, so the
+  # manager approves them itself (k8s_client.approve_pending_csrs) right after
   # install and as self-healing on pod-log TLS errors — without this the
   # API server cannot proxy pod logs from the virtual node.
   - apiGroups: ["certificates.k8s.io"]
