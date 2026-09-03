@@ -10,7 +10,7 @@ Blueprints
 ----------
 auth_bp    /login, /logout      — session management
 k8s_bp     /, /deploy, /deployments, /deployments/…
-helm_bp    /helm, /helm/install, /releases, /releases/…
-hpc_bp     /hpc, /hpc/deploy, /hpc/status, /hpc/start, /hpc/stop
+helm_bp    /helm, /releases     — deprecated redirects to /nodes
+hpc_bp     /nodes, /hpc/…       — "Manage Nodes" page (HPC + InterLink)
 saved_bp   /saved/…             — saved configuration management
 """

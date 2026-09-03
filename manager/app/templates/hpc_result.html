@@ -63,10 +63,7 @@
   manage the services below.
 </p>
 <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-  <form method="post" action="{{ url_for('app_hpc.hpc_status') }}" style="display:inline;">
-    <input type="hidden" name="hpc_name" value="{{ hpc_name }}">
-    <button type="submit" class="btn btn-secondary">🔍 Check Status</button>
-  </form>
+  <a href="{{ url_for('app_hpc.hpc_status', hpc_name=hpc_name) }}" class="btn btn-secondary">🔍 Check Status</a>
   <form method="post" action="{{ url_for('app_hpc.hpc_stop') }}" style="display:inline;"
     onsubmit="return confirm('Stop all services on {{ hpc_name }}?');">
     <input type="hidden" name="hpc_name" value="{{ hpc_name }}">
@@ -85,25 +82,19 @@
     <input type="hidden" name="hpc_name" value="{{ hpc_name }}">
     <button type="submit" class="btn btn-danger">⏹ Stop Services</button>
   </form>
-  <form method="post" action="{{ url_for('app_hpc.hpc_status') }}" style="display:inline;">
-    <input type="hidden" name="hpc_name" value="{{ hpc_name }}">
-    <button type="submit" class="btn btn-secondary">🔄 Refresh</button>
-  </form>
+  <a href="{{ url_for('app_hpc.hpc_status', hpc_name=hpc_name) }}" class="btn btn-secondary">🔄 Refresh</a>
 </div>
 
 {% elif action in ("start", "stop") %}
 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
-  <form method="post" action="{{ url_for('app_hpc.hpc_status') }}" style="display:inline;">
-    <input type="hidden" name="hpc_name" value="{{ hpc_name }}">
-    <button type="submit" class="btn btn-secondary">🔍 Check Status</button>
-  </form>
+  <a href="{{ url_for('app_hpc.hpc_status', hpc_name=hpc_name) }}" class="btn btn-secondary">🔍 Check Status</a>
 </div>
 {% endif %}
 
 {# ── Navigation ─────────────────────────────────────────────────── #}
 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:2rem; border-top:1px solid #ddd; padding-top:1rem;">
-  <a href="{{ url_for('app_hpc.hpc_page') }}" class="btn btn-secondary">
-    🖥 Back to HPC Deploy
+  <a href="{{ url_for('app_hpc.manage_nodes') }}" class="btn btn-secondary">
+    🖥 Back to Manage Nodes
   </a>
   <a href="{{ url_for('app_k8s.jobs') }}" class="btn btn-secondary">
     View All Jobs

@@ -87,51 +87,154 @@ class TestHpcPage:
         assert resp.status_code == 302
         assert "/login" in resp.headers["Location"]
 
+    def test_redirects_to_manage_nodes_when_logged_in(self, client):
+        """The old standalone /hpc/ form is deprecated in favour of /nodes."""
+        _logged_in_client(client)
+        with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
+            resp = client.get(self.URL, follow_redirects=False)
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/nodes")
+
+
+# ---------------------------------------------------------------------------
+# GET /nodes  ("Manage Nodes" page: HPC + InterLink)
+# ---------------------------------------------------------------------------
+
+
+class TestManageNodesPage:
+    URL = "/hpc/nodes"
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.get(self.URL)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
     def test_renders_form_when_logged_in(self, client):
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+            patch(API_GET_PATCH, side_effect=_http_error(404)),
         ):
             resp = client.get(self.URL)
 
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert "Deploy to HPC" in html
+        assert "Manage Nodes" in html
         assert "hpc_name" in html
 
-    def test_hpc_node_dropdown_rendered(self, client):
-        """The HPC node <select> element must be present in the form."""
+    def test_hpc_nodes_rendered(self, client):
+        """Every configured HPC node must be present in the page."""
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+            patch(API_GET_PATCH, side_effect=_http_error(404)),
         ):
             resp = client.get(self.URL)
 
-        assert b'name="hpc_name"' in resp.data
         assert b"test-echo" in resp.data
         assert b"test-docker" in resp.data
 
-    def test_deploy_form_has_loading_feedback(self, client):
-        """The deploy form must render the spinner + status message so the
-        user sees progress during the long-running HPC deploy."""
+    def test_interlink_deployed_shows_uninstall_button(self, client):
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
             patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+            patch(API_GET_PATCH, return_value={"success": True}),
         ):
             resp = client.get(self.URL)
 
-        assert resp.status_code == 200
         html = resp.data.decode()
-        assert 'id="hpc-submit-btn"' in html
-        assert 'id="hpc-deploying-msg"' in html
-        assert "spinner" in html
-        assert "addEventListener('submit'" in html
+        assert "Uninstall InterLink" in html
+
+    def test_interlink_not_deployed_shows_deploy_button(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+            patch(API_GET_PATCH, side_effect=_http_error(404)),
+        ):
+            resp = client.get(self.URL)
+
+        html = resp.data.decode()
+        assert "Deploy InterLink" in html
+
+
+# ---------------------------------------------------------------------------
+# POST /hpc/nodes/interlink/deploy  and  POST /hpc/nodes/interlink/delete
+# ---------------------------------------------------------------------------
+
+
+class TestInterlinkDeploy:
+    URL = "/hpc/nodes/interlink/deploy"
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.post(self.URL, data={"hpc_name": "test-echo"})
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_missing_hpc_name_redirects(self, client):
+        _logged_in_client(client)
+        with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
+            resp = client.post(self.URL, data={}, follow_redirects=False)
+        assert resp.status_code == 302
+
+    def test_success_redirects_to_manage_nodes(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_POST_PATCH, return_value=_SUCCESS),
+        ):
+            resp = client.post(
+                self.URL, data={"hpc_name": "test-echo"}, follow_redirects=False
+            )
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/nodes")
+
+    def test_api_failure_still_redirects(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_POST_PATCH, return_value=_FAILURE),
+        ):
+            resp = client.post(
+                self.URL, data={"hpc_name": "test-echo"}, follow_redirects=False
+            )
+        assert resp.status_code == 302
+
+
+class TestInterlinkDelete:
+    URL = "/hpc/nodes/interlink/delete"
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.post(self.URL, data={"hpc_name": "test-echo"})
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_missing_hpc_name_redirects(self, client):
+        _logged_in_client(client)
+        with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
+            resp = client.post(self.URL, data={}, follow_redirects=False)
+        assert resp.status_code == 302
+
+    def test_success_redirects_to_manage_nodes(self, client):
+        from unittest.mock import patch as _patch
+
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            _patch("app.hpc.api_delete", return_value=_SUCCESS),
+        ):
+            resp = client.post(
+                self.URL, data={"hpc_name": "test-echo"}, follow_redirects=False
+            )
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/nodes")
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Nodes — HPC Pilot{% endblock %}
+
+{% block content %}
+<h1>🖥 Manage Nodes</h1>
+
+<p class="text-muted">
+  Each HPC node below can be provisioned with the Pilot stack (wstunnel +
+  supervisord) and bound to its own InterLink virtual-kubelet release
+  (<code>interlink-&lt;hpc_name&gt;</code>).
+</p>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if nodes %}
+{% for node in nodes %}
+<div class="saved-configs-panel" style="margin-bottom:1.5rem;">
+  <div class="saved-configs-header">
+    <span class="saved-configs-title">🖥 {{ node.name }}</span>
+    <span class="text-muted text-mono">{{ node.hostname }}:{{ node.ssh_port }}</span>
+    <span class="badge badge-{{ 'deployed' if node.interlink_deployed else 'unknown' }}"
+      style="margin-left:auto;">
+      InterLink: {{ "deployed" if node.interlink_deployed else "not deployed" }}
+    </span>
+  </div>
+
+  <div class="saved-configs-body">
+    <p class="text-muted" style="margin:0.25rem 0 0.75rem 0; font-size:0.85rem;">
+      Plugin: <code>{{ node.plugin }}</code> &middot;
+      wstunnel server: <code>{{ defaults.wstunnel_server }}:{{ defaults.wstunnel_port }}</code>
+    </p>
+
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+      {# ── HPC-side actions ── #}
+      <form method="post" action="{{ url_for('app_hpc.hpc_deploy') }}" style="display:inline;">
+        <input type="hidden" name="hpc_name" value="{{ node.name }}">
+        <button type="submit" class="btn btn-small btn-primary" title="Provision the Pilot stack on this node via mccli/SSH">
+          🚀 Deploy HPC
+        </button>
+      </form>
+      <a class="btn btn-small btn-secondary"
+        href="{{ url_for('app_hpc.hpc_status', hpc_name=node.name) }}"
+        title="Query supervisorctl status on this node">🔍 Status</a>
+      <form method="post" action="{{ url_for('app_hpc.hpc_start') }}" style="display:inline;">
+        <input type="hidden" name="hpc_name" value="{{ node.name }}">
+        <button type="submit" class="btn btn-small btn-secondary">▶ Start</button>
+      </form>
+      <form method="post" action="{{ url_for('app_hpc.hpc_stop') }}" style="display:inline;"
+        onsubmit="return confirm('Stop all services on {{ node.name }}?');">
+        <input type="hidden" name="hpc_name" value="{{ node.name }}">
+        <button type="submit" class="btn btn-small btn-danger">⏹ Stop</button>
+      </form>
+
+      <span style="border-left:1px solid #ddd; height:1.5rem;"></span>
+
+      {# ── InterLink actions ── #}
+      {% if node.interlink_deployed %}
+      <form method="post" action="{{ url_for('app_hpc.interlink_delete') }}" style="display:inline;"
+        onsubmit="return confirm('Uninstall the InterLink release for {{ node.name }}?');">
+        <input type="hidden" name="hpc_name" value="{{ node.name }}">
+        <button type="submit" class="btn btn-small btn-danger"
+          title="Uninstall interlink-{{ node.name }}">🗑️ Uninstall InterLink</button>
+      </form>
+      {% else %}
+      <form method="post" action="{{ url_for('app_hpc.interlink_deploy') }}" style="display:inline;">
+        <input type="hidden" name="hpc_name" value="{{ node.name }}">
+        <button type="submit" class="btn btn-small btn-primary"
+          title="Install interlink-{{ node.name }} (can take a few minutes)">
+          ⎈ Deploy InterLink
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+  <p>No HPC nodes are configured.</p>
+  <span class="text-muted">
+    Add a YAML file under <code>manager/hpc/&lt;name&gt;.yaml</code>
+    (hostname, ssh_port, plugin) to register a node.
+  </span>
+</div>
+{% endif %}
+{% endblock %}

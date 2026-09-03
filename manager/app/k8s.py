@@ -182,6 +182,7 @@ def jobs():
                     {
                         "kind": "helm",
                         "name": f"interlink-{hpc_name}",
+                        "hpc_name": hpc_name,
                         "namespace": session["namespace"],
                         "detail": f"HPC node: {hpc_name}",
                         "status": "deployed",

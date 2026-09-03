@@ -175,69 +175,50 @@ user's saved-config store as a reusable container template.
 
 ---
 
-## Helm / InterLink Routes (`app/helm.py`)
+## Node Management Routes (`app/hpc.py`)
 
-### `GET /helm`
+All node-management routes are mounted under the `/hpc` prefix. They render
+forms or result pages; the backend proxies to `/api/hpc/*` and `/api/interlink`
+using the user's session token.
 
-Render the "Deploy InterLink" form. The HPC-node dropdown is populated from
-`manager/hpc/*.yaml` (via `lib.hpc_config.list_hpc_nodes`); all other chart
-settings come from `charts_config.yaml`.
+### `GET /hpc/nodes`
 
-**Auth:** Required
-**Response:** `helm.html`
-
----
-
-### `POST /helm/install`
-
-Submit the InterLink Helm install form (forwards to `POST /api/interlink`
-with `{"hpc_name": ...}`), which installs the chart bound to the selected HPC
-node using the defaults from `charts_config.yaml`.
+Render the "Manage Nodes" page — the single place to manage HPC nodes and
+their InterLink virtual-kubelet deployments. For every configured HPC node
+(from `manager/hpc/*.yaml`) the page shows connection details, HPC-side
+actions (deploy/status/start/stop) and the InterLink release state
+(`interlink-<hpc_name>`, checked via `GET /api/interlink?hpc_name=<name>`).
 
 **Auth:** Required
-**Form fields:** `hpc_name` (required)
-**Response:** `helm_result.html` with the install outcome
+**Response:** `nodes.html`
 
 ---
-
-### `GET /releases`
-
-List InterLink Helm releases in the user's namespace. One release may exist
-per configured HPC node (`interlink-<hpc_name>`); each is checked
-individually via `GET /api/interlink?hpc_name=<name>` (empty rows for HPC
-nodes with no deployed release).
-
-**Auth:** Required
-**Response:** `releases.html`
-
----
-
-### `POST /releases/<name>/delete`
-
-Uninstall the InterLink Helm release identified by `name`
-(`interlink-<hpc_name>`); forwards to `DELETE /api/interlink` with the
-recovered `hpc_name`.
-
-**Auth:** Required
-**Response:** Redirect to `/jobs`
-
----
-
-## HPC Routes (`app/hpc.py`)
-
-All HPC routes are mounted under the `/hpc` prefix. They render forms or result
-pages; the backend always proxies to the corresponding `/api/hpc/*` endpoint
-using the user's session token. The wstunnel parameters are computed from the
-session namespace and `site_config.yaml` — the user only picks an HPC node.
 
 ### `GET /hpc`
 
-Render the HPC deployment form. The node dropdown is populated from
-`manager/hpc/*.yaml` (via `lib.hpc_config.list_hpc_nodes`); the page also shows
-the computed wstunnel server/port/secret for the user's namespace.
+Deprecated: redirects to `GET /hpc/nodes`.
+
+---
+
+### `POST /hpc/nodes/interlink/deploy`
+
+Deploy the InterLink virtual-kubelet bound to the selected HPC node
+(forwards to `POST /api/interlink` with `{"hpc_name": ...}`).
 
 **Auth:** Required
-**Response:** `hpc.html`
+**Form fields:** `hpc_name` (required)
+**Response:** Redirect to `/hpc/nodes`
+
+---
+
+### `POST /hpc/nodes/interlink/delete`
+
+Uninstall the InterLink release bound to the selected HPC node (forwards to
+`DELETE /api/interlink` with `{"hpc_name": ...}`).
+
+**Auth:** Required
+**Form fields:** `hpc_name` (required)
+**Response:** Redirect to `/hpc/nodes`
 
 ---
 
@@ -289,12 +270,10 @@ Stop all managed services on the selected node (forwards to
 
 ### `POST /saved/<config_id>/delete`
 
-Remove a saved configuration entry from the user's store. The redirect target
-depends on the entry's `kind`: Helm configs go to `/releases`, container
-configs to `/`.
+Remove a saved configuration entry from the user's store.
 
 **Auth:** Required
-**Response:** Redirect to `/` or `/releases`
+**Response:** Redirect to `/`
 
 ---
 

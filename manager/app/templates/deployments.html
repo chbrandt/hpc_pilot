@@ -62,9 +62,10 @@
       {# ── Actions ── #}
       <td style="white-space:nowrap;">
         {% if w.kind == 'helm' %}
-        <form method="post" action="{{ url_for('app_helm.delete_release', name=w.name) }}"
+        <form method="post" action="{{ url_for('app_hpc.interlink_delete') }}"
           onsubmit="return confirm('Uninstall Helm release {{ w.name }}? This will delete all resources it manages.');"
           style="display:inline;">
+          <input type="hidden" name="hpc_name" value="{{ w.hpc_name }}">
           <button type="submit" class="btn btn-small btn-danger" title="Uninstall release">🗑️ Uninstall</button>
         </form>
         {% else %}
@@ -90,7 +91,7 @@
   <p>No jobs in your namespace yet.</p>
   <div style="display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap;">
     <a href="{{ url_for('app_k8s.index') }}" class="btn btn-primary">🐳 Submit a Job</a>
-    <a href="{{ url_for('app_helm.releases') }}" class="btn btn-secondary">⎈ Deploy a Chart</a>
+    <a href="{{ url_for('app_hpc.manage_nodes') }}" class="btn btn-secondary">🖥 Manage Nodes</a>
   </div>
 </div>
 {% endif %}

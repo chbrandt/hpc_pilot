@@ -150,8 +150,8 @@ manager/
 ├── app/                   # HTML web GUI under / (blueprints + templates)
 │   ├── auth.py            # Login/logout route handlers
 │   ├── k8s.py             # Job route handlers
-│   ├── helm.py            # InterLink chart route handlers
-│   ├── hpc.py             # HPC node route handlers
+│   ├── helm.py            # Deprecated InterLink redirects (merged into hpc.py)
+│   ├── hpc.py             # HPC node + InterLink "Manage Nodes" route handlers
 │   ├── saved.py           # Saved config route handlers
 │   ├── api_client.py      # Internal HTTP client for calling the REST API
 │   ├── static/
@@ -160,13 +160,10 @@ manager/
 │       ├── base.html      # Navbar, flash messages, token countdown JS
 │       ├── login.html     # Log-in page
 │       ├── index.html     # Submit Job form
-│       ├── helm.html      # Deploy InterLink form
-│       ├── hpc.html       # HPC node management
+│       ├── nodes.html     # Manage Nodes: HPC + InterLink per HPC target
 │       ├── deployments.html # Unified workloads table
 │       ├── status.html    # Post-submit status / polling page
-│       ├── helm_result.html # Post-helm-install result page
-│       ├── hpc_result.html  # HPC action result page
-│       └── releases.html    # InterLink release list
+│       └── hpc_result.html  # HPC action result page
 ├── lib/                   # Pure Python business logic (importable from CLI)
 │   ├── k8s_client.py      # Kubernetes API wrapper (jobs + namespaces)
 │   ├── helm_client.py     # Helm CLI wrapper
