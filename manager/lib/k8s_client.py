@@ -5,8 +5,8 @@ Handles cluster connection via kubeconfig and provides methods for namespace
 management and Job creation targeting InterLink virtual-kubelet nodes.
 
 Pod deployments are forwarded by InterLink to HPC batch jobs; consequently,
-replica counts, CPU/memory resource requests and limits, container ports, and
-Ingress resources are not supported and are intentionally absent from the API.
+replica counts and container ports are not supported and are intentionally
+absent from the API; CPU/memory can be requested per job.
 """
 
 import json
@@ -177,13 +177,16 @@ class K8sClient:
         namespace: str = "default",
         env_vars: Optional[dict[str, str]] = None,
         command: Optional[str] = None,
+        cpu: Optional[str] = None,
+        memory: Optional[str] = None,
     ) -> dict:
         """
         Create a Job whose pod is scheduled on an InterLink virtual-kubelet node.
 
         InterLink translates the pod spec into an HPC batch job, so replica
-        counts, resource requests/limits, container ports, and Ingress are not
-        applicable and are not accepted as parameters.
+        counts, container ports, and Ingress are not applicable and are not
+        accepted as parameters; cpu/memory resources are forwarded to the
+        HPC batch scheduler.
 
         The pod template is always pinned to the InterLink virtual-kubelet node
         identified by *node_name*:
@@ -200,16 +203,16 @@ class K8sClient:
             namespace: Target namespace.
             env_vars: Dict of environment variable key-value pairs.
             command: Override command (shell string, run as /bin/sh -c).
+            cpu: CPU request/limit (e.g. "1", "500m"); defaults to "1".
+            memory: Memory request/limit (e.g. "1Gi", "512Mi"); defaults to "1Gi".
 
         Returns:
             dict with success status and job info.
         """
-        # Define some default resources (greater the cpu/mem=1)
+        # Container resources: user-supplied cpu/memory, else safe defaults.
         resources = client.V1ResourceRequirements(
-            limits={
-                "cpu": "1",
-                "memory": "1Gi"
-            }
+            requests={"cpu": cpu or "1", "memory": memory or "1Gi"},
+            limits={"cpu": cpu or "1", "memory": memory or "1Gi"},
         )
         # Build container spec
         container = client.V1Container(
@@ -284,6 +287,93 @@ class K8sClient:
         except ApiException as e:
             logger.error(f"Failed to create job: {e}")
             error_msg = e.body if hasattr(e, "body") else str(e)
+            try:
+                error_body = json.loads(error_msg)
+                error_msg = error_body.get("message", str(e))
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return {"success": False, "error": error_msg}
+
+    def create_job_from_spec(
+        self,
+        name: str,
+        spec: dict,
+        namespace: str = "default",
+    ) -> dict:
+        """
+        Create a Job from a raw pod spec dict (the `spec` field of a Pod manifest).
+
+        The spec is used as the Job's `spec.template.spec` verbatim, so the
+        caller controls containers, env, commands, resources and the
+        `nodeSelector` pinning the job to an InterLink virtual-kubelet node.
+        As a convenience, the InterLink toleration
+        (`virtual-node.interlink/no-schedule`) is injected when the spec does
+        not already carry it, so pods pinned to a tainted virtual node are
+        schedulable.
+
+        Args:
+            name: Job name.
+            spec: Pod spec dict (must contain at least `containers`).
+            namespace: Target namespace.
+
+        Returns:
+            dict with success status and job info.
+        """
+        if not isinstance(spec, dict) or not spec.get("containers"):
+            return {
+                "success": False,
+                "error": "spec must be a dict with at least one container",
+            }
+
+        pod_spec = dict(spec)
+        tolerations = list(pod_spec.get("tolerations") or [])
+        tolerated = any(
+            isinstance(t, dict)
+            and t.get("key") == "virtual-node.interlink/no-schedule"
+            for t in tolerations
+        )
+        if not tolerated:
+            tolerations.append(
+                {"key": "virtual-node.interlink/no-schedule", "operator": "Exists"}
+            )
+        pod_spec["tolerations"] = tolerations
+        pod_spec.setdefault("restartPolicy", "Never")
+
+
+
+        labels = {"app": name, "created-by": "hpc-pilot-webapp"}
+        job_body = {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+                "labels": labels,
+            },
+
+            "spec": {
+                "backoffLimit": 0,
+                "template": {
+                    "metadata": {"labels": labels},
+                    "spec": pod_spec,
+                },
+            },
+        }
+        try:
+            created = self.batch_v1.create_namespaced_job(
+                namespace=namespace, body=job_body
+            )
+
+            return {
+                "success": True,
+                "job_name": created.metadata.name,
+                "namespace": namespace,
+                "status": "running",
+            }
+        except ApiException as e:
+            logger.error(f"Failed to create job: {e}")
+            error_msg = e.body if hasattr(e, "body") else str(e)
+
             try:
                 error_body = json.loads(error_msg)
                 error_msg = error_body.get("message", str(e))

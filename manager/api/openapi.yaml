@@ -112,8 +112,33 @@ components:
           type: string
           description: Shell command override (runs as `/bin/sh -c "<command>"`)
           example: "echo hello && sleep infinity"
+        cpu:
+          type: string
+          description: CPU request/limit for the container (Kubernetes quantity)
+          example: "2"
+        memory:
+          type: string
+          description: Memory request/limit for the container (Kubernetes quantity)
+          example: "4Gi"
 
-    JobResult:
+    JobSpecRequest:
+      type: object
+      required: [name, spec]
+      properties:
+        name:
+          type: string
+          description: Job name (RFC 1123 label)
+          example: my-ubuntu-job
+        spec:
+          type: object
+          description: |
+            The `spec` field of a Pod manifest, used verbatim as the job's
+            pod-template spec. Must contain at least `containers`; typically also
+            carries the `nodeSelector` pinning the pod to an InterLink
+            virtual-kubelet node. The InterLink toleration is injected
+            automatically when missing.
+          additionalProperties: true
+
       allOf:
         - $ref: "#/components/schemas/OperationResult"
         - type: object
@@ -165,7 +190,7 @@ components:
       type: object
       description: |
         Full job specification as stored in the cluster — mirrors the parameters
-        accepted by `POST /api/jobs` and can be used to re-submit the job.
+        accepted by `POST /api/jobs/preset` and can be used to re-submit the job.
       properties:
         name:
           type: string
@@ -471,22 +496,25 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/jobs/preset:
     post:
       tags: [Jobs]
       summary: Submit a job
       description: |
-        Create a Kubernetes Deployment whose pod is scheduled on the specified
-        InterLink virtual-kubelet node.
+        Create a job from a simple preset whose pod is scheduled on the
+        specified InterLink virtual-kubelet node.
+
+        The node_name is validated against the InterLink virtual-kubelet nodes
+        actually deployed in the cluster - invalid node names are rejected.
 
         The pod template always sets:
         - `spec.nodeSelector["kubernetes.io/hostname"]` = `node_name`
         - `spec.tolerations` = `[{key: virtual-node.interlink/no-schedule, operator: Exists}]`
+        - resource requests/limits from `cpu` and `memory` (defaults: 1 CPU, 1Gi)
 
         InterLink translates the pod into an HPC batch job; therefore replica
-        counts, CPU/memory resource requests and limits, container port
-        definitions, and Ingress are **not supported** and are not accepted by
-        this endpoint.
-      operationId: createJob
+        counts, container port definitions, and Ingress are **not supported**.
+      operationId: createJobPreset
       requestBody:
         required: true
         content:
@@ -525,6 +553,44 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/jobs/spec:
+    post:
+      tags: [Jobs]
+      summary: Submit a job from a Pod spec
+      description: |
+        Create a job from the `spec` field of a Pod manifest. The spec is
+        used verbatim as the job pod-template spec, giving full control over
+        containers, resources, commands and node pinning; the InterLink
+        toleration is injected automatically when missing.
+      operationId: createJobFromSpec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobSpecRequest"
+            example:
+              name: my-ubuntu-job
+              spec:
+                containers:
+                  - name: my-ubuntu-job
+                    image: ubuntu:22.04
+                nodeSelector:
+                  kubernetes.io/hostname: vk-node-1
+      responses:
+        "201":
+          description: Job submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/jobs/{name}:
     get:
       tags: [Jobs]
@@ -532,7 +598,7 @@ paths:
       description: |
         Return the full specification of a single job as stored in the cluster.
 
-        The returned object mirrors the `POST /api/jobs` request body and can
+        The returned object mirrors the `POST /api/jobs/preset` request body and can
         be used to re-submit the same job.
       operationId: getJob
       parameters:

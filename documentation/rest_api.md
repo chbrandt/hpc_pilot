@@ -172,7 +172,7 @@ Returns all HPC-Pilot-managed jobs (Deployments labelled
 ```{code-block} bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/jobs | jq .
+  https://manager.example.org/api/jobs/preset | jq .
 ```
 
 **Response `200`:**
@@ -191,7 +191,7 @@ curl -s \
 ```
 
 ---
-### `POST /api/jobs` — Submit a job
+### `POST /api/jobs/preset` — Submit a job (preset)
 
 ```{code-block} bash
 curl -s -X POST \
@@ -216,6 +216,11 @@ curl -s -X POST \
 | `node_name` | string | ✓ | InterLink virtual-kubelet node name (sets `nodeSelector["kubernetes.io/hostname"]`) |
 | `env_vars` | object | — | `{"KEY": "value"}` pairs |
 | `command` | string | — | Shell command override (run as `/bin/sh -c "<command>"`) |
+| `cpu` | string | — | CPU request/limit, e.g. `2`, `500m` (default `1`) |
+| `memory` | string | — | Memory request/limit, e.g. `4Gi`, `512Mi` (default `1Gi`) |
+
+The `node_name` is validated against the InterLink virtual-kubelet nodes deployed
+in the cluster — invalid node names are rejected with `400`.
 
 If the namespace does not yet exist it is created automatically before the job.
 
@@ -229,6 +234,34 @@ If the namespace does not yet exist it is created automatically before the job.
   "image": "ubuntu:22.04"
 }
 ```
+
+---
+
+### `POST /api/jobs/spec` — Submit a job from a Pod spec
+
+Create a job from the `spec` field of a Pod manifest. The spec is used verbatim as
+the job's pod-template spec, giving full control over containers,
+resources, commands and node pinning; the InterLink toleration is injected
+automatically when missing.
+
+```{code-block} bash
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"my-job\",
+    \"spec\": {
+      \"containers\": [{\"name\": \"my-job\", \"image\": \"ubuntu:22.04\"}],
+      \"nodeSelector\": {\"kubernetes.io/hostname\": \"vk-node-1\"}
+    }
+  }\"
+  https://manager.example.org/api/jobs/spec | jq .
+```
+
+**Request body:** `name` (job name) and `spec` (a Pod-manifest `spec` dict
+containing at least `containers`).
+
+**Response `201`** (created): same shape as `/api/jobs/preset`.
 
 ---
 
@@ -688,7 +721,8 @@ print(resp.json())
 | `DELETE` | `/api/userspace/` | Delete the user's namespace and all its resources |
 | `GET` | `/api/nodes/interlink` | List InterLink virtual-kubelet node names |
 | `GET` | `/api/jobs` | List jobs in the user's namespace |
-| `POST` | `/api/jobs` | Submit a job (`name`, `image`, `node_name` required) |
+| `POST` | `/api/jobs/preset` | Submit a job from a preset (validates `node_name`) |
+| `POST` | `/api/jobs/spec` | Submit a job from a Pod-manifest `spec` |
 | `GET` | `/api/jobs/<name>` | Return full job spec |
 | `GET` | `/api/jobs/<name>/status` | Get job status |
 | `GET` | `/api/jobs/<name>/output` | Retrieve job output (stdout/stderr) |

@@ -35,6 +35,9 @@ def _mock_k8s(**kwargs):
         "create_job",
         {"success": True, "job_name": "myapp", "namespace": "user-testns"},
     )
+    m.create_job_from_spec.return_value = kwargs.get(
+        "create_job_from_spec", {"success": True, "job_name": "myapp"}
+    )
     m.get_job_spec.return_value = kwargs.get(
         "get_job_spec",
         {"name": "myapp", "image": "ubuntu:22.04", "node_name": "vk-node"},
@@ -205,12 +208,12 @@ class TestListJobs:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/jobs
+# POST /api/jobs/preset
 # ---------------------------------------------------------------------------
 
 
 class TestCreateJob:
-    URL = "/api/jobs"
+    URL = "/api/jobs/preset"
 
     def test_requires_auth(self, client):
         assert client.post(self.URL, json={}).status_code == 401
@@ -284,6 +287,36 @@ class TestCreateJob:
         call_kwargs = k8s.create_job.call_args
         assert call_kwargs[1].get("node_name") == "vk-node"
 
+    def test_invalid_node_name_returns_400(self, client, auth_headers):
+        """node_name that is not a deployed InterLink node must be rejected."""
+        headers, _ = auth_headers
+        k8s = _mock_k8s(namespace_exists=True, list_interlink_nodes=["vk-node"])
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.post(
+                self.URL,
+                json={"name": "myapp", "image": "ubuntu:22.04", "node_name": "bogus"},
+                headers=headers,
+            )
+        assert resp.status_code == 400
+        assert "invalid node_name" in resp.get_json(force=True)["error"].lower()
+
+    def test_cpu_and_memory_are_forwarded(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            create_job={"success": True, "job_name": "myapp"},
+        )
+        with patch(K8S_PATCH, return_value=k8s):
+            client.post(
+                self.URL,
+                json={"name": "myapp", "image": "ubuntu:22.04",
+                     "node_name": "vk-node", "cpu": "2", "memory": "4Gi"},
+                headers=headers,
+            )
+        call_kwargs = k8s.create_job.call_args
+        assert call_kwargs[1].get("cpu") == "2"
+        assert call_kwargs[1].get("memory") == "4Gi"
+
     def test_unsupported_fields_are_ignored(self, client, auth_headers):
         """Sending replicas/ports/resources must not cause an error — they're silently ignored."""
         headers, _ = auth_headers
@@ -328,6 +361,91 @@ class TestCreateJob:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/jobs/spec
+# ---------------------------------------------------------------------------
+
+
+class TestCreateJobFromSpec:
+    URL = "/api/jobs/spec"
+
+    def test_requires_auth(self, client):
+        assert client.post(self.URL, json={}).status_code == 401
+
+    def test_missing_name_returns_400(self, client, auth_headers):
+        headers, _ = auth_headers
+        resp = client.post(
+            self.URL,
+            json={"spec": {"containers": [{"name": "c", "image": "ubuntu"}]}},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "name" in resp.get_json(force=True)["error"].lower()
+
+    def test_missing_spec_returns_400(self, client, auth_headers):
+        headers, _ = auth_headers
+        resp = client.post(self.URL, json={"name": "myapp"}, headers=headers)
+        assert resp.status_code == 400
+        assert "spec" in resp.get_json(force=True)["error"].lower()
+
+    def test_spec_without_containers_returns_400(self, client, auth_headers):
+        headers, _ = auth_headers
+        resp = client.post(
+            self.URL,
+            json={"name": "myapp", "spec": {"restartPolicy": "Never"}},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+
+
+    def test_success_returns_201(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            create_job_from_spec={"success": True, "job_name": "myapp"},
+        )
+        pod_spec = {
+            "containers": [{"name": "myapp", "image": "ubuntu:22.04"}],
+            "nodeSelector": {"kubernetes.io/hostname": "vk-node"},
+        }
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.post(
+                self.URL, json={"name": "myapp", "spec": pod_spec}, headers=headers
+            )
+        assert resp.status_code == 201
+        assert resp.get_json(force=True)["job_name"] == "myapp"
+
+    def test_spec_forwarded_verbatim(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            create_job_from_spec={"success": True, "job_name": "myapp"},
+        )
+        pod_spec = {
+            "containers": [{"name": "myapp", "image": "ubuntu:22.04"}],
+            "nodeSelector": {"kubernetes.io/hostname": "vk-node"},
+        }
+        with patch(K8S_PATCH, return_value=k8s):
+            client.post(
+                self.URL, json={"name": "myapp", "spec": pod_spec}, headers=headers
+            )
+        call_kwargs = k8s.create_job_from_spec.call_args
+        assert call_kwargs[1].get("spec") == pod_spec
+
+
+    def test_k8s_failure_returns_400(self, client, auth_headers):
+        headers, _ = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            create_job_from_spec={"success": False, "error": "quota exceeded"},
+        )
+        pod_spec = {"containers": [{"name": "myapp", "image": "ubuntu:22.04"}]}
+        with patch(K8S_PATCH, return_value=k8s):
+            resp = client.post(
+                self.URL, json={"name": "myapp", "spec": pod_spec}, headers=headers
+            )
+        assert resp.status_code == 400
+
+
 # GET /api/jobs/<name>
 # ---------------------------------------------------------------------------
 

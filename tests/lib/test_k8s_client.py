@@ -194,6 +194,55 @@ class TestJobOperations:
         assert result["success"] is False
         assert "error" in result
 
+    # ── create_job_from_spec ────────────────────────────
+
+    def test_create_job_from_spec_injects_toleration(self, k8s):
+        """A spec without the InterLink toleration gets it injected."""
+        created = self._make_job_mock()
+        k8s.batch_v1.create_namespaced_job.return_value = created
+        pod_spec = {
+            "containers": [{"name": "myapp", "image": "ubuntu:22.04"}],
+            "nodeSelector": {"kubernetes.io/hostname": "vk-node"},
+        }
+        k8s.create_job_from_spec(name="myapp", spec=pod_spec, namespace="user-ns")
+        call_kwargs = k8s.batch_v1.create_namespaced_job.call_args
+        body = call_kwargs[1]["body"] if call_kwargs[1] else call_kwargs[0][1]
+        spec = body["spec"]["template"]["spec"]
+        assert any(
+            t.get("key") == "virtual-node.interlink/no-schedule"
+            for t in spec["tolerations"]
+        )
+        assert spec["restartPolicy"] == "Never"
+
+    def test_create_job_from_spec_keeps_existing_tolerations(self, k8s):
+        created = self._make_job_mock()
+        k8s.batch_v1.create_namespaced_job.return_value = created
+        tol = {"key": "virtual-node.interlink/no-schedule", "operator": "Exists"}
+        pod_spec = {
+            "containers": [{"name": "myapp", "image": "ubuntu:22.04"}],
+            "tolerations": [tol],
+        }
+        k8s.create_job_from_spec(name="myapp", spec=pod_spec, namespace="user-ns")
+        call_kwargs = k8s.batch_v1.create_namespaced_job.call_args
+        body = call_kwargs[1]["body"] if call_kwargs[1] else call_kwargs[0][1]
+        assert body["spec"]["template"]["spec"]["tolerations"] == [tol]
+
+    def test_create_job_from_spec_rejects_spec_without_containers(self, k8s):
+        result = k8s.create_job_from_spec(name="myapp", spec={"restartPolicy": "Never"})
+        assert result["success"] is False
+        k8s.batch_v1.create_namespaced_job.assert_not_called()
+
+    def test_create_job_from_spec_success(self, k8s):
+        created = self._make_job_mock()
+        k8s.batch_v1.create_namespaced_job.return_value = created
+        result = k8s.create_job_from_spec(
+            name="myapp",
+            spec={"containers": [{"name": "myapp", "image": "ubuntu:22.04"}]},
+            namespace="user-ns",
+        )
+        assert result["success"] is True
+        assert result["job_name"] == "myapp"
+
     # ── list_jobs ──────────────────────────────────────────────────────
 
     def test_list_jobs_returns_list(self, k8s):

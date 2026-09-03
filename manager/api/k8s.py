@@ -18,9 +18,13 @@ GET  /api/nodes/interlink
 GET  /api/jobs
     List all jobs in the user's namespace.
 
-POST /api/jobs
-    Create a new job.
-    JSON body mirrors the parameters of lib.k8s_client.K8sClient.create_job.
+POST /api/jobs/preset
+    Create a new job from a preset: name, image, node_name, optional
+    cpu/memory, env vars and command. node_name is validated against the
+    InterLink virtual-kubelet nodes deployed in the cluster.
+
+POST /api/jobs/spec
+    Create a new job from the spec field of a Pod manifest.
 
 GET  /api/jobs/<name>
     Return the full spec of a single job (for saving / re-submitting).
@@ -155,14 +159,14 @@ def list_jobs():
         return _err(str(exc), 500)
 
 
-@k8s_bp.route("/jobs", methods=["POST"])
+@k8s_bp.route("/jobs/preset", methods=["POST"])
 @require_token
 def create_job():
     """
     Create a job targeting an InterLink virtual-kubelet node.
 
-    InterLink maps the pod to an HPC batch job, so replica counts, resource
-    requests/limits, container ports, and ingress are not supported.
+    InterLink maps the pod to an HPC batch job, so replica counts, container
+    ports, and ingress are not supported.
 
     JSON body keys (all optional unless marked required):
         name*         str   job name (required)
@@ -170,6 +174,8 @@ def create_job():
         node_name*    str   InterLink virtual-kubelet node name (required)
         env_vars      dict  {"KEY": "value", ...}
         command       str   shell command override (run as /bin/sh -c)
+        cpu           str   CPU request/limit, e.g. "1", "500m" (default "1")
+        memory        str   memory request/limit, e.g. "1Gi", "512Mi" (default "1Gi")
     """
     claims = get_request_claims()
     namespace = claims["namespace"]
@@ -179,6 +185,8 @@ def create_job():
     name = body.get("name", "").strip()
     image = body.get("image", "").strip()
     node_name = body.get("node_name", "").strip()
+    cpu = (body.get("cpu") or "").strip() or None
+    memory = (body.get("memory") or "").strip() or None
     if not name:
         return _err("'name' is required.")
     if not image:
@@ -195,6 +203,15 @@ def create_job():
             if not ns_result["success"]:
                 return _err(f"Failed to prepare namespace: {ns_result['error']}", 500)
 
+        # Reject node names that are not deployed InterLink virtual-kubelets
+        interlink_nodes = k8s.list_interlink_nodes()
+        if node_name not in interlink_nodes:
+            available = ", ".join(interlink_nodes) or "none"
+            return _err(
+                f"Invalid node_name '{node_name}': not an InterLink "
+                f"virtual-kubelet node. Available: {available}"
+            )
+
         result = k8s.create_job(
             name=name,
             image=image,
@@ -202,6 +219,8 @@ def create_job():
             namespace=namespace,
             env_vars=body.get("env_vars"),
             command=body.get("command"),
+            cpu=cpu,
+            memory=memory,
         )
         code = 201 if result.get("success") else 400
         return _ok(result, code)
@@ -210,6 +229,56 @@ def create_job():
         logger.error("create_job failed: %s", exc)
         return _err(str(exc), 500)
 
+
+
+@k8s_bp.route("/jobs/spec", methods=["POST"])
+@require_token
+def create_job_from_spec():
+    """
+    Create a job from the `spec` field of a Pod manifest.
+
+    The spec is used verbatim as the job pod-template spec, giving full
+    control over containers, resources, commands and the nodeSelector
+    pinning the pod to an InterLink virtual-kubelet node.  The InterLink
+    toleration is injected automatically when missing.
+
+    JSON body keys:
+        name*   str   job name (RFC 1123 label, required)
+        spec*   dict  the `spec` field of a Pod manifest (required;
+                      must contain at least `containers`)
+    """
+    claims = get_request_claims()
+    namespace = claims["namespace"]
+
+    body = request.get_json(silent=True) or {}
+    name = body.get("name", "").strip()
+    spec = body.get("spec")
+    if not name:
+        return _err("'name' is required.")
+    if not isinstance(spec, dict) or not spec.get("containers"):
+        return _err(
+            "spec is required and must be a Pod spec dict with at least "
+            "one container."
+        )
+
+    try:
+        k8s = _get_k8s()
+
+        # Ensure namespace exists
+        if not k8s.namespace_exists(namespace):
+            ns_result = k8s.create_namespace(namespace)
+            if not ns_result["success"]:
+                return _err(f"Failed to prepare namespace: {ns_result['error']}", 500)
+
+        result = k8s.create_job_from_spec(
+            name=name, spec=spec, namespace=namespace
+        )
+        code = 201 if result.get("success") else 400
+        return _ok(result, code)
+
+    except Exception as exc:
+        logger.error("create_job_from_spec failed: %s", exc)
+        return _err(str(exc), 500)
 
 @k8s_bp.route("/jobs/<name>", methods=["GET"])
 @require_token

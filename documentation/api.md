@@ -87,7 +87,7 @@ one-click reuse.
 
 ### `POST /submit`
 
-Submit a new job (forwards to `POST /api/jobs`).
+Submit a new job (forwards to `POST /api/jobs/preset`).
 
 **Auth:** Required
 

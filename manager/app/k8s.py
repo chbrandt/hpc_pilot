@@ -119,7 +119,7 @@ def submit_job():
 
     try:
         result = api_post(
-            "/api/jobs",
+            "/api/jobs/preset",
             {
                 "name": name,
                 "image": image,

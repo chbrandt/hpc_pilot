@@ -105,7 +105,7 @@ Browser            app/ (k8s_bp)        api_client          api/ (k8s_bp)       
    │  POST /submit    │                    │                   │                    │                  │
    │─────────────────►│ validate form       │                   │                    │                  │
    │                  │ api_post /api/jobs  │                   │                    │                  │
-   │                  │───────────────────► │ POST /api/jobs    │                    │                  │
+   │                  │───────────────────► │ POST /api/jobs/preset│                    │                  │
    │                  │                    │──────────────────►│ require_token      │                  │
    │                  │                    │                   │ derive namespace   │                  │
    │                  │                    │                   │ create_job(...)   │                  │
