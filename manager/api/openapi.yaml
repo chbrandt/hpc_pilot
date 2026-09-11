@@ -350,8 +350,9 @@ components:
         hpc_name:
           type: string
           description: |
-            HPC node name — matches a config file in `manager/hpc/<name>.yaml`.
-            The hostname, SSH port, and plugin are read from that file.
+            HPC node name — matches an entry under `hpc.nodes` in
+            `manager/pilot_config.yaml`. The hostname, SSH port, and plugin
+            are read from that entry.
           example: test-echo
 
     HpcNode:

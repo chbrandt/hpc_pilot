@@ -5,11 +5,13 @@ Configs are persisted as a JSON file per namespace under the ``data/``
 directory that sits at the manager root (one level above this module).
 No database dependency.
 
-Global default chart presets are read from ``charts_config.yaml`` (at the
-manager root) and automatically seeded into each user's store on first login.
+Global default chart presets are read from the ``charts`` section of the
+unified configuration file (``manager/pilot_config.yaml`` by default, see
+``lib.config``) and automatically seeded into each user's store on first
+login.
 
 Site-level configuration (e.g. ``hostname``) is **not** read here.
-Callers in the api/app layer are responsible for loading ``site_config.yaml``
+Callers in the api/app layer are responsible for loading the site config
 and passing the relevant values as arguments to functions that need them
 (e.g. :func:`seed_defaults`).
 """
@@ -21,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-import yaml
+from lib.config import get_charts_config
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +32,6 @@ _MANAGER_DIR = os.path.dirname(os.path.dirname(__file__))
 
 # Directory where JSON store files live; created on first write.
 _DATA_DIR = os.path.join(_MANAGER_DIR, "data")
-
-# Path to the global chart defaults configuration file.
-_CHARTS_CONFIG = os.path.join(_MANAGER_DIR, "charts_config.yaml")
 
 # Stable ID prefixes used for auto-seeded default configs.
 _DEFAULT_ID_PREFIX = "default-"
@@ -148,20 +147,13 @@ def get_config(namespace: str, config_id: str) -> Optional[dict]:
 
 def _load_charts_config() -> dict:
     """
-    Parse *charts_config.yaml* and return the raw top-level dict.
+    Return the ``charts`` section of the unified configuration file.
 
-    Returns an empty dict if the file is missing or malformed.
+    Returns an empty dict if the file is missing or malformed. Kept as a
+    thin wrapper (rather than calling ``get_charts_config`` directly from
+    ``load_default_charts``) so tests can patch it in isolation.
     """
-    if not os.path.exists(_CHARTS_CONFIG):
-        logger.warning("charts_config.yaml not found at %s", _CHARTS_CONFIG)
-        return {}
-    try:
-        with open(_CHARTS_CONFIG, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        return data if isinstance(data, dict) else {}
-    except Exception as exc:
-        logger.warning("Could not parse charts_config.yaml: %s", exc)
-        return {}
+    return get_charts_config()
 
 
 def load_default_charts() -> list[dict]:

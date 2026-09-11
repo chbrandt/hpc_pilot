@@ -21,8 +21,7 @@ manager/
 ├── api/       # JSON REST API under /api   (cURL / HTTP clients)
 ├── app/       # HTML web GUI under /       (browser)
 ├── main.py    # Flask application entry point (wires lib+api+app)
-├── site_config.yaml  # Operator-level site settings
-└── charts_config.yaml # Default chart catalogue seeded per user
+└── pilot_config.yaml # Unified config: site, default charts, HPC nodes
 ```
 
 - `lib/` — Kubernetes SDK, `helm` CLI, `mccli`/SSH, JWT validation. No Flask.
@@ -41,7 +40,7 @@ See [`../documentation/architecture.md`](../documentation/architecture.md).
 pip install -r requirements.txt
 
 # 2. Configure the site (single hostname — no wildcard DNS needed)
-#    edit site_config.yaml: hostname, wstunnel.port, wstunnel.local_port
+#    edit pilot_config.yaml: site.hostname, site.wstunnel.port, site.wstunnel.local_port
 
 # 3. Set kubeconfig (optional — defaults to ~/.kube/config)
 export KUBECONFIG=/path/to/your/kubeconfig
@@ -52,6 +51,9 @@ export FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32
 # 5. Run
 python main.py
 # → http://localhost:5000  (Swagger UI at /api/docs)
+
+# Or with a custom configuration file:
+python main.py --config /path/to/pilot_config.yaml
 ```
 
 ---
@@ -60,9 +62,9 @@ python main.py
 
 | Source | Purpose |
 |---|---|
-| `site_config.yaml` | `hostname`, `wstunnel.port`, `wstunnel.local_port`, `allowed_groups` |
-| `charts_config.yaml` | Default InterLink chart preset seeded per user |
-| `hpc/<name>.yaml` | One file per HPC node (`hostname`, `ssh_port`, `plugin`) |
+| `pilot_config.yaml` (`site` section) | `hostname`, `wstunnel.port`, `wstunnel.local_port`, `allowed_groups` |
+| `pilot_config.yaml` (`charts` section) | Default InterLink chart preset seeded per user |
+| `pilot_config.yaml` (`hpc.nodes` section) | One entry per HPC node (`hostname`, `ssh_port`, `plugin`) |
 
 | Environment variable | Default | Description |
 |---|---|---|
@@ -71,6 +73,7 @@ python main.py
 | `FLASK_PORT` | `5000` | TCP port |
 | `FLASK_DEBUG` | `0` | `1` for debug mode |
 | `API_BASE_URL` | `http://localhost:5000` | REST API base URL as seen from the GUI layer |
+| `PILOT_CONFIG_PATH` | `manager/pilot_config.yaml` | Path to the unified config file (overridden by `--config`) |
 
 See [`../documentation/configuration.md`](../documentation/configuration.md).
 

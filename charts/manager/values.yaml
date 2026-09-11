@@ -30,7 +30,7 @@ flask:
   existingSecret: ""
   existingSecretKey: "flask-secret-key"
 
-# ── Site configuration (written into site_config.yaml ConfigMap) ───────────────
+# ── Site configuration (written into pilot_config.yaml ConfigMap) ──────────────
 siteConfig:
   # Single fixed hostname the manager and every user's InterLink wstunnel
   # endpoint are exposed on. No wildcard DNS / wildcard TLS needed: each user's
@@ -93,6 +93,17 @@ interlinkConfig:
     port: 4000
     # Address that the plugin API server binds to inside the HPC edge-node.
     address: http://0.0.0.0
+
+# ── HPC node connection details (written into pilot_config.yaml ConfigMap) ─────
+# Each entry under `nodes` becomes an entry under `hpc.nodes.<name>` in the
+# unified pilot_config.yaml; <name> is the HPC node's unique identifier
+# (hpc_name) used throughout the API and web GUI.
+hpcConfig:
+  nodes: {}
+    # test-echo:
+    #   hostname: 161.9.255.206
+    #   ssh_port: 22
+    #   plugin: echo
 
 # ── Persistent storage for saved deployment configs ────────────────────────────
 persistence:

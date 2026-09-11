@@ -49,16 +49,10 @@ spec:
 
           # ── Volume mounts ────────────────────────────────────────────────────
           volumeMounts:
-            # site_config.yaml — operator-level cluster settings
-            - name: site-config
-              mountPath: /app/site_config.yaml
-              subPath: site_config.yaml
-              readOnly: true
-
-            # charts_config.yaml — default Helm chart presets
-            - name: charts-config
-              mountPath: /app/charts_config.yaml
-              subPath: charts_config.yaml
+            # pilot_config.yaml — unified site/charts/hpc configuration
+            - name: pilot-config
+              mountPath: /app/pilot_config.yaml
+              subPath: pilot_config.yaml
               readOnly: true
 
             {{- if .Values.persistence.enabled }}
@@ -90,13 +84,9 @@ spec:
 
       # ── Volumes ───────────────────────────────────────────────────────────────
       volumes:
-        - name: site-config
+        - name: pilot-config
           configMap:
-            name: {{ include "manager.fullname" . }}-site-config
-
-        - name: charts-config
-          configMap:
-            name: {{ include "manager.fullname" . }}-charts-config
+            name: {{ include "manager.fullname" . }}-pilot-config
 
         {{- if .Values.persistence.enabled }}
         - name: data

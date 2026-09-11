@@ -1,0 +1,130 @@
+# pilot_config.yaml — Unified configuration for HPC Pilot Manager
+#
+# This single file replaces the previously separate site_config.yaml,
+# charts_config.yaml and manager/hpc/<name>.yaml files. It has three
+# top-level sections:
+#
+#   site:    operator-level site settings (hostname, wstunnel ports,
+#            allowed_groups)
+#   charts:  default Helm chart catalogue seeded into every user's
+#            saved-config store on first login
+#   hpc:     per-HPC-node connection details (nodes.<name>: hostname,
+#            ssh_port, plugin)
+#
+# The active config file path is resolved in this order:
+#   1. --config <path> CLI flag (see manager/main.py)
+#   2. PILOT_CONFIG_PATH environment variable
+#   3. manager/pilot_config.yaml (this file, the default)
+
+# ── site ─────────────────────────────────────────────────────────────────────
+# hostname : str
+#     The single fixed hostname the manager and every user's InterLink
+#     wstunnel endpoint are exposed on. No wildcard DNS/TLS is required: each
+#     user's wstunnel is reachable at <hostname>/<namespace> (path-prefixed
+#     routing), not a per-user subdomain.
+# wstunnel.port / wstunnel.local_port : int
+#     Shared wstunnel server port and local forwarding port on the HPC edge.
+# allowed_groups : list[str], optional
+#     Restrict login to users who hold at least one of these entitlement
+#     substrings (checked against 'eduperson_entitlement' and 'entitlements'
+#     JWT claims using substring matching). Leave empty/omit to allow any
+#     authenticated EGI Check-in user.
+site:
+  hostname: darrel-suprasegmental-podgily.ngrok-free.dev
+
+  wstunnel:
+    port: 443
+    local_port: 4000
+
+  allowed_groups:
+    # - "vo.access.egi.eu"
+    # - "vo.notebooks.egi.eu"
+    - "hpc-wg"
+
+# ── charts ───────────────────────────────────────────────────────────────────
+# default_charts:
+#   A list of Helm chart configurations that are automatically pre-saved for
+#   every user on first login.
+#
+#   Fields:
+#     kind        : "helm" (only helm charts are supported here)
+#     release_name: Default Helm release name proposed to the user.
+#     chart       : Chart reference accepted by `helm install` (OCI, repo/name, URL).
+#     version     : Pin a specific chart version, or null for latest.
+#     singleton   : If true, only one instance of this chart per (user, HPC node)
+#                   pair may exist. The InterLink release name embeds the HPC
+#                   node (interlink-<hpc_name>), so one release is deployed per
+#                   configured HPC target.
+#     description : Human-readable description shown in the UI.
+#     values_yaml : Default values passed to `helm install --values -` (raw YAML string).
+#                   The following placeholder tokens are substituted per-user at seed time:
+#                     __NAMESPACE__ → the user's Kubernetes namespace (e.g. user-a3f1b2c4d5e6f7a8)
+#                     __HOSTNAME__  → site.hostname (e.g. dev.local)
+#                   Note: `nodeName` is overridden at deploy time by the manager
+#                   to vk-node-<hpc_name>-<user-hash> — one virtual-kubelet node
+#                   per (user, HPC node) pair.
+charts:
+  default_charts:
+    - kind: helm
+      release_name: interlink
+      chart: oci://ghcr.io/chbrandt/interlink-helm-chart/interlink
+      version: 0.6.1-egi.5
+      singleton: true
+      description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
+      values_yaml: |
+        # NOTE: nodeName is overridden at deploy time to
+        # vk-node-<hpc_name>-<user-hash> — see api/helm.py.
+        nodeName: vk-node
+
+        virtualNode:
+          # Do not request a cluster-signed kubelet serving certificate via a
+          # CertificateSigningRequest.  With disableCSR true the virtual-kubelet
+          # serves its :10250 endpoint with a self-signed certificate, which the
+          # kube-apiserver accepts when it runs with --kubelet-insecure-tls (the
+          # InterLink chart's HTTP.insecure/kubeletHTTP.insecure defaults).  This
+          # avoids the whole kubelet-serving CSR approval/signing pipeline that
+          # otherwise gates `GET /api/jobs/<name>/output` on TLS verification.
+          disableCSR: true
+
+        interlink:
+          enabled: true
+          address: http://0.0.0.0
+          port: 3000
+          disableProjectedVolumes: true
+
+        plugin:
+          enabled: false
+          address: http://0.0.0.0
+          port: 4000
+
+        wstunnel:
+          enabled: true
+          port: 8420
+          ingress:
+            host: __HOSTNAME__
+          logLevel: debug
+          secret: "__NAMESPACE__"
+
+# ── hpc ──────────────────────────────────────────────────────────────────────
+# nodes.<name> :
+#     hostname : str  HPC login/edge-node hostname or IP
+#     ssh_port : int  SSH port (default 22)
+#     plugin   : str  InterLink plugin name (echo, docker, slurm, ...)
+#   The mapping key (<name>) is the HPC node's unique identifier (hpc_name)
+#   used throughout the API and web GUI.
+hpc:
+  nodes:
+    test-echo:
+      hostname: 161.9.255.206
+      ssh_port: 22
+      plugin: echo
+
+    test-docker:
+      hostname: 161.9.255.206
+      ssh_port: 22
+      plugin: docker
+
+    test-slurm:
+      hostname: 161.9.255.214
+      ssh_port: 22
+      plugin: slurm

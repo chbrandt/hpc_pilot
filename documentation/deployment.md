@@ -128,8 +128,7 @@ helm install manager ./charts/manager \
 | `ClusterRole` | `egi-hpc-pilot` | RBAC: namespaces, deployments, services, ingresses, nodes, pods, secrets/configmaps, events, replicasets |
 | `ClusterRoleBinding` | `egi-hpc-pilot` | Binds the ClusterRole to the ServiceAccount |
 | `Secret` | `manager` | `FLASK_SECRET_KEY` |
-| `ConfigMap` | `manager-site-config` | `site_config.yaml` (hostname, wstunnel ports, allowed_groups) |
-| `ConfigMap` | `manager-charts-config` | `charts_config.yaml` (InterLink chart preset per user) |
+| `ConfigMap` | `manager-pilot-config` | `pilot_config.yaml` (unified site + charts + hpc configuration) |
 | `PersistentVolumeClaim` | `manager-data` | `/app/data` — durable saved-deployment configs (optional) |
 | `Deployment` | `manager` | Flask manager pod |
 | `Service` | `manager` | ClusterIP → Flask port 5000 |

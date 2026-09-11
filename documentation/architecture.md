@@ -76,8 +76,13 @@ Wraps the `helm` CLI via `subprocess.run()`. Functions: `helm_install`,
 Wraps `mccli` (motley-cue SSH client) to install and manage the wstunnel client
 + supervisord + InterLink plugin on a remote HPC node. See [lib.md](lib.md).
 
+### `lib/config.py`
+Unified configuration loader: parses `manager/pilot_config.yaml` (or a
+`--config`/`PILOT_CONFIG_PATH` override) and exposes its `site`, `charts`
+and `hpc.nodes` sections.
+
 ### `lib/hpc_config.py`
-Loads per-node HPC config files from `manager/hpc/<name>.yaml`.
+Loads per-node HPC configs from the `hpc.nodes` section via `lib/config.py`.
 
 ### `lib/token_auth.py`
 EGI Check-in JWT/JWKS validation, namespace derivation, UserInfo-based group
@@ -85,7 +90,8 @@ access checks. See [authentication.md](authentication.md).
 
 ### `lib/saved_deployments.py`
 Per-user saved-configuration store (JSON files under `manager/data/`), plus
-the default-chart seeding logic driven by `charts_config.yaml`.
+the default-chart seeding logic driven by the `charts` section of
+`pilot_config.yaml`.
 
 ### `api/` layer
 Thin JSON wrappers over `lib/`. Each module is a Flask blueprint with the
@@ -145,8 +151,9 @@ Browser            app/ (helm_bp)       api_client          api/ (helm_bp)      
 ```
 
 `POST /api/interlink` reads the InterLink chart reference, version and default
-values from `charts_config.yaml`, resolves `__NAMESPACE__`/`__HOSTNAME__`, and
-runs `helm install interlink` into the user's namespace.
+values from the `charts` section of `pilot_config.yaml`, resolves
+`__NAMESPACE__`/`__HOSTNAME__`, and runs `helm install` into the user's
+namespace.
 
 ---
 

@@ -393,10 +393,11 @@ curl -s -X DELETE \
 The manager deploys **one InterLink Helm release per (user, HPC node) pair**.
 Each release is named `interlink-<hpc_name>` and its virtual-kubelet node is
 named `vk-node-<user-hash>-<hpc_name>`, so a user may run multiple InterLink
-virtual-kubelet nodes at once — one per configured HPC target (see
-`manager/hpc/*.yaml`). Chart reference, version and default values are read
-from `charts_config.yaml` (see [helm.md](helm.md)); only `nodeName` is
-overridden per (user, HPC node) pair.
+virtual-kubelet nodes at once — one per configured HPC target (see the
+`hpc.nodes` section of `manager/pilot_config.yaml`). Chart reference,
+version and default values are read from the `charts` section of the same
+file (see [helm.md](helm.md)); only `nodeName` is overridden per (user, HPC
+node) pair.
 
 ### `POST /api/interlink` — Deploy InterLink
 
@@ -495,10 +496,11 @@ curl -s -X DELETE \
 
 ### `POST /api/saved/seed` — Seed default configs
 
-Idempotently seed the default Helm chart configs (from `charts_config.yaml`)
-into the authenticated user's saved-config store, applying per-user
-placeholder resolution against `site_config.yaml`. Already-seeded entries
-(identified by their stable IDs) are never duplicated.
+Idempotently seed the default Helm chart configs (from the `charts` section
+of `pilot_config.yaml`) into the authenticated user's saved-config store,
+applying per-user placeholder resolution against the `site` section.
+Already-seeded entries (identified by their stable IDs) are never
+duplicated.
 
 This is called automatically at login, but is safe to call on demand.
 
@@ -522,9 +524,10 @@ curl -s -X POST \
 ## HPC Node Operations — `/api/hpc`
 
 All HPC endpoints accept a JSON body identifying the target HPC node by its
-**name** — a short identifier that maps to a config file in
-`manager/hpc/<name>.yaml` containing the `hostname`, `ssh_port`, and `plugin`.
-The raw Bearer token is forwarded to `mccli` for SSH authentication.
+**name** — a short identifier that maps to an entry under `hpc.nodes` in
+`manager/pilot_config.yaml` containing the `hostname`, `ssh_port`, and
+`plugin`. The raw Bearer token is forwarded to `mccli` for SSH
+authentication.
 
 The wstunnel parameters (server hostname, port, secret, local port) are
 computed internally from the authenticated user's namespace and

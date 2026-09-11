@@ -120,10 +120,10 @@ def hpc_deploy():
     Install the HPC Pilot stack (wstunnel + supervisord) on the remote node.
 
     JSON body keys:
-        hpc_name*  str   HPC node name (matches a config file in
-                         ``manager/hpc/<name>.yaml``) (required)
+        hpc_name*  str   HPC node name (matches an entry under ``hpc.nodes``
+                         in ``manager/pilot_config.yaml``) (required)
 
-    The ``ssh_port`` and ``plugin`` values are read from the HPC config file.
+    The ``ssh_port`` and ``plugin`` values are read from that entry.
     The wstunnel parameters (server, port, secret, local port) are computed
     internally from the authenticated user's namespace and the site config.
     None of these are accepted from the request body.

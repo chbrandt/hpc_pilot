@@ -1,49 +1,40 @@
 """
-hpc_config.py — Loader for per-HPC node configuration files.
+hpc_config.py — Loader for per-HPC node configuration.
 
-Each HPC node is defined by a YAML file in ``manager/hpc/<name>.yaml``
-with the following structure::
+HPC node connection details now live under the ``hpc.nodes`` section of the
+unified configuration file (``manager/pilot_config.yaml`` by default, see
+``lib.config``)::
 
-    hostname: 161.9.255.206
-    ssh_port: 3333
-    plugin: echo
+    hpc:
+      nodes:
+        test-echo:
+          hostname: 161.9.255.206
+          ssh_port: 3333
+          plugin: echo
 
-The filename (without ``.yaml``) serves as the HPC node's unique identifier
-(``hpc_name``) used by the API and web GUI.
+The mapping key (e.g. ``test-echo``) serves as the HPC node's unique
+identifier (``hpc_name``) used by the API and web GUI.
 
 This module provides helpers to list all available HPC nodes and to load
 a single node's configuration by name.
 """
 
 import logging
-import os
-from pathlib import Path
 from typing import Optional
 
-import yaml
+from lib.config import get_hpc_nodes_config
 
 logger = logging.getLogger(__name__)
-
-# manager/ root — one level above this lib/ directory
-_MANAGER_DIR = os.path.dirname(os.path.dirname(__file__))
-
-# Directory containing per-HPC node YAML config files
-_HPC_CONFIG_DIR = os.path.join(_MANAGER_DIR, "hpc")
-
-
-def _hpc_config_path(name: str) -> str:
-    """Return the filesystem path for the HPC config file with the given *name*."""
-    return os.path.join(_HPC_CONFIG_DIR, f"{name}.yaml")
 
 
 def list_hpc_nodes() -> list[dict]:
     """
-    Scan the HPC config directory and return all available HPC node configs.
+    Return all HPC node configs defined under ``hpc.nodes`` in the unified
+    configuration file.
 
-    Each YAML file in ``manager/hpc/`` is parsed and returned as a dict
-    with the following keys:
+    Each entry is a dict with the following keys:
 
-    * ``name``      — the filename stem (e.g. ``"test-echo"``)
+    * ``name``      — the mapping key (e.g. ``"test-echo"``)
     * ``hostname``  — HPC login node hostname or IP
     * ``ssh_port``  — SSH port (int, default 22)
     * ``plugin``    — InterLink plugin name (e.g. ``"echo"``)
@@ -52,17 +43,17 @@ def list_hpc_nodes() -> list[dict]:
     -------
     list[dict]
         Sorted alphabetically by ``name``.  Returns an empty list if the
-        config directory does not exist or contains no valid YAML files.
+        config file is missing, contains no ``hpc.nodes`` section, or none
+        of the entries are valid.
     """
-    config_dir = Path(_HPC_CONFIG_DIR)
-    if not config_dir.is_dir():
-        logger.warning("HPC config directory not found at %s", _HPC_CONFIG_DIR)
+    nodes_cfg = get_hpc_nodes_config()
+    if not nodes_cfg:
+        logger.warning("No HPC nodes configured under 'hpc.nodes'")
         return []
 
     nodes: list[dict] = []
-    for yaml_file in sorted(config_dir.glob("*.yaml")):
-        name = yaml_file.stem
-        cfg = _parse_hpc_yaml(yaml_file, name)
+    for name in sorted(nodes_cfg):
+        cfg = _normalise_node(nodes_cfg[name], name)
         if cfg is not None:
             nodes.append(cfg)
 
@@ -76,7 +67,7 @@ def load_hpc_config(name: str) -> dict:
     Parameters
     ----------
     name : str
-        The HPC node name (filename stem of ``manager/hpc/<name>.yaml``).
+        The HPC node name (key under ``hpc.nodes`` in the unified config).
 
     Returns
     -------
@@ -86,40 +77,33 @@ def load_hpc_config(name: str) -> dict:
     Raises
     ------
     ValueError
-        If the config file does not exist or is missing required fields.
+        If the node is not defined or is missing required fields.
     """
-    path = _hpc_config_path(name)
-    if not os.path.exists(path):
-        raise ValueError(f"HPC config '{name}' not found at {path}")
+    nodes_cfg = get_hpc_nodes_config()
+    raw = nodes_cfg.get(name)
+    if raw is None:
+        raise ValueError(f"HPC config '{name}' not found in configuration.")
 
-    cfg = _parse_hpc_yaml(Path(path), name)
+    cfg = _normalise_node(raw, name)
     if cfg is None:
         raise ValueError(f"HPC config '{name}' is invalid or incomplete.")
 
     return cfg
 
 
-def _parse_hpc_yaml(path: Path, name: str) -> Optional[dict]:
+def _normalise_node(data: dict, name: str) -> Optional[dict]:
     """
-    Parse a single HPC YAML config file and return a normalised dict.
+    Normalise a single HPC node config mapping.
 
-    Returns ``None`` if the file cannot be parsed or is missing the
-    ``hostname`` field.
+    Returns ``None`` if *data* is not a mapping or is missing ``hostname``.
     """
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-    except Exception as exc:
-        logger.warning("Could not parse HPC config %s: %s", path, exc)
-        return None
-
     if not isinstance(data, dict):
-        logger.warning("HPC config %s is not a valid YAML mapping", path)
+        logger.warning("HPC config '%s' is not a valid mapping", name)
         return None
 
     hostname = data.get("hostname")
     if not hostname:
-        logger.warning("HPC config %s is missing 'hostname'", path)
+        logger.warning("HPC config '%s' is missing 'hostname'", name)
         return None
 
     return {
@@ -128,3 +112,4 @@ def _parse_hpc_yaml(path: Path, name: str) -> Optional[dict]:
         "ssh_port": int(data.get("ssh_port", 22)),
         "plugin": str(data.get("plugin", "echo")),
     }
+

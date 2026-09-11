@@ -18,7 +18,7 @@ cluster as a Kubernetes Deployment managed by the
 | Feature | Description |
 | --- | --- |
 | **Job submission** | Form-driven submission of container jobs pinned to InterLink virtual-kubelet nodes (InterLink forwards them to HPC batch jobs) |
-| **InterLink deployment** | Deploy InterLink virtual-kubelet nodes (wstunnel server + virtual-kubelet), one per (user, HPC node) pair, with per-user placeholder resolution from `charts_config.yaml` |
+| **InterLink deployment** | Deploy InterLink virtual-kubelet nodes (wstunnel server + virtual-kubelet), one per (user, HPC node) pair, with per-user placeholder resolution from the `charts` section of `pilot_config.yaml` |
 | **HPC node management** | Install/start/stop/status/uninstall the wstunnel client + supervisord + InterLink plugin on a remote HPC edge-node via `mccli` |
 | **Unified workloads view** | Single page listing container jobs and the InterLink Helm release |
 | **EGI Check-in auth** | Token-based authentication; user namespace derived deterministically from the `sub` claim |
@@ -38,8 +38,7 @@ manager/
 ├── api/       # JSON REST API under /api   (cURL / HTTP clients)
 ├── app/       # HTML web GUI under /       (browser)
 ├── main.py    # Flask application entry point (wires lib+api+app into a single WSGI app)
-├── site_config.yaml  # Operator-level site settings
-└── charts_config.yaml # Default chart catalogue seeded per user
+└── pilot_config.yaml # Unified config: site, default charts, HPC nodes
 ```
 
 See [Architecture](architecture.md) for the full component diagram and request
@@ -55,8 +54,8 @@ lifecycle.
 | `helm` CLI (v3) | Must be on `$PATH`; used for chart operations |
 | `kubectl` access | Via `KUBECONFIG` or `~/.kube/config` (or in-cluster ServiceAccount) |
 | EGI Check-in access token | An access token obtained from EGI Check-in (e.g. via the `lib/token_checkin.py` helper) |
-| `site_config.yaml` | Operator-level settings (hostname, wstunnel ports, allowed_groups) |
-| `charts_config.yaml` | Default charts seeded to each user on first login |
+| `pilot_config.yaml` (`site`) | Operator-level settings (hostname, wstunnel ports, allowed_groups) |
+| `pilot_config.yaml` (`charts`) | Default charts seeded to each user on first login |
 | `mccli` + `flaat-userinfo` | **Only for HPC operations** — `mccli` wraps SSH with OIDC token auth; install with `pip install mccli` |
 
 ---
@@ -72,25 +71,26 @@ pip install -r requirements.txt
 
 ### 2. Configure the site
 
-Edit `manager/site_config.yaml` to set the manager's public hostname and
-wstunnel ports. No wildcard DNS or wildcard TLS certificate is required —
-every user's wstunnel endpoint is reached through a path prefix
-(`<hostname>/<user-namespace>`) on this single hostname, not a per-user
-subdomain:
+Edit the `site` section of `manager/pilot_config.yaml` to set the manager's
+public hostname and wstunnel ports. No wildcard DNS or wildcard TLS
+certificate is required — every user's wstunnel endpoint is reached through
+a path prefix (`<hostname>/<user-namespace>`) on this single hostname, not a
+per-user subdomain:
 
 ```yaml
-# manager/site_config.yaml
-hostname: your-cluster.example.com
-wstunnel:
-  port: 80
-  local_port: 4000
+# manager/pilot_config.yaml
+site:
+  hostname: your-cluster.example.com
+  wstunnel:
+    port: 80
+    local_port: 4000
 ```
 
 ### 4. Configure HPC nodes (optional)
 
-Add one file per HPC site under `manager/hpc/<name>.yaml`
-(`hostname`, `ssh_port`, `plugin`). See
-[configuration.md](configuration.md#per-hpc-node-config-managerhpcnameyaml).
+Add one entry per HPC site under the `hpc.nodes` section of
+`manager/pilot_config.yaml` (`hostname`, `ssh_port`, `plugin`). See
+[configuration.md](configuration.md#hpc-node-configuration).
 
 ### 5. Configure access to the cluster
 
@@ -135,8 +135,7 @@ for the REST API is served at **`/api/docs`**.
 ```
 manager/
 ├── main.py               # Flask application entry point (wires lib+api+app)
-├── site_config.yaml       # Operator-level site settings
-├── charts_config.yaml     # Default chart catalogue seeded per user
+├── pilot_config.yaml      # Unified config: site, default charts, HPC nodes
 ├── requirements.txt       # Python dependencies
 ├── api/                   # JSON REST API under /api (blueprints)
 │   ├── auth.py            # Bearer-token validation (require_token decorator)
@@ -145,7 +144,7 @@ manager/
 │   ├── hpc.py             # HPC node REST API
 │   ├── saved.py           # Saved configs REST API
 │   ├── docs.py            # Swagger / OpenAPI spec endpoint
-│   ├── site_config.py     # Site configuration loader
+│   ├── site_config.py     # Site configuration loader (delegates to lib.config)
 │   └── openapi.yaml       # OpenAPI 3.1 specification
 ├── app/                   # HTML web GUI under / (blueprints + templates)
 │   ├── auth.py            # Login/logout route handlers
@@ -165,24 +164,25 @@ manager/
 │       ├── status.html    # Post-submit status / polling page
 │       └── hpc_result.html  # HPC action result page
 ├── lib/                   # Pure Python business logic (importable from CLI)
+│   ├── config.py          # Unified pilot_config.yaml loader (site/charts/hpc)
 │   ├── k8s_client.py      # Kubernetes API wrapper (jobs + namespaces)
 │   ├── helm_client.py     # Helm CLI wrapper
 │   ├── hpc_client.py      # mccli/SSH HPC deployment client
-│   ├── hpc_config.py      # Per-HPC-node config loader
+│   ├── hpc_config.py      # Per-HPC-node config loader (reads hpc.nodes via lib.config)
 │   ├── token_auth.py      # EGI Check-in JWT/JWKS validation, namespace derivation
 │   ├── token_checkin.py   # EGI Check-in device-flow CLI helper
 │   └── saved_deployments.py # Saved deployment configurations + seeding
-├── hpc/                   # HPC edge-node configuration and setup assets
+├── pilot_config.yaml      # Unified config: site, default charts, HPC nodes
+├── hpc/                   # HPC edge-node setup assets (not configuration)
 │   ├── pilot/
 │   │   ├── setup.sh                    # (deprecated) legacy setup script
 │   │   ├── supervisord.conf.jinja     # supervisord config template
 │   │   ├── supervisord-wstunnel.conf.jinja
 │   │   └── supervisord-interlink.conf.jinja
-│   ├── plugins/
-│   │   ├── echo/InterLinkConfig.yaml
-│   │   ├── docker/InterLinkConfig.yaml
-│   │   └── slurm/InterLinkConfig.yaml
-│   └── <name>.yaml        # One file per HPC node (hostname, ssh_port, plugin)
+│   └── plugins/
+│       ├── echo/InterLinkConfig.yaml
+│       ├── docker/InterLinkConfig.yaml
+│       └── slurm/InterLinkConfig.yaml
 ├── k8s/                   # Kubernetes-side configuration
 │   └── pilot/wstunnel.conf
 └── data/                  # Runtime data (per-user saved configs, JSON)

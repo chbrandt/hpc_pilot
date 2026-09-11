@@ -85,8 +85,8 @@ certificate is required.
 ### interLink plugin
 
 Runs on the HPC cluster and communicates with the interLink API server. The
-plugin to install is selected per HPC node (`manager/hpc/<name>.yaml`): one of
-`echo` (test), `docker`, or `slurm`.
+plugin to install is selected per HPC node (`hpc.nodes` in
+`manager/pilot_config.yaml`): one of `echo` (test), `docker`, or `slurm`.
 
 ### wsTunnel client
 

@@ -20,8 +20,7 @@ manage per-user [InterLink](https://interlink-project.dev) pod deployments.
 | `egi-hpc-pilot` | `ClusterRole` | RBAC superset of the InterLink virtual-kubelet role: namespaces, jobs, services, ingresses, nodes (+status), pods (+status), configmaps, secrets, events, deployments, replicasets, serviceaccounts (+token), certificatesigningrequests (+approval), leases, and cluster/role RBAC |
 | `egi-hpc-pilot` | `ClusterRoleBinding` | Binds the ClusterRole to the ServiceAccount |
 | `<release>-manager` | `Secret` | Flask session secret key |
-| `<release>-manager-site-config` | `ConfigMap` | `site_config.yaml` (hostname, wstunnel ports, allowed_groups) |
-| `<release>-manager-charts-config` | `ConfigMap` | `charts_config.yaml` (InterLink chart preset per user) |
+| `<release>-manager-pilot-config` | `ConfigMap` | `pilot_config.yaml` (unified site + charts + hpc configuration) |
 | `<release>-manager-data` | `PersistentVolumeClaim` | Durable store for per-user saved deployment configs |
 | `<release>-manager` | `Deployment` | The Flask manager pod |
 | `<release>-manager` | `Service` | ClusterIP service (port 80 → Flask port 5000) |
@@ -96,7 +95,14 @@ kubectl get ingress -n hpc-pilot
 | `flask.existingSecret` | `""` | Use a pre-existing Secret instead of creating one |
 | `flask.existingSecretKey` | `flask-secret-key` | Key inside the existing Secret |
 
-### Site configuration (`site_config.yaml`)
+### Unified configuration (`pilot_config.yaml`)
+
+The chart writes a single `pilot_config.yaml` ConfigMap (rendered by
+[`templates/configmap-pilot.yaml`](./templates/configmap-pilot.yaml)) with
+three sections — `site`, `charts` and `hpc` — built from the `siteConfig`,
+`interlinkConfig` and `hpcConfig` values below.
+
+#### Site configuration
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -105,12 +111,25 @@ kubectl get ingress -n hpc-pilot
 | `siteConfig.wstunnel.localPort` | `4000` | Local port on the HPC edge-node wstunnel forwards to |
 | `siteConfig.allowedGroups` | `[]` | Optional list of EGI VO entitlement substrings restricting access (empty = open) |
 
-> The `site_config.yaml` ConfigMap is rendered by
-> [`templates/configmap-site.yaml`](./templates/configmap-site.yaml). Without
-> `siteConfig.wstunnel.*` the HPC endpoints would raise a `KeyError`, so
-> always supply them.
+> Without `siteConfig.wstunnel.*` the HPC endpoints would raise a
+> `KeyError`, so always supply them.
 
-### InterLink chart defaults (`charts_config.yaml`)
+#### HPC node connection details
+
+| Parameter | Default | Description |
+|---|---|---|
+| `hpcConfig.nodes` | `{}` | Map of `<hpc_name>: {hostname, ssh_port, plugin}` — one entry per HPC target |
+
+```yaml
+hpcConfig:
+  nodes:
+    test-echo:
+      hostname: 161.9.255.206
+      ssh_port: 22
+      plugin: echo
+```
+
+#### InterLink chart defaults
 
 | Parameter | Default | Description |
 |---|---|---|

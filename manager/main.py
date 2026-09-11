@@ -13,19 +13,27 @@ Usage
     export KUBECONFIG=/path/to/kubeconfig   # optional
     python main.py
 
+    # With a custom configuration file (overrides PILOT_CONFIG_PATH and the
+    # default manager/pilot_config.yaml):
+    python main.py --config /path/to/pilot_config.yaml
+
     # Or with Flask's CLI (from the manager/ directory):
     flask --app main run
 
 Environment variables
 ---------------------
-KUBECONFIG       Path to kubeconfig file (default: ~/.kube/config)
-FLASK_PORT       Port to listen on (default: 5000)
-FLASK_DEBUG      Set to "1" to enable debug mode
-FLASK_SECRET_KEY Flask session secret (change in production!)
+KUBECONFIG        Path to kubeconfig file (default: ~/.kube/config)
+FLASK_PORT        Port to listen on (default: 5000)
+FLASK_DEBUG       Set to "1" to enable debug mode
+FLASK_SECRET_KEY  Flask session secret (change in production!)
+PILOT_CONFIG_PATH Path to the unified pilot_config.yaml (overridden by
+                  --config; default: manager/pilot_config.yaml)
 """
 
+import argparse
 import logging
 import os
+import sys
 
 from flask import Flask, jsonify
 
@@ -34,6 +42,30 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _apply_config_flag() -> None:
+    """
+    Parse ``--config <path>`` from ``sys.argv`` (if present) and apply it via
+    ``lib.config.set_config_path`` before any request is handled.
+
+    Uses ``parse_known_args`` so this is safe to call even when the process
+    is launched by a WSGI server (e.g. gunicorn) that may pass its own
+    unrelated arguments.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--config", dest="config", default=None)
+    args, _unknown = parser.parse_known_args(sys.argv[1:])
+    if args.config:
+        from lib.config import set_config_path
+
+        set_config_path(args.config)
+        logger.info("Using configuration file: %s", args.config)
+
+
+_apply_config_flag()
 
 
 def create_app() -> Flask:

@@ -190,7 +190,7 @@ class TestSeedDefaults:
 
 class TestLoadHelpers:
     def test_load_default_charts_missing_file(self):
-        with patch.object(sd, "_CHARTS_CONFIG", "/nonexistent/path.yaml"):
+        with patch.object(sd, "_load_charts_config", return_value={}):
             charts = sd.load_default_charts()
         assert charts == []
 

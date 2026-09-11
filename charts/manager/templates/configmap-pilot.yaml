@@ -1,0 +1,73 @@
+{{/*
+ConfigMap: pilot_config.yaml
+Mounted into the manager pod at /app/pilot_config.yaml.
+
+Unified configuration file with three sections:
+  site:    hostname, wstunnel ports, allowed_groups (used to generate
+           per-user InterLink chart values and compute HPC wstunnel
+           parameters)
+  charts:  default Helm chart presets pre-seeded per user (the InterLink
+           chart)
+  hpc:     per-HPC-node connection details (hostname, ssh_port, plugin)
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "manager.fullname" . }}-pilot-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "manager.labels" . | nindent 4 }}
+data:
+  pilot_config.yaml: |
+    site:
+      hostname: {{ .Values.siteConfig.hostname }}
+      wstunnel:
+        port: {{ .Values.siteConfig.wstunnel.port }}
+        local_port: {{ .Values.siteConfig.wstunnel.localPort }}
+      {{- with .Values.siteConfig.allowedGroups }}
+      allowed_groups:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+    charts:
+      default_charts:
+        - kind: helm
+          release_name: interlink
+          chart: {{ .Values.interlinkConfig.chart }}
+          version: {{ .Values.interlinkConfig.version }}
+          singleton: true
+          description: "InterLink virtual-kubelet node (wstunnel + interLink API server)"
+          values_yaml: |
+            # NOTE: nodeName is overridden at deploy time (vk-node-<hpc_name>-<user-hash>)
+            nodeName: vk-node
+            virtualNode:
+              disableCSR: {{ .Values.interlinkConfig.virtualNode.disableCSR }}
+            interlink:
+              enabled: true
+              address: {{ .Values.interlinkConfig.interlink.address | default "http://0.0.0.0" }}
+              port: {{ .Values.interlinkConfig.interlink.port | default 3000 }}
+              disableProjectedVolumes: {{ .Values.interlinkConfig.interlink.disableProjectedVolumes }}
+            plugin:
+              enabled: false
+              address: {{ .Values.interlinkConfig.plugin.address | default "http://0.0.0.0" }}
+              port: {{ .Values.interlinkConfig.plugin.port | default 4000 }}
+            wstunnel:
+              enabled: true
+              port: {{ .Values.interlinkConfig.wstunnel.port | default 8080 }}
+              ingress:
+                host: {{ .Values.siteConfig.hostname | default "__HOSTNAME__" }}
+              logLevel: {{ .Values.interlinkConfig.wstunnel.logLevel | default "debug" }}
+              secret: {{ "__NAMESPACE__" | quote }}
+
+    hpc:
+      nodes:
+        {{- if .Values.hpcConfig.nodes }}
+        {{- range $name, $node := .Values.hpcConfig.nodes }}
+        {{ $name }}:
+          hostname: {{ $node.hostname | quote }}
+          ssh_port: {{ $node.ssh_port | default 22 }}
+          plugin: {{ $node.plugin | default "echo" | quote }}
+        {{- end }}
+        {{- else }}
+        {}
+        {{- end }}
