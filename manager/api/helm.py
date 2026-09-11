@@ -61,13 +61,14 @@ def _err(message: str, code: int = 400):
     return json.dumps({"error": message}), code, {"Content-Type": "application/json"}
 
 
-def _interlink_release_name(hpc_name: str) -> str:
+def _interlink_release_name(namespace: str, hpc_name: str) -> str:
     """
     Return the Helm release name for the InterLink deployment on *hpc_name*.
     One InterLink virtual-kubelet is deployed per (user, HPC node) pair,
     so each HPC target gets its own release: interlink-<hpc_name>.
     """
-    return f"interlink-{hpc_name}"
+    user_hash = namespace.removeprefix("user-")
+    return f"interlink-{hpc_name}-{user_hash}"
 
 
 def _vk_node_name(namespace: str, hpc_name: str) -> str:
@@ -79,7 +80,7 @@ def _vk_node_name(namespace: str, hpc_name: str) -> str:
     derive_namespace (user-<hash>).
     """
     user_hash = namespace.removeprefix("user-")
-    return f"vk-node-{user_hash}-{hpc_name}"
+    return f"vk-node-{hpc_name}-{user_hash}"
 
 
 def _get_interlink_chart_config() -> dict | None:
@@ -136,7 +137,7 @@ def deploy_interlink():
     values["nodeName"] = _vk_node_name(namespace, hpc_name)
     values_yaml = yaml.safe_dump(values) or None
 
-    release_name = _interlink_release_name(hpc_name)
+    release_name = _interlink_release_name(namespace, hpc_name)
 
     try:
         k8s = _get_k8s()
@@ -209,7 +210,7 @@ def get_interlink_values():
         return _err("'hpc_name' is required.")
     try:
         result = helm_get_values(
-            release_name=_interlink_release_name(hpc_name), namespace=namespace
+            release_name=_interlink_release_name(namespace, hpc_name), namespace=namespace
         )
         if not result.get("success"):
             return _err(result.get("error", "Could not retrieve values"), 404)
@@ -237,7 +238,7 @@ def delete_interlink():
         return _err("'hpc_name' is required.")
     try:
         result = helm_uninstall(
-            release_name=_interlink_release_name(hpc_name), namespace=namespace
+            release_name=_interlink_release_name(namespace, hpc_name), namespace=namespace
         )
         if result.get("success"):
             return _ok(result)
