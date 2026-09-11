@@ -109,10 +109,9 @@ Submit a new job (forwards to `POST /api/jobs/preset`).
 
 ### `GET /jobs`
 
-List all workloads in the user's namespace: container **jobs** (from
-`GET /api/jobs`) and the InterLink Helm release(s) — one per configured HPC
-node, from `GET /api/interlink?hpc_name=<name>` — merged into a single
-unified table.
+List all container jobs in the user's namespace (from `GET /api/jobs`).
+InterLink nodes/releases are managed on the "Manage Nodes" page
+(`GET /hpc/nodes`), not shown here.
 
 **Auth:** Required
 **Response:** `deployments.html` with `workloads` list
@@ -121,11 +120,11 @@ Each workload entry:
 
 ```python
 {
-    "kind":         "container" | "helm",
+    "kind":         "container",
     "name":         str,
     "namespace":    str,
-    "detail":       str,   # image (container) or chart name (helm)
-    "node_name":    str,    # container only
+    "detail":       str,   # container image
+    "node_name":    str,
     "status":       str,   # CSS badge class key
     "created":      str,   # ISO timestamp
 }

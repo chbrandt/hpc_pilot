@@ -1,11 +1,9 @@
 """
 tests/app/test_k8s_app.py — GUI-layer tests for app.k8s routes.
 
-Focuses on the Jobs page (``GET /jobs``), which merges container jobs with the
-InterLink Helm release.  In particular, it verifies that a 404 from
-``GET /api/interlink`` (the normal "no release deployed yet" state) is *not*
-rendered as an error — mirroring the behaviour already tested for the
-Releases page in ``test_helm_app.py``.
+Focuses on the Jobs page (``GET /jobs``), which lists the user's container
+jobs only — InterLink nodes/releases are managed on the "Manage Nodes" page
+(``GET /hpc/nodes``, see test_hpc_app.py), not shown here as jobs.
 
 Patches:
 - ``app.auth.get_session_user`` so ``require_login`` passes without a real session.
@@ -28,7 +26,6 @@ import requests
 GET_SESSION_USER_PATCH = "app.auth.get_session_user"
 # Patch the names as they exist in app.k8s's own namespace (imported via `from`)
 API_GET_PATCH = "app.k8s.api_get"
-LIST_HPC_NODES_PATCH = "lib.hpc_config.list_hpc_nodes"
 
 FAKE_NAMESPACE = "user-testnamespace1234"
 FAKE_USER = {
@@ -37,9 +34,6 @@ FAKE_USER = {
     "exp": 9999999999,
     "iss": "https://aai.egi.eu",
 }
-FAKE_HPC_NODES = [
-    {"name": "test-echo", "hostname": "161.9.255.206", "ssh_port": 22, "plugin": "echo"},
-]
 
 
 def _logged_in_client(client):
@@ -91,17 +85,12 @@ class TestJobsPage:
         assert resp.status_code == 302
         assert "/login" in resp.headers["Location"]
 
-    def test_interlink_404_renders_empty_state_without_error(self, client, app):
-        """
-        A 404 from /api/interlink means no InterLink release is deployed yet —
-        a perfectly normal state.  The page must render with the empty-state
-        message and NO error banner.
-        """
+    def test_no_jobs_renders_empty_state_without_error(self, client, app):
+        """With no jobs, the page renders the empty state and NO error."""
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
-            patch(API_GET_PATCH, side_effect=[[], _http_error(404)]),
+            patch(API_GET_PATCH, return_value=[]),
         ):
             resp = client.get(self.URL)
 
@@ -109,20 +98,15 @@ class TestJobsPage:
         html = resp.data.decode()
         assert "No jobs in your namespace yet" in html
         assert "alert-error" not in html
-        assert "Helm releases" not in html
         assert "interlink" not in html
 
-    def test_interlink_404_with_jobs_shows_jobs_without_error(self, client, app):
-        """
-        When container jobs exist but the InterLink release isn't deployed,
-        the jobs must be listed and the 404 must NOT surface as an error.
-        """
+    def test_jobs_listed_without_error(self, client, app):
+        """Jobs are listed; interlink nodes/releases are NOT shown as jobs."""
         jobs = [_job(name="alpha"), _job(name="beta")]
         _logged_in_client(client)
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
-            patch(API_GET_PATCH, side_effect=[jobs, _http_error(404)]),
+            patch(API_GET_PATCH, return_value=jobs),
         ):
             resp = client.get(self.URL)
 
@@ -131,46 +115,7 @@ class TestJobsPage:
         assert "alpha" in html
         assert "beta" in html
         assert "alert-error" not in html
-        assert "Helm releases" not in html
-
-    def test_interlink_deployed_shows_helm_row(self, client, app):
-        """
-        When /api/interlink returns success, the InterLink Helm release must
-        appear in the workloads table with status 'deployed'.
-        """
-        _logged_in_client(client)
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
-            patch(
-                API_GET_PATCH,
-                side_effect=[[], {"success": True, "values_yaml": "nodeName: vk\n"}],
-            ),
-        ):
-            resp = client.get(self.URL)
-
-        assert resp.status_code == 200
-        html = resp.data.decode()
-        assert "interlink-test-echo" in html
-        assert "deployed" in html
-
-    def test_interlink_500_shows_error_message(self, client, app):
-        """
-        A real failure (e.g. 500 when the helm CLI / cluster is unreachable)
-        must still be surfaced to the user as an error.
-        """
-        _logged_in_client(client)
-        with (
-            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
-            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
-            patch(API_GET_PATCH, side_effect=[[], _http_error(500)]),
-        ):
-            resp = client.get(self.URL)
-
-        assert resp.status_code == 200
-        html = resp.data.decode()
-        assert "alert-error" in html
-        assert "Helm releases" in html
+        assert "interlink" not in html
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,6 @@
   <thead>
     <tr>
       <th>Name</th>
-      <th>Type</th>
       <th>Details</th>
       <th>Node</th>
       <th>Status</th>
@@ -32,18 +31,7 @@
     <tr>
       <td><strong>{{ w.name }}</strong></td>
 
-      {# ── Type badge ── #}
-      <td>
-        {% if w.kind == 'helm' %}
-        <span class="workload-type workload-type-helm">⎈ Chart</span>
-        {% elif w.kind == 'hpc' %}
-        <span class="workload-type workload-type-hpc">🖥 HPC</span>
-        {% else %}
-        <span class="workload-type workload-type-container">🐳 Container</span>
-        {% endif %}
-      </td>
-
-      {# ── Detail (image / chart) ── #}
+      {# ── Detail (image) ── #}
       <td class="text-mono">{{ w.detail }}</td>
 
       {# ── Node ── #}
@@ -61,14 +49,6 @@
 
       {# ── Actions ── #}
       <td style="white-space:nowrap;">
-        {% if w.kind == 'helm' %}
-        <form method="post" action="{{ url_for('app_hpc.interlink_delete') }}"
-          onsubmit="return confirm('Uninstall Helm release {{ w.name }}? This will delete all resources it manages.');"
-          style="display:inline;">
-          <input type="hidden" name="hpc_name" value="{{ w.hpc_name }}">
-          <button type="submit" class="btn btn-small btn-danger" title="Uninstall release">🗑️ Uninstall</button>
-        </form>
-        {% else %}
         <a href="{{ url_for('app_k8s.job_output', namespace=w.namespace, name=w.name) }}"
           class="btn btn-small btn-secondary" title="View job output">📄 Output</a>
         <form method="post" action="{{ url_for('app_k8s.save_job', namespace=w.namespace, name=w.name) }}"
@@ -80,7 +60,6 @@
           onsubmit="return confirm('Delete job {{ w.name }}?');" style="display:inline;">
           <button type="submit" class="btn btn-small btn-danger" title="Delete job">🗑️ Delete</button>
         </form>
-        {% endif %}
       </td>
     </tr>
     {% endfor %}
