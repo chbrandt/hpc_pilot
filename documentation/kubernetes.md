@@ -100,7 +100,11 @@ resources. The authoritative rule set is the chart's
 ```yaml
 rules:
   - apiGroups: [""]
-    resources: ["namespaces", "nodes", "pods"]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "delete"]  # delete: DELETE /api/userspace
+
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
     verbs: ["get", "list", "create"]          # pods: read for status polling
 
   - apiGroups: [""]

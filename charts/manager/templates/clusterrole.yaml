@@ -43,10 +43,12 @@ metadata:
 rules:
   # ── Namespace management ────────────────────────────────────────────────────
   # `watch` is required by the InterLink virtual-kubelet (it watches its own
-  # namespace); the manager itself only needs get/list/create.
+  # namespace); the manager needs get/list/create and delete (the latter for
+  # DELETE /api/userspace, which tears down the user's personal namespace and
+  # all resources inside it).
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get", "list", "watch", "create"]
+    verbs: ["get", "list", "watch", "create", "delete"]
 
   # ── Job management (batch/v1) ───────────────────────────────────────────────
   # k8s_client.py creates/lists/reads/deletes batch Jobs whose pods are
