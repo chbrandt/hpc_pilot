@@ -221,6 +221,32 @@ Uninstall the InterLink release bound to the selected HPC node (forwards to
 
 ---
 
+### `POST /hpc/nodes/start`
+
+Start a node in one action: deploy the HPC Pilot stack (wstunnel +
+supervisord) on the remote node, then install the InterLink virtual-kubelet
+bound to it. Both steps run synchronously; their combined output is shown as
+logs on the result page (`node_result.html`).
+
+**Auth:** Required
+**Form fields:** `hpc_name` (required)
+**Response:** `node_result.html` with success/failure and logs
+
+---
+
+### `POST /hpc/nodes/stop`
+
+Stop a node in one action: stop all HPC-side services (supervisorctl stop
+all), then uninstall the InterLink virtual-kubelet release bound to it. Both
+steps run synchronously; their combined output is shown as logs on the result
+page (`node_result.html`).
+
+**Auth:** Required
+**Form fields:** `hpc_name` (required)
+**Response:** `node_result.html` with success/failure and logs
+
+---
+
 ### `POST /hpc/deploy`
 
 Deploy the HPC Pilot stack on the selected node (forwards to

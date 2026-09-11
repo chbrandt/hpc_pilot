@@ -34,45 +34,33 @@
     </p>
 
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
-      {# ── HPC-side actions ── #}
-      <form method="post" action="{{ url_for('app_hpc.hpc_deploy') }}" style="display:inline;">
-        <input type="hidden" name="hpc_name" value="{{ node.name }}">
-        <button type="submit" class="btn btn-small btn-primary" title="Provision the Pilot stack on this node via mccli/SSH">
-          🚀 Deploy HPC
-        </button>
-      </form>
-      <a class="btn btn-small btn-secondary"
-        href="{{ url_for('app_hpc.hpc_status', hpc_name=node.name) }}"
-        title="Query supervisorctl status on this node">🔍 Status</a>
-      <form method="post" action="{{ url_for('app_hpc.hpc_start') }}" style="display:inline;">
-        <input type="hidden" name="hpc_name" value="{{ node.name }}">
-        <button type="submit" class="btn btn-small btn-secondary">▶ Start</button>
-      </form>
-      <form method="post" action="{{ url_for('app_hpc.hpc_stop') }}" style="display:inline;"
-        onsubmit="return confirm('Stop all services on {{ node.name }}?');">
-        <input type="hidden" name="hpc_name" value="{{ node.name }}">
-        <button type="submit" class="btn btn-small btn-danger">⏹ Stop</button>
-      </form>
-
-      <span style="border-left:1px solid #ddd; height:1.5rem;"></span>
-
-      {# ── InterLink actions ── #}
+      {# ── Combined Start/Stop Node (GA8) ── #}
       {% if node.interlink_deployed %}
-      <form method="post" action="{{ url_for('app_hpc.interlink_delete') }}" style="display:inline;"
-        onsubmit="return confirm('Uninstall the InterLink release for {{ node.name }}?');">
+      <form method="post" action="{{ url_for('app_hpc.node_stop') }}" style="display:inline;"
+        onsubmit="return confirm('Stop node {{ node.name }}? This will stop HPC services and uninstall InterLink.');">
         <input type="hidden" name="hpc_name" value="{{ node.name }}">
         <button type="submit" class="btn btn-small btn-danger"
-          title="Uninstall interlink-{{ node.name }}">🗑️ Uninstall InterLink</button>
+          title="Stop HPC services and uninstall InterLink for {{ node.name }}">
+          ⏹ Stop Node
+        </button>
       </form>
       {% else %}
-      <form method="post" action="{{ url_for('app_hpc.interlink_deploy') }}" style="display:inline;">
+      <form method="post" action="{{ url_for('app_hpc.node_start') }}" style="display:inline;"
+        id="start-form-{{ node.name }}">
         <input type="hidden" name="hpc_name" value="{{ node.name }}">
         <button type="submit" class="btn btn-small btn-primary"
-          title="Install interlink-{{ node.name }} (can take a few minutes)">
-          ⎈ Deploy InterLink
+          title="Deploy HPC stack + InterLink for {{ node.name }} (can take a few minutes)">
+          🚀 Start Node
         </button>
       </form>
       {% endif %}
+
+      <span style="border-left:1px solid #ddd; height:1.5rem;"></span>
+
+      {# ── Status check (read-only, always available) ── #}
+      <a class="btn btn-small btn-secondary"
+        href="{{ url_for('app_hpc.hpc_status', hpc_name=node.name) }}"
+        title="Query supervisorctl status on this node">🔍 Status</a>
     </div>
   </div>
 </div>
@@ -86,4 +74,18 @@
   </span>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* ── Spinning-wheel indicator on Start/Stop (GA9) ─────────────────── */
+  document.querySelectorAll('form[action$="/nodes/start"], form[action$="/nodes/stop"]').forEach(function (form) {
+    form.addEventListener('submit', function () {
+      var btn = form.querySelector('button[type="submit"]');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Working…';
+    });
+  });
+</script>
 {% endblock %}

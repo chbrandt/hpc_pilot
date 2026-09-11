@@ -8,6 +8,8 @@ available HPC nodes (from config files) and plugin metadata.
 Routes (all under /hpc prefix, plus the merged /nodes page)
 -------
 GET  /nodes                 "Manage Nodes" page (HPC nodes + InterLink releases)
+POST /nodes/start           Start a node (deploy HPC + InterLink in one action)
+POST /nodes/stop            Stop a node (stop HPC + uninstall InterLink)
 POST /nodes/interlink/deploy      Deploy InterLink for an HPC node
 POST /nodes/interlink/delete      Uninstall the InterLink release for an HPC node
 GET  /hpc                   Redirect to /nodes
@@ -165,6 +167,139 @@ def interlink_delete():
         flash(f"Uninstall failed: {exc}", "error")
 
     return redirect(url_for("app_hpc.manage_nodes"))
+
+
+@hpc_bp.route("/nodes/start", methods=["POST"])
+@require_login
+def node_start():
+    """Start a node: deploy HPC stack, then install InterLink (GA8 + GA10)."""
+    hpc_name = request.form.get("hpc_name", "").strip()
+    if not hpc_name:
+        flash("HPC node selection is required.", "error")
+        return redirect(url_for("app_hpc.manage_nodes"))
+
+    namespace = session["namespace"]
+    logger.info("Node start: user=%s hpc_name=%s", namespace, hpc_name)
+
+    logs = []
+    overall_success = True
+
+    logs.append(f"=== Deploying HPC stack on '{hpc_name}' ===")
+    try:
+        hpc_result = api_post(
+            "/api/hpc/deploy", {"hpc_name": hpc_name}, timeout=LONG_TIMEOUT
+        )
+        if hpc_result.get("success"):
+            logs.append("[OK] HPC stack deployed successfully.")
+            if hpc_result.get("output"):
+                logs.append(hpc_result["output"])
+        else:
+            overall_success = False
+            logs.append(f"[FAIL] HPC deploy: {hpc_result.get('error', 'unknown')}")
+            if hpc_result.get("output"):
+                logs.append(hpc_result["output"])
+    except requests.HTTPError as exc:
+        overall_success = False
+        logs.append(f"[FAIL] HPC deploy: {_api_error(exc)}")
+    except Exception as exc:
+        overall_success = False
+        logs.append(f"[FAIL] HPC deploy: {exc}")
+
+    if overall_success:
+        logs.append("")
+        logs.append(f"=== Deploying InterLink for '{hpc_name}' ===")
+        try:
+            il_result = api_post(
+                "/api/interlink", {"hpc_name": hpc_name}, timeout=LONG_TIMEOUT
+            )
+            if il_result.get("success"):
+                logs.append("[OK] InterLink deployed successfully.")
+                if il_result.get("output"):
+                    logs.append(il_result["output"])
+            else:
+                overall_success = False
+                logs.append(f"[FAIL] InterLink: {il_result.get('error', 'unknown')}")
+                if il_result.get("output"):
+                    logs.append(il_result["output"])
+        except requests.HTTPError as exc:
+            overall_success = False
+            logs.append(f"[FAIL] InterLink: {_api_error(exc)}")
+        except Exception as exc:
+            overall_success = False
+            logs.append(f"[FAIL] InterLink: {exc}")
+
+    if overall_success:
+        flash(f"Node '{hpc_name}' started successfully.", "success")
+    else:
+        flash(f"Node '{hpc_name}' start failed — see logs.", "error")
+
+    return render_template(
+        "node_result.html", action="start", hpc_name=hpc_name,
+        success=overall_success, logs="\n".join(logs),
+    )
+
+
+@hpc_bp.route("/nodes/stop", methods=["POST"])
+@require_login
+def node_stop():
+    """Stop a node: stop HPC services, then uninstall InterLink (GA8 + GA10)."""
+    hpc_name = request.form.get("hpc_name", "").strip()
+    if not hpc_name:
+        flash("HPC node selection is required.", "error")
+        return redirect(url_for("app_hpc.manage_nodes"))
+
+    namespace = session["namespace"]
+    logger.info("Node stop: user=%s hpc_name=%s", namespace, hpc_name)
+
+    logs = []
+    overall_success = True
+
+    logs.append(f"=== Stopping HPC services on '{hpc_name}' ===")
+    try:
+        hpc_result = api_post("/api/hpc/stop", {"hpc_name": hpc_name})
+        if hpc_result.get("success"):
+            logs.append("[OK] HPC services stopped.")
+            if hpc_result.get("output"):
+                logs.append(hpc_result["output"])
+        else:
+            overall_success = False
+            logs.append(f"[FAIL] HPC stop: {hpc_result.get('error', 'unknown')}")
+    except requests.HTTPError as exc:
+        overall_success = False
+        logs.append(f"[FAIL] HPC stop: {_api_error(exc)}")
+    except Exception as exc:
+        overall_success = False
+        logs.append(f"[FAIL] HPC stop: {exc}")
+
+    logs.append("")
+    logs.append(f"=== Uninstalling InterLink for '{hpc_name}' ===")
+    try:
+        il_result = api_delete("/api/interlink", body={"hpc_name": hpc_name})
+        if il_result.get("success"):
+            logs.append("[OK] InterLink uninstalled.")
+            if il_result.get("output"):
+                logs.append(il_result["output"])
+        else:
+            logs.append(f"[WARN] InterLink: {il_result.get('error', 'not deployed')}")
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            logs.append("[WARN] InterLink was not deployed — skipping.")
+        else:
+            overall_success = False
+            logs.append(f"[FAIL] InterLink uninstall: {_api_error(exc)}")
+    except Exception as exc:
+        overall_success = False
+        logs.append(f"[FAIL] InterLink uninstall: {exc}")
+
+    if overall_success:
+        flash(f"Node '{hpc_name}' stopped successfully.", "success")
+    else:
+        flash(f"Node '{hpc_name}' stop failed — see logs.", "error")
+
+    return render_template(
+        "node_result.html", action="stop", hpc_name=hpc_name,
+        success=overall_success, logs="\n".join(logs),
+    )
 
 
 @hpc_bp.route("/", methods=["GET"])
