@@ -99,9 +99,9 @@ class TestDeployInterlink:
         data = resp.get_json(force=True)
         assert data["success"] is True
 
-    def test_release_name_is_scoped_to_hpc_node(self, client, auth_headers):
-        """The Helm release name must be interlink-<hpc_name>, not a fixed name."""
-        headers, _ = auth_headers
+    def test_release_name_is_scoped_to_hpc_node_and_user(self, client, auth_headers):
+        """The release name must be interlink-<hpc_name>-<user_hash>, per pair."""
+        headers, fake_ns = auth_headers
         result = {"success": True, "output": "Release installed"}
         k8s = _mock_k8s(namespace_exists=True)
         p1, p2, p3, p4 = _default_chart_patches()
@@ -110,7 +110,8 @@ class TestDeployInterlink:
         ) as mock_install:
             client.post(self.URL, json=self.BODY, headers=headers)
         call_kwargs = mock_install.call_args[1]
-        assert call_kwargs["release_name"] == f"interlink-{_HPC_NAME}"
+        user_hash = fake_ns.removeprefix("user-")
+        assert call_kwargs["release_name"] == f"interlink-{_HPC_NAME}-{user_hash}"
 
     def test_approves_vk_csr_after_successful_install(self, client, auth_headers):
         """POST /api/interlink must approve only the freshly installed
@@ -118,7 +119,8 @@ class TestDeployInterlink:
         headers, fake_ns = auth_headers
         result = {"success": True, "output": "Release installed"}
         k8s = _mock_k8s(namespace_exists=True)
-        k8s.approve_pending_csrs.return_value = ["vk-vk-node-fcbc139581fea03d-test-echo-x"]
+        user_hash = fake_ns.removeprefix("user-")
+        k8s.approve_pending_csrs.return_value = [f"vk-vk-node-{_HPC_NAME}-{user_hash}-x"]
         p1, p2, p3, p4 = _default_chart_patches()
         with p1, p2, p3, p4, patch(K8S_PATCH, return_value=k8s), patch(
             HELM_INSTALL_PATCH, return_value=result
@@ -127,10 +129,10 @@ class TestDeployInterlink:
         assert resp.status_code == 201
         k8s.approve_pending_csrs.assert_called_once()
         call_kwargs = k8s.approve_pending_csrs.call_args[1]
-        # The VK SA == the node name vk-node-<user-hash>-<hpc_name>
+        # The VK SA == the node name vk-node-<hpc_name>-<user_hash>
         assert call_kwargs["namespace"] == fake_ns
         assert call_kwargs["node_names"] == [
-            f"vk-node-{fake_ns.removeprefix('user-')}-{_HPC_NAME}"
+            f"vk-node-{_HPC_NAME}-{user_hash}"
         ]
 
     def test_csr_approval_failure_does_not_fail_install(self, client, auth_headers):
@@ -219,11 +221,12 @@ class TestGetInterlinkValues:
         assert data["values_yaml"] == "nodeName: vk-node\n"
 
     def test_release_name_is_scoped_to_hpc_node(self, client, auth_headers):
-        headers, _ = auth_headers
+        headers, fake_ns = auth_headers
         result = {"success": True, "values_yaml": "nodeName: vk-node\n", "error": None}
         with patch(HELM_GET_VALUES_PATCH, return_value=result) as mock_get:
             client.get(self.URL, query_string=self.QS, headers=headers)
-        assert mock_get.call_args[1]["release_name"] == f"interlink-{_HPC_NAME}"
+        user_hash = fake_ns.removeprefix("user-")
+        assert mock_get.call_args[1]["release_name"] == f"interlink-{_HPC_NAME}-{user_hash}"
 
     def test_not_deployed_returns_404(self, client, auth_headers):
         headers, _ = auth_headers
@@ -270,11 +273,12 @@ class TestDeleteInterlink:
         assert data["success"] is True
 
     def test_release_name_is_scoped_to_hpc_node(self, client, auth_headers):
-        headers, _ = auth_headers
+        headers, fake_ns = auth_headers
         result = {"success": True, "output": "release uninstalled"}
         with patch(HELM_UNINSTALL_PATCH, return_value=result) as mock_uninstall:
             client.delete(self.URL, json=self.BODY, headers=headers)
-        assert mock_uninstall.call_args[1]["release_name"] == f"interlink-{_HPC_NAME}"
+        user_hash = fake_ns.removeprefix("user-")
+        assert mock_uninstall.call_args[1]["release_name"] == f"interlink-{_HPC_NAME}-{user_hash}"
 
     def test_failure_returns_400(self, client, auth_headers):
         headers, _ = auth_headers
