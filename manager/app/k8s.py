@@ -62,7 +62,7 @@ def index():
     interlink_nodes = []
     error = None
     try:
-        result = api_get("/api/nodes/interlink")
+        result = api_get("/api/interlink/nodes")
         interlink_nodes = result.get("nodes", [])
     except requests.HTTPError as exc:
         if exc.response.status_code != 401:

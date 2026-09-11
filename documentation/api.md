@@ -77,7 +77,7 @@ Clear the session and redirect to the login page.
 Render the "Submit a Job" form.
 
 The form's InterLink-node dropdown is populated by calling
-`GET /api/nodes/interlink`. Saved container configs for the user are listed for
+`GET /api/interlink/nodes`. Saved container configs for the user are listed for
 one-click reuse.
 
 **Auth:** Required

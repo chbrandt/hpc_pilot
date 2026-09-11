@@ -822,7 +822,7 @@ paths:
 
   # InterLink nodes ──────────────────────────────────────────
 
-  /api/nodes/interlink:
+  /api/interlink/nodes:
     get:
       tags: [interLink]
       summary: List InterLink virtual-kubelet nodes

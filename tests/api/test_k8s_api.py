@@ -139,12 +139,12 @@ class TestUserspace:
         assert resp.status_code == 500
 
 # ---------------------------------------------------------------------------
-# GET /api/nodes/interlink
+# GET /api/interlink/nodes
 # ---------------------------------------------------------------------------
 
 
 class TestListInterlinkNodes:
-    URL = "/api/nodes/interlink"
+    URL = "/api/interlink/nodes"
 
     def test_requires_auth(self, client):
         assert client.get(self.URL).status_code == 401

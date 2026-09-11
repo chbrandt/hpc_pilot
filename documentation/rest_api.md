@@ -144,7 +144,7 @@ curl -s -X DELETE \
 
 ---
 
-### `GET /api/nodes/interlink` — List InterLink virtual-kubelet nodes
+### `GET /api/interlink/nodes` — List InterLink virtual-kubelet nodes
 
 Return the names of cluster nodes registered as InterLink virtual-kubelet nodes.
 A node is considered an InterLink node when it carries the taint key
@@ -153,7 +153,7 @@ A node is considered an InterLink node when it carries the taint key
 ```{code-block} bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
-  https://manager.example.org/api/nodes/interlink | jq .
+  https://manager.example.org/api/interlink/nodes | jq .
 ```
 
 **Response `200`:**
@@ -742,7 +742,7 @@ print(resp.json())
 |---|---|---|
 | `POST` | `/api/userspace/` | Idempotently create the user's personal namespace |
 | `DELETE` | `/api/userspace/` | Delete the user's namespace and all its resources |
-| `GET` | `/api/nodes/interlink` | List InterLink virtual-kubelet node names |
+| `GET` | `/api/interlink/nodes` | List InterLink virtual-kubelet node names |
 | `GET` | `/api/jobs` | List jobs in the user's namespace |
 | `POST` | `/api/jobs/preset` | Submit a job from a preset (validates `node_name`) |
 | `POST` | `/api/jobs/spec` | Submit a job from a Pod-manifest `spec` |

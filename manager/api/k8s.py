@@ -12,7 +12,7 @@ POST /api/userspace/
 DELETE /api/userspace/
     Delete the user's personal namespace and every resource inside it.
 
-GET  /api/nodes/interlink
+GET  /api/interlink/nodes
     Return the list of InterLink virtual-kubelet node names available in the cluster.
 
 GET  /api/jobs
@@ -123,7 +123,7 @@ def delete_userspace():
         logger.error("delete_userspace failed: %s", exc)
         return _err(str(exc), 500)
 
-@k8s_bp.route("/nodes/interlink", methods=["GET"])
+@k8s_bp.route("/interlink/nodes", methods=["GET"])
 @require_token
 def list_interlink_nodes():
     """
