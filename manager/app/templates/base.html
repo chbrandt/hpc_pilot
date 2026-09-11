@@ -21,6 +21,8 @@
             class="{% if request.endpoint and request.endpoint.startswith('app_hpc.') %}active{% endif %}">🖥 Manage Nodes</a>
           <a href="{{ url_for('app_k8s.jobs') }}"
             class="{% if request.endpoint == 'app_k8s.jobs' %}active{% endif %}">Jobs</a>
+          <a href="/api/docs" target="_blank" rel="noreferrer"
+            title="Open API documentation (Swagger UI)">📖 API Docs</a>
         </div>
         {% endif %}
       </div>
