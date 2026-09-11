@@ -37,12 +37,12 @@ security:
 tags:
   - name: Health
     description: Service liveness
-  - name: Jobs
-    description: Job operations
-  - name: interLink
-    description: interLink deployments
   - name: HPC
     description: Remote HPC node operations
+  - name: interLink
+    description: interLink deployments
+  - name: Jobs
+    description: Job operations
   - name: Namespaces
     description: Manage user space 
 
