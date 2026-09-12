@@ -56,6 +56,47 @@ On success the manager also:
 
 ---
 
+### `GET /login/egi`
+
+Start the EGI Check-in **OAuth 2.0 authorization-code flow** (GA4): redirect
+the user's browser to the Check-in (Keycloak) authorization endpoint with a
+random CSRF `state` (stored in the session).
+
+Requires an OIDC client registered in EGI Check-in with
+`<site.hostname>/login/egi/callback` as an allowed redirect URI; configure
+it under `site.oidc` in `pilot_config.yaml`:
+
+```yaml
+site:
+  oidc:
+    client_id: hpc-pilot
+    client_secret: ""     # required only for confidential clients
+    issuer: https://aai.egi.eu/auth/realms/egi
+    redirect_uri: ""      # optional explicit override
+```
+
+When `client_id` is not configured, the login page hides the "EGI Check-in"
+button and this route redirects back to `GET /login` with an error.
+
+**Auth:** Public
+**Response:** Redirect to the Check-in authorization endpoint
+
+---
+
+### `GET /login/egi/callback`
+
+Callback for the OAuth authorization-code flow. Verifies the `state`
+parameter (CSRF protection), exchanges the `code` for tokens at the IdP
+token endpoint, then establishes the session exactly like `POST /login`
+(validation, group check, namespace derivation, userspace ensure, config
+seeding).
+
+**Auth:** Public
+**Success:** Redirect to `next` (or `/`)
+**Failure:** Flash error message, redirect to `GET /login`
+
+---
+
 ### `GET /logout`
 
 Clear the session and redirect to the login page.

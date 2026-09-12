@@ -35,6 +35,18 @@ site:
   # Default container image proposed in the Submit Job form (GA7).
   default_image: ubuntu:22.04
 
+  # ── EGI Check-in OAuth login (GA4, optional) ────────────────────────
+  # When client_id is set, the login page shows an "EGI Check-in" button
+  # that triggers the OAuth 2.0 authorization-code flow against the
+  # Keycloak realm below. The OIDC client registered in EGI Check-in must
+  # allow <site.hostname>/login/egi/callback as a redirect URI.
+  # Leave client_id empty (or omit this section) to disable the button.
+  # oidc:
+  #   client_id: hpc-pilot
+  #   client_secret: ""     # required only for confidential clients
+  #   issuer: https://aai.egi.eu/auth/realms/egi
+  #   redirect_uri: ""      # optional explicit override (derived from hostname)
+
   wstunnel:
     port: 443
     local_port: 4000

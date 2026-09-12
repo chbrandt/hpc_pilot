@@ -98,7 +98,7 @@ ID | Task | Priority | Status
 GA1 | Landing page (Home): list of Jobs and interlink/HPC Nodes deployed. | high | [x]
 GA2 | Update Submit Job page for JT2 (cpu/memory), JT3 (preset), JT4 (spec). | medium | [x]
 GA3 | Merge Charts and HPC pages into one Manage Nodes. | high | [x]
-GA4 | EGI Check-in login button (authorization-code flow via aai.egi.eu Keycloak). | high | [ ]
+GA4 | EGI Check-in login button (authorization-code flow via aai.egi.eu Keycloak). | high | [x]
 GA5 | Remove save feature/buttons for HPC and Helm/interlink deployments. | high | [x]
 GA6 | Add a prune button to remove all interlink and HPC deployments for the user. | high | [x]
 GA7 | Fix Container image placeholder to show the default image from configuration. | medium | [x]

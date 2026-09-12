@@ -46,6 +46,17 @@
             </button>
         </form>
 
+        {% if oidc_enabled %}
+        <div class="login-divider" style="text-align:center; margin:1rem 0;">
+            <span class="text-muted" style="font-size:0.85rem;">— or —</span>
+        </div>
+        <a href="{{ url_for('auth.egi_login', next=next_url) if next_url else url_for('auth.egi_login') }}"
+           class="btn btn-secondary btn-full"
+           title="Log in through the EGI Check-in browser flow">
+            🎫 Log in with EGI Check-in
+        </a>
+        {% endif %}
+
         <div class="login-info">
             <p>
                 Tokens are validated against the EGI Check-in JWKS endpoint.
