@@ -32,6 +32,9 @@
 site:
   hostname: darrel-suprasegmental-podgily.ngrok-free.dev
 
+  # Default container image proposed in the Submit Job form (GA7).
+  default_image: ubuntu:22.04
+
   wstunnel:
     port: 443
     local_port: 4000

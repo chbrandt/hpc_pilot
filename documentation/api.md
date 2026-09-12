@@ -107,8 +107,10 @@ Submit a new job (forwards to `POST /api/jobs/preset`).
 | Field | Required | Description |
 |---|---|---|
 | `name` | ✓ | Job name (RFC 1123 label, max 63 chars) |
-| `image` | ✓ | Container image (e.g. `ubuntu:22.04`) |
+| `image` | ✓ | Container image (placeholder shows the configured `site.default_image`) |
 | `node_name` | ✓ | InterLink virtual-kubelet node name (from the dropdown) |
+| `cpu` | | CPU request/limit, e.g. `2`, `500m` (default `1`) |
+| `memory` | | Memory request/limit, e.g. `4Gi`, `512Mi` (default `1Gi`) |
 | `command` | | Shell command override; runs as `/bin/sh -c "<command>"` |
 | `env_key[]` | | Environment variable key (repeatable) |
 | `env_value[]` | | Environment variable value (repeatable, paired with `env_key`) |

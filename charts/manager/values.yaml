@@ -37,6 +37,9 @@ siteConfig:
   # tunnel is reached at <hostname>/<namespace> via path-prefix routing.
   hostname: darrel-suprasegmental-podgily.ngrok-free.dev
 
+  # Default container image proposed in the Submit Job form.
+  defaultImage: ubuntu:22.04
+
   wstunnel:
     # Port the wstunnel Ingress listens on (the port the HPC-side wstunnel
     # client connects to).

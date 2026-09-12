@@ -107,6 +107,7 @@ three sections — `site`, `charts` and `hpc` — built from the `siteConfig`,
 | Parameter | Default | Description |
 |---|---|---|
 | `siteConfig.hostname` | `app.hpc-pilot.test.fedcloud.eu` | Single fixed hostname for the manager and every user's InterLink wstunnel endpoint (path-prefix routing — no wildcard DNS) |
+| `siteConfig.defaultImage` | `ubuntu:22.04` | Default container image proposed in the Submit Job form |
 | `siteConfig.wstunnel.port` | `80` | Port the wstunnel ingress listens on |
 | `siteConfig.wstunnel.localPort` | `4000` | Local port on the HPC edge-node wstunnel forwards to |
 | `siteConfig.allowedGroups` | `[]` | Optional list of EGI VO entitlement substrings restricting access (empty = open) |

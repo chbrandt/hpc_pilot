@@ -59,7 +59,10 @@
 
     <div class="form-group">
       <label for="image">Container Image <span class="required">*</span></label>
-      <input type="text" id="image" name="image" required placeholder="ubuntu:22.04">
+      <input type="text" id="image" name="image" required placeholder="{{ default_image }}">
+      <span class="help-text">
+        Default: <code>{{ default_image }}</code> (from configuration).
+      </span>
     </div>
 
     <div class="form-group">
@@ -94,6 +97,26 @@
       <span class="help-text">
         Your personal namespace — all deployments are isolated to this namespace.
       </span>
+    </div>
+  </fieldset>
+
+  <!-- Resources (GA2: cpu/memory) -->
+  <fieldset>
+    <legend>Resources <span class="optional">(optional)</span></legend>
+
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label for="cpu">CPU</label>
+        <input type="text" id="cpu" name="cpu" placeholder="1"
+          pattern="[0-9]+(\.[0-9]+)?m?" title="Kubernetes CPU quantity, e.g. 1, 0.5 or 500m">
+        <span class="help-text">Kubernetes CPU quantity (default <code>1</code>).</span>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label for="memory">Memory</label>
+        <input type="text" id="memory" name="memory" placeholder="1Gi"
+          title="Kubernetes memory quantity, e.g. 1Gi, 512Mi">
+        <span class="help-text">Kubernetes memory quantity (default <code>1Gi</code>).</span>
+      </div>
     </div>
   </fieldset>
 

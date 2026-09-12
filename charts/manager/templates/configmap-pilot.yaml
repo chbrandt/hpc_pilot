@@ -21,6 +21,7 @@ data:
   pilot_config.yaml: |
     site:
       hostname: {{ .Values.siteConfig.hostname }}
+      default_image: {{ .Values.siteConfig.defaultImage | default "ubuntu:22.04" }}
       wstunnel:
         port: {{ .Values.siteConfig.wstunnel.port }}
         local_port: {{ .Values.siteConfig.wstunnel.localPort }}

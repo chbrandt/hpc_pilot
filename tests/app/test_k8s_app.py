@@ -148,6 +148,10 @@ class TestSubmitForm:
         with (
             patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
             patch(API_GET_PATCH, return_value={"nodes": ["vk-node-1"]}),
+            patch(
+                "api.site_config.load_site_config",
+                return_value={"default_image": "alpine:3.19"},
+            ),
         ):
             resp = client.get(self.URL)
 
@@ -155,6 +159,81 @@ class TestSubmitForm:
         html = resp.data.decode()
         assert "Submit a Job" in html
         assert "vk-node-1" in html
+        # GA7: the configured default image is used as the placeholder
+        assert 'placeholder="alpine:3.19"' in html
+
+    def test_resources_fields_present(self, client):
+        """GA2: the form must include optional CPU and memory fields."""
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_GET_PATCH, return_value={"nodes": ["vk-node-1"]}),
+            patch("api.site_config.load_site_config", return_value={}),
+        ):
+            resp = client.get(self.URL)
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert 'name="cpu"' in html
+        assert 'name="memory"' in html
+
+
+# ---------------------------------------------------------------------------
+# POST /submit  (job submission)
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitJob:
+    URL = "/submit"
+    API_POST_PATCH = "app.k8s.api_post"
+
+    FORM = {
+        "name": "my-job",
+        "image": "ubuntu:22.04",
+        "node_name": "vk-node-1",
+    }
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.post(self.URL, data=self.FORM)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_forwards_cpu_and_memory_to_api(self, client):
+        """GA2: cpu/memory form fields must be forwarded to POST /api/jobs/preset."""
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(self.API_POST_PATCH, return_value={"success": True, "job_name": "my-job"}) as mock_post,
+        ):
+            resp = client.post(
+                self.URL, data={**self.FORM, "cpu": "2", "memory": "4Gi"}
+            )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_post.call_args
+        body = call_kwargs[0][1] if call_kwargs[0] else call_kwargs[1].get("json")
+        assert body["cpu"] == "2"
+        assert body["memory"] == "4Gi"
+
+    def test_omits_cpu_memory_when_blank(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(self.API_POST_PATCH, return_value={"success": True, "job_name": "my-job"}) as mock_post,
+        ):
+            resp = client.post(self.URL, data=self.FORM)
+
+        assert resp.status_code == 200
+        call_kwargs = mock_post.call_args
+        body = call_kwargs[0][1] if call_kwargs[0] else call_kwargs[1].get("json")
+        assert body["cpu"] is None
+        assert body["memory"] is None
+
+    def test_missing_name_redirects(self, client):
+        _logged_in_client(client)
+        with patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER):
+            resp = client.post(self.URL, data={"image": "ubuntu:22.04"}, follow_redirects=False)
+        assert resp.status_code == 302
 
 
 # ---------------------------------------------------------------------------

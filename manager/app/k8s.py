@@ -106,8 +106,13 @@ def home():
 @require_login
 def index():
     """Job submission form."""
+    from api.site_config import load_site_config
+
     namespace = session.get("namespace", "")
     saved = list_configs(namespace, kind="container") if namespace else []
+
+    # Default container image shown as the form's placeholder (GA7)
+    default_image = load_site_config().get("default_image", "ubuntu:22.04")
 
     # Fetch available InterLink virtual-kubelet nodes for the dropdown
     interlink_nodes = []
@@ -126,6 +131,7 @@ def index():
         error=error,
         saved_configs=saved,
         interlink_nodes=interlink_nodes,
+        default_image=default_image,
     )
 
 
@@ -139,6 +145,8 @@ def submit_job():
     image = request.form.get("image", "").strip()
     node_name = request.form.get("node_name", "").strip()
     command = request.form.get("command", "").strip() or None
+    cpu = request.form.get("cpu", "").strip() or None
+    memory = request.form.get("memory", "").strip() or None
 
     # Environment variables (from dynamic form fields)
     env_keys = request.form.getlist("env_key")
@@ -177,6 +185,8 @@ def submit_job():
                 "node_name": node_name,
                 "env_vars": env_vars,
                 "command": command,
+                "cpu": cpu,
+                "memory": memory,
             },
         )
         return render_template("status.html", result=result)
