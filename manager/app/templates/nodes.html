@@ -15,6 +15,16 @@
 <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
+<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+  <form method="post" action="{{ url_for('app_hpc.userspace_prune') }}"
+    onsubmit="return confirm('Prune removes EVERYTHING: all InterLink releases, all HPC deployments and your entire Kubernetes namespace (including all jobs). This cannot be undone. Proceed?');">
+    <button type="submit" class="btn btn-danger"
+      title="Remove all InterLink releases, HPC edge deployments and your Kubernetes namespace">
+      🧹 Prune everything
+    </button>
+  </form>
+</div>
+
 {% if nodes %}
 {% for node in nodes %}
 <div class="saved-configs-panel" style="margin-bottom:1.5rem;">

@@ -247,6 +247,18 @@ page (`node_result.html`).
 
 ---
 
+### `POST /hpc/nodes/prune`
+
+Prune the user's userspace (forwards to `POST /api/userspace/prune`):
+uninstall every InterLink release, undeploy every HPC edge stack and delete
+the user's Kubernetes namespace. Triggered by the "Prune everything" button
+on the Manage Nodes page (with a confirmation dialog).
+
+**Auth:** Required
+**Response:** Redirect to `/hpc/nodes`
+
+---
+
 ### `POST /hpc/deploy`
 
 Deploy the HPC Pilot stack on the selected node (forwards to

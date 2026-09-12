@@ -12,6 +12,11 @@ POST /api/userspace/
 DELETE /api/userspace/
     Delete the user's personal namespace and every resource inside it.
 
+POST /api/userspace/prune
+    Remove everything for the user: uninstall every InterLink release and
+    undeploy every HPC edge-node stack the user may have deployed, then
+    delete the user's Kubernetes namespace.
+
 GET  /api/interlink/nodes
     Return the list of InterLink virtual-kubelet node names available in the cluster.
 
@@ -121,6 +126,91 @@ def delete_userspace():
         return _err(f"Failed to delete namespace: {result.get('error')}", 500)
     except Exception as exc:
         logger.error("delete_userspace failed: %s", exc)
+        return _err(str(exc), 500)
+
+
+@k8s_bp.route("/userspace/prune", methods=["POST"])
+@require_token
+def prune_userspace():
+    """
+    Remove everything for the authenticated user.
+
+    Iterates over every configured HPC node and, best-effort:
+      1. Uninstalls the InterLink release bound to that node (if deployed).
+      2. Undeploys the HPC Pilot stack on the remote edge-node (if deployed).
+    Finally deletes the user's Kubernetes namespace (and everything in it,
+    including any leftover jobs).
+
+    A failure on any individual HPC node does not stop the prune of the
+    others; the response reports the outcome of each step.
+    """
+    from api.helm import _interlink_release_name
+    from lib import hpc_client
+    from lib.helm_client import helm_uninstall
+    from lib.hpc_config import list_hpc_nodes
+
+    claims = get_request_claims()
+    namespace = claims["namespace"]
+    token = claims["_token"]
+
+    nodes_report = []
+    try:
+        k8s = _get_k8s()
+        for node in list_hpc_nodes():
+            hpc_name = node["name"]
+            node_report = {"hpc_name": hpc_name}
+
+            # ── Uninstall InterLink (best-effort) ──────────────────────
+            try:
+                release_name = _interlink_release_name(namespace, hpc_name)
+                result = helm_uninstall(release_name=release_name, namespace=namespace)
+                node_report["interlink"] = result
+            except Exception as exc:
+                node_report["interlink"] = {"success": False, "error": str(exc)}
+
+            # ── Undeploy HPC edge-node stack (best-effort) ─────────────
+            try:
+                result = hpc_client.undeploy(
+                    token=token,
+                    hpc_host=node["hostname"],
+                    ssh_port=node["ssh_port"],
+                )
+                node_report["hpc"] = result
+            except Exception as exc:
+                node_report["hpc"] = {"success": False, "error": str(exc)}
+
+            nodes_report.append(node_report)
+
+        # ── Delete the namespace ────────────────────────────────────────
+        namespace_deleted = False
+        if k8s.namespace_exists(namespace):
+            ns_result = k8s.delete_namespace(namespace)
+            namespace_deleted = bool(ns_result.get("success"))
+            if not namespace_deleted:
+                logger.error(
+                    "prune_userspace: failed to delete namespace '%s': %s",
+                    namespace, ns_result.get("error"),
+                )
+                return _ok(
+                    {
+                        "namespace": namespace,
+                        "namespace_deleted": False,
+                        "nodes": nodes_report,
+                        "error": f"Failed to delete namespace: {ns_result.get('error')}",
+                    },
+                    500,
+                )
+
+        logger.info("prune_userspace: pruned namespace '%s'", namespace)
+        return _ok(
+            {
+                "namespace": namespace,
+                "namespace_deleted": namespace_deleted,
+                "nodes": nodes_report,
+            }
+        )
+    except Exception as exc:
+        logger.error("prune_userspace failed: %s", exc)
         return _err(str(exc), 500)
 
 @k8s_bp.route("/interlink/nodes", methods=["GET"])

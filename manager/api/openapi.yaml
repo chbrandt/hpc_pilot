@@ -1110,3 +1110,52 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  /api/userspace/prune:
+    post:
+      tags: [Namespaces]
+      summary: Prune the user's userspace
+      description: |
+        Remove **everything** for the authenticated user:
+
+        1. For every configured HPC node (best-effort, failures do not stop
+           the prune of the other nodes):
+           - Uninstall the InterLink release bound to that node (if deployed).
+           - Undeploy the HPC Pilot stack on the remote edge-node (if deployed).
+        2. Delete the user's Kubernetes namespace and every resource inside it
+           (including any leftover jobs).
+
+        The response reports the outcome of each per-node step.
+      operationId: pruneUserSpace
+      responses:
+        "200":
+          description: Prune completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    example: user-a3f1b2c4d5e6f7a8
+                  namespace_deleted:
+                    type: boolean
+                    description: Whether the namespace existed and was deleted.
+                  nodes:
+                    type: array
+                    description: Per-HPC-node prune report (best-effort steps).
+                    items:
+                      type: object
+                      properties:
+                        hpc_name:
+                          type: string
+                        interlink:
+                          type: object
+                          description: helm uninstall result for the node's release.
+                        hpc:
+                          type: object
+                          description: HPC edge-node undeploy result.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"

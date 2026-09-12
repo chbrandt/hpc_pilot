@@ -302,6 +302,34 @@ def node_stop():
     )
 
 
+@hpc_bp.route("/nodes/prune", methods=["POST"])
+@require_login
+def userspace_prune():
+    """
+    Prune the user's userspace: remove every InterLink release, undeploy
+    every HPC edge stack and delete the user's Kubernetes namespace
+    (forwards to POST /api/userspace/prune).
+    """
+    logger.info("Prune userspace: user=%s", session["namespace"])
+    try:
+        result = api_post("/api/userspace/prune", timeout=LONG_TIMEOUT)
+        if result.get("error"):
+            flash(f"Prune failed: {result['error']}", "error")
+        else:
+            flash(
+                "Userspace pruned: InterLink releases, HPC deployments and "
+                "your namespace were removed.",
+                "success",
+            )
+    except requests.HTTPError as exc:
+        flash(f"Prune failed: {_api_error(exc)}", "error")
+    except Exception as exc:
+        logger.error("Prune failed: %s", exc)
+        flash(f"Prune failed: {exc}", "error")
+
+    return redirect(url_for("app_hpc.manage_nodes"))
+
+
 @hpc_bp.route("/", methods=["GET"])
 @require_login
 def hpc_page():

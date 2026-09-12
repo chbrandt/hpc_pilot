@@ -144,6 +144,34 @@ curl -s -X DELETE \
 
 ---
 
+### `POST /api/userspace/prune` — Prune the user's userspace
+
+Remove **everything** for the caller. For every configured HPC node
+(best-effort — a failure on one node does not stop the prune of the others):
+uninstall the InterLink release bound to that node, and undeploy the HPC
+Pilot stack on the remote edge-node. Finally delete the user's Kubernetes
+namespace and every resource inside it (including any leftover jobs).
+
+```{code-block} bash
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  https://manager.example.org/api/userspace/prune | jq .
+```
+
+**Response `200`:**
+
+```{code-block} json
+{
+  "namespace": "user-a3f1b2c4d5e6f7a8",
+  "namespace_deleted": true,
+  "nodes": [
+    {"hpc_name": "test-echo", "interlink": {"success": true, "output": "..."}, "hpc": {"success": true, "output": "..."}}
+  ]
+}
+```
+
+---
+
 ### `GET /api/interlink/nodes` — List InterLink virtual-kubelet nodes
 
 Return the names of cluster nodes registered as InterLink virtual-kubelet nodes.
@@ -745,6 +773,7 @@ print(resp.json())
 |---|---|---|
 | `POST` | `/api/userspace/` | Idempotently create the user's personal namespace |
 | `DELETE` | `/api/userspace/` | Delete the user's namespace and all its resources |
+| `POST` | `/api/userspace/prune` | Prune everything: InterLink releases, HPC edge stacks, namespace |
 | `GET` | `/api/interlink/nodes` | List InterLink virtual-kubelet node names |
 | `GET` | `/api/jobs` | List jobs in the user's namespace |
 | `POST` | `/api/jobs/preset` | Submit a job from a preset (validates `node_name`) |

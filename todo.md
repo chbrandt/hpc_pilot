@@ -59,8 +59,8 @@ ID | Task | Priority | Status
 AA1 | Remove /api/namespaces/ensure to POST/DELETE /api/userspace/. | low | [x]
 AA2 | Implement GET /health endpoint, public call, return simple JSON Service alive. | high | [x]
 AA3 | Combine configuration of interlink vk-node with hpc deployment. | high | [x]
-AA4 | Merge configuration attributes into one configuration file. | medium | [ ]
-AA5 | Add a --config flag for launching the manager with a custom config path. | low | [ ]
+AA4 | Merge configuration attributes into one configuration file. | medium | [x]
+AA5 | Add a --config flag for launching the manager with a custom config path. | low | [x]
 
 ### /hpc
 
@@ -73,7 +73,7 @@ HT1 | Change /api/hpc/status from POST to GET. | medium | [x]
 ID | Task | Priority | Status
 -- | ---- | -------- | ------
 IT1 | Change /api/interlink POST to require hpc_name; name vk-node as vk-node-<user-hash>-<name>. | high | [x]
-IT2 | Rename (GET) /api/nodes/interlink to /api/interlink/nodes | low | [ ]
+IT2 | Rename (GET) /api/nodes/interlink to /api/interlink/nodes | low | [x]
 
 ### /jobs
 
@@ -88,8 +88,8 @@ JT4 | Create a POST /api/jobs/spec, accepting a Pod manifest spec. | medium | [x
 
 ID | Task | Priority | Status
 -- | ---- | -------- | ------
-US1 | Fix DELETE /api/userspace: SA cannot delete namespaces (lacks RBAC). | high | [ ]
-US2 | Add /api/userspace prune action: remove everything for the user, including HPC edge. | high | [ ]
+US1 | Fix DELETE /api/userspace: SA cannot delete namespaces (lacks RBAC). | high | [x]
+US2 | Add /api/userspace prune action: remove everything for the user, including HPC edge. | high | [x]
 
 ## GUI
 
@@ -100,10 +100,10 @@ GA2 | Update Submit Job page for JT2 (cpu/memory), JT3 (preset), JT4 (spec). | m
 GA3 | Merge Charts and HPC pages into one Manage Nodes. | high | [x]
 GA4 | EGI Check-in login button (authorization-code flow via aai.egi.eu Keycloak). | high | [ ]
 GA5 | Remove save feature/buttons for HPC and Helm/interlink deployments. | high | [x]
-GA6 | Add a prune button to remove all interlink and HPC deployments for the user. | high | [ ]
+GA6 | Add a prune button to remove all interlink and HPC deployments for the user. | high | [x]
 GA7 | Fix Container image placeholder to show the default image from configuration. | medium | [ ]
-GA8 | Combine Deploy HPC + Deploy interLink into one Start/Stop Node button. | high | [ ]
-GA9 | (requires GA8) Spinning wheel to indicate node is being deployed/stopped. | high | [ ]
-GA10 | (requires GA8) Present logs from deployment/stopping process. | high | [ ]
-GA11 | Add menu-bar button to open API documentation (Swagger UI) in a new tab. | low | [ ]
-GA12 | Bug: Jobs page shows interlink nodes as if they were jobs. Fix to show only jobs. | high | [ ]
+GA8 | Combine Deploy HPC + Deploy interLink into one Start/Stop Node button. | high | [x]
+GA9 | (requires GA8) Spinning wheel to indicate node is being deployed/stopped. | high | [x]
+GA10 | (requires GA8) Present logs from deployment/stopping process. | high | [x]
+GA11 | Add menu-bar button to open API documentation (Swagger UI) in a new tab. | low | [x]
+GA12 | Bug: Jobs page shows interlink nodes as if they were jobs. Fix to show only jobs. | high | [x]

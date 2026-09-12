@@ -305,6 +305,49 @@ class TestNodeStop:
         assert "OK" in html
 
 
+class TestPruneButton:
+    URL = "/hpc/nodes/prune"
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.post(self.URL)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_success_redirects_to_manage_nodes(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_POST_PATCH, return_value={"namespace_deleted": True, "nodes": []}),
+        ):
+            resp = client.post(self.URL, follow_redirects=False)
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/nodes")
+
+    def test_api_error_still_redirects(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_POST_PATCH, return_value={"error": "denied"}),
+        ):
+            resp = client.post(self.URL, follow_redirects=False)
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/nodes")
+
+    def test_prune_button_rendered_on_manage_nodes(self, client):
+        """The Prune button must be present on the Manage Nodes page."""
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(LIST_HPC_NODES_PATCH, return_value=FAKE_HPC_NODES),
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=FAKE_SITE_CFG),
+            patch(API_GET_PATCH, side_effect=_http_error(404)),
+        ):
+            resp = client.get("/hpc/nodes")
+        html = resp.data.decode()
+        assert "Prune everything" in html
+        assert "/hpc/nodes/prune" in html
+
+
 # ---------------------------------------------------------------------------
 # POST /hpc/deploy
 # ---------------------------------------------------------------------------

@@ -138,6 +138,112 @@ class TestUserspace:
             resp = client.delete(self.URL, headers=headers)
         assert resp.status_code == 500
 
+
+# ---------------------------------------------------------------------------
+# POST /api/userspace/prune
+# ---------------------------------------------------------------------------
+
+
+_FAKE_HPC_NODES = [
+    {"name": "test-echo", "hostname": "1.2.3.4", "ssh_port": 22, "plugin": "echo"},
+    {"name": "test-slurm", "hostname": "5.6.7.8", "ssh_port": 22, "plugin": "slurm"},
+]
+
+_HELM_SUCCESS = {"success": True, "output": "release uninstalled"}
+_HPC_UNDEPLOY_SUCCESS = {"success": True, "output": "undeployed"}
+
+
+class TestPruneUserspace:
+    URL = "/api/userspace/prune"
+
+    def test_requires_auth(self, client):
+        assert client.post(self.URL).status_code == 401
+
+    def test_prunes_every_hpc_node_and_deletes_namespace(self, client, auth_headers):
+        headers, ns = auth_headers
+        k8s = _mock_k8s(namespace_exists=True)
+        with (
+            patch(K8S_PATCH, return_value=k8s),
+            patch("lib.hpc_config.list_hpc_nodes", return_value=_FAKE_HPC_NODES),
+            patch("lib.helm_client.helm_uninstall", return_value=_HELM_SUCCESS),
+            patch("lib.hpc_client.undeploy", return_value=_HPC_UNDEPLOY_SUCCESS),
+        ):
+            resp = client.post(self.URL, headers=headers)
+
+        assert resp.status_code == 200
+        data = resp.get_json(force=True)
+        assert data["namespace"] == ns
+        assert data["namespace_deleted"] is True
+        assert len(data["nodes"]) == 2
+        for node_report in data["nodes"]:
+            assert node_report["interlink"]["success"] is True
+            assert node_report["hpc"]["success"] is True
+        k8s.delete_namespace.assert_called_once_with(ns)
+
+    def test_no_hpc_nodes_still_deletes_namespace(self, client, auth_headers):
+        headers, ns = auth_headers
+        k8s = _mock_k8s(namespace_exists=True)
+        with (
+            patch(K8S_PATCH, return_value=k8s),
+            patch("lib.hpc_config.list_hpc_nodes", return_value=[]),
+        ):
+            resp = client.post(self.URL, headers=headers)
+
+        assert resp.status_code == 200
+        data = resp.get_json(force=True)
+        assert data["nodes"] == []
+        assert data["namespace_deleted"] is True
+
+    def test_namespace_absent_reports_not_deleted(self, client, auth_headers):
+        headers, ns = auth_headers
+        k8s = _mock_k8s(namespace_exists=False)
+        with (
+            patch(K8S_PATCH, return_value=k8s),
+            patch("lib.hpc_config.list_hpc_nodes", return_value=[]),
+        ):
+            resp = client.post(self.URL, headers=headers)
+
+        assert resp.status_code == 200
+        data = resp.get_json(force=True)
+        assert data["namespace_deleted"] is False
+        k8s.delete_namespace.assert_not_called()
+
+    def test_individual_node_failure_does_not_abort_prune(self, client, auth_headers):
+        """A failing HPC node must not prevent pruning the others or the namespace."""
+        headers, ns = auth_headers
+        k8s = _mock_k8s(namespace_exists=True)
+        with (
+            patch(K8S_PATCH, return_value=k8s),
+            patch("lib.hpc_config.list_hpc_nodes", return_value=_FAKE_HPC_NODES),
+            patch(
+                "lib.helm_client.helm_uninstall",
+                side_effect=RuntimeError("helm unreachable"),
+            ),
+            patch("lib.hpc_client.undeploy", return_value=_HPC_UNDEPLOY_SUCCESS),
+        ):
+            resp = client.post(self.URL, headers=headers)
+
+        assert resp.status_code == 200
+        data = resp.get_json(force=True)
+        assert len(data["nodes"]) == 2
+        for node_report in data["nodes"]:
+            assert node_report["interlink"]["success"] is False
+        assert data["namespace_deleted"] is True
+
+    def test_namespace_delete_failure_returns_500(self, client, auth_headers):
+        headers, ns = auth_headers
+        k8s = _mock_k8s(
+            namespace_exists=True,
+            delete_namespace={"success": False, "error": "denied"},
+        )
+        with (
+            patch(K8S_PATCH, return_value=k8s),
+            patch("lib.hpc_config.list_hpc_nodes", return_value=[]),
+        ):
+            resp = client.post(self.URL, headers=headers)
+        assert resp.status_code == 500
+
+
 # ---------------------------------------------------------------------------
 # GET /api/interlink/nodes
 # ---------------------------------------------------------------------------
