@@ -156,7 +156,7 @@ def login():
             logger.warning("Could not seed default chart configs: %s", exc)
 
         flash(f"Welcome! Your namespace is {namespace}.", "success")
-        next_url = request.form.get("next") or url_for("app_k8s.index")
+        next_url = request.form.get("next") or url_for("app_k8s.home")
         return redirect(next_url)
 
     # GET — render the login form

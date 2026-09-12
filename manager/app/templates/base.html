@@ -12,9 +12,11 @@
   <nav class="navbar">
     <div class="container navbar-inner">
       <div class="nav-left">
-        <a href="{{ url_for('app_k8s.index') }}" class="nav-brand">⎈ HPC Pilot</a>
+        <a href="{{ url_for('app_k8s.home') }}" class="nav-brand">⎈ HPC Pilot</a>
         {% if current_user %}
         <div class="nav-links">
+          <a href="{{ url_for('app_k8s.home') }}"
+            class="{% if request.endpoint == 'app_k8s.home' %}active{% endif %}">Home</a>
           <a href="{{ url_for('app_k8s.index') }}"
             class="{% if request.endpoint == 'app_k8s.index' %}active{% endif %}">Submit Job</a>
           <a href="{{ url_for('app_hpc.manage_nodes') }}"

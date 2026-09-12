@@ -74,6 +74,17 @@ Clear the session and redirect to the login page.
 
 ### `GET /`
 
+Render the "Home" page: an overview of the user's **jobs** (from
+`GET /api/jobs`) and their deployed **interlink/HPC nodes** (from the
+configured HPC nodes and each node's InterLink release status).
+
+**Auth:** Required
+**Response:** `home.html`
+
+---
+
+### `GET /submit`
+
 Render the "Submit a Job" form.
 
 The form's InterLink-node dropdown is populated by calling
@@ -103,7 +114,7 @@ Submit a new job (forwards to `POST /api/jobs/preset`).
 | `env_value[]` | | Environment variable value (repeatable, paired with `env_key`) |
 
 **Success:** Render `status.html` with the job result
-**Failure:** Flash error, redirect to `GET /`
+**Failure:** Flash error, redirect to `GET /submit`
 
 ---
 

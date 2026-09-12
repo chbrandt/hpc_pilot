@@ -95,7 +95,7 @@ US2 | Add /api/userspace prune action: remove everything for the user, including
 
 ID | Task | Priority | Status
 -- | ---- | -------- | ------
-GA1 | Landing page (Home): list of Jobs and interlink/HPC Nodes deployed. | high | [ ]
+GA1 | Landing page (Home): list of Jobs and interlink/HPC Nodes deployed. | high | [x]
 GA2 | Update Submit Job page for JT2 (cpu/memory), JT3 (preset), JT4 (spec). | medium | [ ]
 GA3 | Merge Charts and HPC pages into one Manage Nodes. | high | [x]
 GA4 | EGI Check-in login button (authorization-code flow via aai.egi.eu Keycloak). | high | [ ]

@@ -2,13 +2,15 @@
 app/k8s.py — Web GUI routes for Kubernetes job management.
 
 All backend operations are performed via the REST API (app.api_client),
-so this module has no direct dependency on lib/.
+so this module has no direct dependency on lib/ except for listing the
+configured HPC nodes on the home page.
 
 Routes
 ------
-GET  /                           Main job submission form
+GET  /                           Home: overview of jobs + interlink/HPC nodes
+GET  /submit                     Job submission form
 POST /submit                     Submit a new job
-GET  /jobs                       List all jobs + Helm releases
+GET  /jobs                       List all jobs
 POST /jobs/<ns>/<name>/delete    Delete a job
 GET  /jobs/<ns>/<name>/status    AJAX status poll (JSON)
 POST /jobs/<ns>/<name>/save      Save job config
@@ -53,8 +55,57 @@ def _api_error(exc: requests.HTTPError) -> str:
 
 @k8s_bp.route("/")
 @require_login
+def home():
+    """
+    Landing page ("Home"): overview of the user's jobs and deployed
+    interlink/HPC nodes.
+
+    Jobs are listed from ``GET /api/jobs``; node deployment state is
+    gathered from the configured HPC nodes and each node's InterLink
+    release status (same data source as the Manage Nodes page).
+    """
+    namespace = session.get("namespace", "")
+    errors = []
+
+    # ── Jobs ──────────────────────────────────────────────────────────
+    jobs = []
+    try:
+        jobs = api_get("/api/jobs")
+    except Exception as exc:
+        errors.append(f"Jobs: {_api_error(exc) if isinstance(exc, requests.HTTPError) else exc}")
+        logger.error("Could not list jobs for home page: %s", exc)
+
+    # ── InterLink / HPC nodes ─────────────────────────────────────────
+    from lib.hpc_config import list_hpc_nodes
+
+    nodes = []
+    for node in list_hpc_nodes():
+        hpc_name = node["name"]
+        entry = {**node, "interlink_deployed": False}
+        try:
+            result = api_get("/api/interlink", params={"hpc_name": hpc_name})
+            entry["interlink_deployed"] = bool(result.get("success"))
+        except requests.HTTPError as exc:
+            # 404 = not deployed (normal state); surface other errors
+            if exc.response is None or exc.response.status_code != 404:
+                errors.append(f"InterLink ({hpc_name}): {_api_error(exc)}")
+        except Exception as exc:
+            errors.append(f"InterLink ({hpc_name}): {exc}")
+        nodes.append(entry)
+
+    return render_template(
+        "home.html",
+        jobs=jobs,
+        nodes=nodes,
+        namespace=namespace,
+        error="; ".join(errors) if errors else None,
+    )
+
+
+@k8s_bp.route("/submit")
+@require_login
 def index():
-    """Main page with job submission form."""
+    """Job submission form."""
     namespace = session.get("namespace", "")
     saved = list_configs(namespace, kind="container") if namespace else []
 

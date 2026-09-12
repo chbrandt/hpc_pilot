@@ -71,6 +71,92 @@ def _job(name="my-job", image="ubuntu:22.04", node_name="vk-1", status="running"
     }
 
 
+FAKE_HPC_NODES = [
+    {"name": "test-echo", "hostname": "1.2.3.4", "ssh_port": 22, "plugin": "echo"},
+]
+
+
+# ---------------------------------------------------------------------------
+# GET /  (Home: overview of jobs + interlink/HPC nodes)
+# ---------------------------------------------------------------------------
+
+
+class TestHomePage:
+    URL = "/"
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.get(self.URL)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_renders_jobs_and_nodes(self, client):
+        """The home page lists both jobs and interlink/HPC nodes."""
+        jobs = [_job(name="alpha"), _job(name="beta")]
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch("lib.hpc_config.list_hpc_nodes", return_value=FAKE_HPC_NODES),
+            patch(
+                API_GET_PATCH,
+                side_effect=[
+                    jobs,                                  # GET /api/jobs
+                    {"success": True},                     # GET /api/interlink (deployed)
+                ],
+            ),
+        ):
+            resp = client.get(self.URL)
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Home" in html
+        assert "alpha" in html
+        assert "beta" in html
+        assert "test-echo" in html
+        assert "deployed" in html
+
+    def test_empty_state_renders_without_error(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch("lib.hpc_config.list_hpc_nodes", return_value=[]),
+            patch(API_GET_PATCH, return_value=[]),
+        ):
+            resp = client.get(self.URL)
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "No jobs" in html
+        assert "No HPC nodes" in html
+        assert "alert-error" not in html
+
+
+# ---------------------------------------------------------------------------
+# GET /submit  (Job submission form)
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitForm:
+    URL = "/submit"
+
+    def test_redirects_when_not_logged_in(self, client):
+        resp = client.get(self.URL)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_renders_submit_form(self, client):
+        _logged_in_client(client)
+        with (
+            patch(GET_SESSION_USER_PATCH, return_value=FAKE_USER),
+            patch(API_GET_PATCH, return_value={"nodes": ["vk-node-1"]}),
+        ):
+            resp = client.get(self.URL)
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Submit a Job" in html
+        assert "vk-node-1" in html
+
+
 # ---------------------------------------------------------------------------
 # GET /jobs
 # ---------------------------------------------------------------------------
