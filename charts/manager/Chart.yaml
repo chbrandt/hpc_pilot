@@ -1,7 +1,7 @@
 apiVersion: v2
 name: egi-hpc-pilot
-version: 0.2
-appVersion: 0.4
+version: 0.2.0
+appVersion: 0.4.0
 type: application
 description: >
   Helm chart for the HPC Pilot Manager — a Flask web application that manages
