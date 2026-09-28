@@ -68,7 +68,7 @@ def _interlink_release_name(namespace: str, hpc_name: str) -> str:
     so each HPC target gets its own release: interlink-<hpc_name>.
     """
     user_hash = namespace.removeprefix("user-")
-    return f"interlink-{user_hash}-{hpc_name}"
+    return f"interlink-{hpc_name}-{user_hash}"
 
 
 def _vk_node_name(namespace: str, hpc_name: str) -> str:
@@ -80,8 +80,7 @@ def _vk_node_name(namespace: str, hpc_name: str) -> str:
     derive_namespace (user-<hash>).
     """
     user_hash = namespace.removeprefix("user-")
-    # return f"vk-node-{hpc_name}-{user_hash}"
-    return f"vk-{user_hash}-{hpc_name}"
+    return f"vk-{hpc_name}-{user_hash}"
 
 
 def _get_interlink_chart_config() -> dict | None:

@@ -128,7 +128,7 @@ FAKE_CHARTS_CONFIG = {
             "singleton": True,
             "description": "InterLink VK",
             "values_yaml": (
-                "namespace: __NAMESPACE__\n"
+                "namespace: __SECRET__\n"
                 "host: __HOSTNAME__\n"
             ),
         }
@@ -158,11 +158,11 @@ class TestSeedDefaults:
         sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         assert len(sd.list_configs(self.NS)) == 1
 
-    def test_placeholder_namespace_resolved(self):
+    def test_placeholder_secret_resolved(self):
         sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)
         entry = sd.list_configs(self.NS)[0]
         assert self.NS in entry["values_yaml"]
-        assert "__NAMESPACE__" not in entry["values_yaml"]
+        assert "__SECRET__" not in entry["values_yaml"]
 
     def test_placeholder_hostname_resolved(self):
         sd.seed_defaults(self.NS, FAKE_SITE_CONFIG)

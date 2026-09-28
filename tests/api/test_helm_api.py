@@ -132,7 +132,7 @@ class TestDeployInterlink:
         # The VK SA == the node name vk-node-<hpc_name>-<user_hash>
         assert call_kwargs["namespace"] == fake_ns
         assert call_kwargs["node_names"] == [
-            f"vk-node-{_HPC_NAME}-{user_hash}"
+            f"vk-{_HPC_NAME}-{user_hash}"
         ]
 
     def test_csr_approval_failure_does_not_fail_install(self, client, auth_headers):
