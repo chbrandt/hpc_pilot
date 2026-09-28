@@ -68,7 +68,7 @@ def _interlink_release_name(namespace: str, hpc_name: str) -> str:
     so each HPC target gets its own release: interlink-<hpc_name>.
     """
     user_hash = namespace.removeprefix("user-")
-    return f"interlink-{hpc_name}-{user_hash}"
+    return f"interlink-{user_hash}-{hpc_name}"
 
 
 def _vk_node_name(namespace: str, hpc_name: str) -> str:
@@ -80,7 +80,8 @@ def _vk_node_name(namespace: str, hpc_name: str) -> str:
     derive_namespace (user-<hash>).
     """
     user_hash = namespace.removeprefix("user-")
-    return f"vk-node-{hpc_name}-{user_hash}"
+    # return f"vk-node-{hpc_name}-{user_hash}"
+    return f"vk-{user_hash}-{hpc_name}"
 
 
 def _get_interlink_chart_config() -> dict | None:
@@ -105,10 +106,10 @@ def deploy_interlink():
         hpc_name*  str  HPC node name (from manager/hpc/*.yaml) served by
                         this virtual-kubelet (required).
 
-    The release is named interlink-<hpc_name> and the virtual-kubelet node
-    vk-node-<user-hash>-<hpc_name>: one InterLink virtual node per
-    (user, HPC target) pair.  All other chart settings come from
-    *charts_config.yaml*.
+    The release is named interlink-<user-hash>-<hpc_name> and the 
+    virtual-kubelet node is named vk-<user-hash>-<hpc_name>: one InterLink 
+    virtual node per (user, HPC target) pair.  All other chart settings 
+    come from 'charts_config.yaml'.
     """
     claims = get_request_claims()
     namespace = claims["namespace"]
@@ -129,8 +130,9 @@ def deploy_interlink():
     chart = chart_cfg.get("chart", "")
     version = chart_cfg.get("version") or None
     raw_values = chart_cfg.get("values_yaml") or ""
+    secret = f"{namespace}/{hpc_name}"  # used as wstunnel secret and path prefix
     site_cfg = load_site_config()
-    values_yaml = _resolve_placeholders(raw_values, namespace, site_cfg) or ""
+    values_yaml = _resolve_placeholders(raw_values, secret, site_cfg) or ""
 
     # Pin the virtual-kubelet node name to this (user, HPC) pair
     values = yaml.safe_load(values_yaml) or {}

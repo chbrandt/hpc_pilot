@@ -170,7 +170,7 @@ def load_default_charts() -> list[dict]:
     return charts if isinstance(charts, list) else []
 
 
-def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
+def _resolve_placeholders(text: str, secret: str, site_config: dict) -> str:
     """
     Substitute per-user placeholder tokens in *text*.
 
@@ -185,8 +185,8 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
     ----------
     text : str
         The template string containing placeholder tokens.
-    namespace : str
-        The user's Kubernetes namespace.
+    secret : str
+        The secret to use for placeholder substitution.
     site_config : dict
         Site-level configuration dict (from ``site_config.yaml``), used to
         resolve ``__HOSTNAME__``.  Falls back to ``"dev.local"`` when
@@ -195,7 +195,7 @@ def _resolve_placeholders(text: str, namespace: str, site_config: dict) -> str:
     hostname = site_config.get("hostname", "dev.local")
     return (
         text
-        .replace("__NAMESPACE__", namespace)
+        .replace("__SECRET__", secret)
         .replace("__HOSTNAME__", hostname)
     )
 
@@ -209,9 +209,9 @@ def seed_defaults(namespace: str, site_config: Optional[dict] = None) -> None:
     (``"default-<release_name>"``) so it is only inserted once regardless of
     how many times this function is called (e.g. on every login).
 
-    Dynamic placeholder tokens in ``values_yaml`` (``__NAMESPACE__``,
-    ``__HOSTNAME__``) are resolved against the
-    user's namespace and the supplied *site_config* before the entry is stored.
+    Dynamic placeholder tokens in ``values_yaml`` (``__SECRET__``,
+    ``__HOSTNAME__``) are resolved against the user's secret (namespace) 
+    and the supplied *site_config* before the entry is stored.
 
     Parameters
     ----------

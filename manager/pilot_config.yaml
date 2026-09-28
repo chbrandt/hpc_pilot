@@ -118,7 +118,7 @@ charts:
           ingress:
             host: __HOSTNAME__
           logLevel: debug
-          secret: "__NAMESPACE__"
+          secret: "__SECRET__"  # used as path prefix for wstunnel ingress routing
 
 # ── hpc ──────────────────────────────────────────────────────────────────────
 # nodes.<name> :
