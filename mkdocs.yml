@@ -1,0 +1,17 @@
+site_name: HPC Pilot
+site_url: https://chbrandt.github.io/hpc_pilot
+repo_url: https://github.com/chbrandt/hpc_pilot
+docs_dir: documentation
+
+theme: 
+  name: material
+  font:
+    text: DM Sans
+    code: Roboto Mono
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+
+extra_css:
+  - stylesheets/custom.css

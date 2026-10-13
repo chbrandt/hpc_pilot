@@ -1,0 +1,10 @@
+:root {
+  /* Primary Colours */
+  --md-primary-fg-color: #005FAA !important; /* Blue - used for header and active links */
+  --md-accent-fg-color: #EF8300 !important;  /* Orange - used for buttons, highlights, and accents */
+
+  /* Secondary Colours */
+  --md-typeset-color: #08152E !important;    /* Dark Blue - used for primary body text */
+  --md-default-fg-color--light: #999999 !important; /* Grey - used for secondary text and borders */
+}
+
