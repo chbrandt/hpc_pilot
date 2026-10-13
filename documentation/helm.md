@@ -11,9 +11,9 @@ release is named `interlink-<hpc_name>` and its virtual-kubelet node
 instances at once, one per configured HPC target. Chart reference, version
 and default values are defined once in
 [`charts_config.yaml`](../manager/charts_config.yaml) and installed via the
-[`/api/interlink`](rest_api.md#api-helm) endpoint, which additionally
+[`/api/interlink`](rest_api.md#interlink-chart-apiinterlink) endpoint, which additionally
 requires an `hpc_name` and overrides `nodeName` accordingly (no arbitrary
-chart is accepted at runtime). See [configuration.md](configuration.md#charts-configyaml).
+chart is accepted at runtime). See [configuration.md](configuration.md#charts-section).
 
 ---
 

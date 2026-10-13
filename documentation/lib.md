@@ -7,11 +7,6 @@ It has no dependency on Flask or any web framework, so you can import it
 directly from a Python interpreter, a Jupyter notebook, or any script without
 starting a server.
 
-```{contents} Contents
-:local:
-:depth: 2
-```
-
 ---
 
 ## Overview
@@ -32,7 +27,7 @@ starting a server.
 
 ## `lib.k8s_client` — Kubernetes Client
 
-```{code-block} python
+```python
 from lib.k8s_client import K8sClient
 ```
 
@@ -42,7 +37,7 @@ Wraps the official `kubernetes` Python client.
 Reads cluster credentials from a kubeconfig file (falls back to `$KUBECONFIG`,
 then `~/.kube/config`).
 
-```{code-block} python
+```python
 k8s = K8sClient()                                # default kubeconfig
 k8s = K8sClient(kubeconfig_path="/path/cfg.yaml")  # explicit path
 ```
@@ -51,7 +46,7 @@ k8s = K8sClient(kubeconfig_path="/path/cfg.yaml")  # explicit path
 
 #### Namespace helpers
 
-```{code-block} python
+```python
 namespaces = k8s.list_namespaces()          # -> list[str]
 exists = k8s.namespace_exists("user-abc123")  # -> bool
 result = k8s.create_namespace("user-abc123")
@@ -62,7 +57,7 @@ result = k8s.create_namespace("user-abc123")
 
 #### InterLink node discovery
 
-```{code-block} python
+```python
 nodes = k8s.list_interlink_nodes()  # -> list[str]
 ```
 
@@ -78,7 +73,7 @@ A job is a `Deployment` pinned to an InterLink virtual-kubelet node via
 Replicas, resources, ports, Services and Ingresses are **not supported**
 (InterLink maps one pod to one HPC batch job).
 
-```{code-block} python
+```python
 result = k8s.create_job(
     name="my-job",
     image="ubuntu:22.04",
@@ -91,7 +86,7 @@ result = k8s.create_job(
 
 **Return value** (success):
 
-```{code-block} json
+```json
 {
   "success": true,
   "job_name": "my-job",
@@ -104,14 +99,14 @@ result = k8s.create_job(
 
 #### Listing jobs
 
-```{code-block} python
+```python
 jobs  = k8s.list_jobs(namespace="user-abc123")
 all_  = k8s.list_jobs()   # namespace=None or "__all__" lists across all ns
 ```
 
 Each entry (label-filtered to `created-by=hpc-pilot-webapp`):
 
-```{code-block} json
+```json
 {
   "name": "my-job",
   "namespace": "user-abc123",
@@ -126,7 +121,7 @@ Each entry (label-filtered to `created-by=hpc-pilot-webapp`):
 
 #### Job spec, status, delete
 
-```{code-block} python
+```python
 spec   = k8s.get_job_spec(name="my-job", namespace="user-abc123")
 status = k8s.get_job_status(name="my-job", namespace="user-abc123")
 result = k8s.delete_job(name="my-job", namespace="user-abc123")
@@ -137,7 +132,7 @@ result = k8s.delete_job(name="my-job", namespace="user-abc123")
 
 `get_job_status` returns:
 
-```{code-block} json
+```json
 {
   "name": "my-job",
   "namespace": "user-abc123",
@@ -163,7 +158,7 @@ result = k8s.delete_job(name="my-job", namespace="user-abc123")
 
 ## `lib.helm_client` — Helm Client
 
-```{code-block} python
+```python
 from lib.helm_client import helm_install, helm_list, helm_get_values, helm_uninstall
 ```
 
@@ -172,7 +167,7 @@ Requires Helm 3 on `$PATH`; inherits the process `KUBECONFIG`.
 
 ### `helm_install`
 
-```{code-block} python
+```python
 result = helm_install(
     release_name="interlink-test-echo",  # interlink-<hpc_name>
     chart="oci://ghcr.io/chbrandt/interlink",
@@ -189,7 +184,7 @@ Runs `helm install <release> <chart> --namespace <ns> --wait --timeout=5m0s
 
 ### `helm_list`
 
-```{code-block} python
+```python
 releases = helm_list(namespace="user-abc123")  # -> list[dict]
 ```
 
@@ -198,7 +193,7 @@ Returns a normalised list (`name`, `namespace`, `revision`, `updated`,
 
 ### `helm_get_values`
 
-```{code-block} python
+```python
 result = helm_get_values(release_name="interlink-test-echo", namespace="user-abc123")
 # -> {"success": bool, "values_yaml": str | None, "error": str | None}
 ```
@@ -208,7 +203,7 @@ when no custom values were provided). Exposed to operators through `GET /api/int
 
 ### `helm_uninstall`
 
-```{code-block} python
+```python
 result = helm_uninstall(release_name="interlink-test-echo", namespace="user-abc123")
 # -> {"success": bool, "output": str, "error": str | None}
 ```
@@ -219,7 +214,7 @@ result = helm_uninstall(release_name="interlink-test-echo", namespace="user-abc1
 
 ## `lib.hpc_config` — Per-HPC-Node Configuration
 
-```{code-block} python
+```python
 from lib.hpc_config import list_hpc_nodes, load_hpc_config
 ```
 
@@ -235,7 +230,7 @@ plugin: echo              # InterLink plugin: echo | docker | slurm
 The filename stem (`<name>`) is the HPC node's unique identifier used by the
 API and web GUI.
 
-```{code-block} python
+```python
 nodes = list_hpc_nodes()
 # -> [{"name": "test-echo", "hostname": ..., "ssh_port": ..., "plugin": ...}, ...]
 
@@ -250,7 +245,7 @@ cfg = load_hpc_config("test-echo")
 
 ## `lib.hpc_client` — HPC Node Client
 
-```{code-block} python
+```python
 from lib import hpc_client
 ```
 
@@ -274,14 +269,14 @@ boolean-returning probes below are the exception).
 
 ### `check_connection` / `check_installed`
 
-```{code-block} python
+```python
 ok = hpc_client.check_connection(token, hpc_host, ssh_port=22)   # -> bool (runs whoami)
 ok = hpc_client.check_installed(token, hpc_host, ssh_port=22)     # -> bool (~/.pilot exists)
 ```
 
 ### `deploy`
 
-```{code-block} python
+```python
 result = hpc_client.deploy(
     token="<egi-access-token>",
     hpc_host="hpc-login.example.org",
@@ -310,7 +305,7 @@ functions in order:
 
 ### `undeploy`
 
-```{code-block} python
+```python
 result = hpc_client.undeploy(token, hpc_host, ssh_port=22)
 ```
 
@@ -318,7 +313,7 @@ Stops services, shuts down supervisord, and removes the `~/.pilot` directory.
 
 ### `get_status` / `start_services` / `stop_services`
 
-```{code-block} python
+```python
 status  = hpc_client.get_status(token, hpc_host, ssh_port=22)
 started = hpc_client.start_services(token, hpc_host, ssh_port=22)
 stopped = hpc_client.stop_services(token, hpc_host, ssh_port=22)
@@ -334,13 +329,13 @@ Map to `supervisorctl status` / `start all` / `stop all` on the remote node.
 
 ## `lib.token_auth` — Token Validation
 
-```{code-block} python
+```python
 from lib.token_auth import validate_token, derive_namespace, check_group_access, fetch_userinfo
 ```
 
 ### `validate_token`
 
-```{code-block} python
+```python
 claims = validate_token("<raw-jwt-string>")
 # raises ValueError on any failure
 ```
@@ -361,7 +356,7 @@ Full validation:
 
 ### `fetch_userinfo`
 
-```{code-block} python
+```python
 userinfo = fetch_userinfo(token, issuer)
 # -> {"eduperson_entitlement": [...], "entitlements": [...], ...}
 ```
@@ -372,7 +367,7 @@ group-access check.
 
 ### `check_group_access`
 
-```{code-block} python
+```python
 check_group_access(claims, allowed_groups)   # raises ValueError on denial
 ```
 
@@ -382,7 +377,7 @@ Raises `ValueError` on denial; is a no-op when `allowed_groups` is empty.
 
 ### `derive_namespace`
 
-```{code-block} python
+```python
 ns = derive_namespace(claims["sub"])   # "user-" + sha256(sub)[:16]
 ```
 
@@ -392,7 +387,7 @@ Stable, Kubernetes-safe namespace name (21 chars, RFC 1123 compliant).
 
 ## `lib.token_checkin` — CLI Token Helper
 
-```{code-block} bash
+```bash
 python manager/lib/token_checkin.py new                  # full device flow
 python manager/lib/token_checkin.py new --audience interlink
 python manager/lib/token_checkin.py refresh --file tokens_egi.json
@@ -408,7 +403,7 @@ and supports refresh/revoke. See [authentication.md](authentication.md).
 
 ## `lib.saved_deployments` — Configuration Store
 
-```{code-block} python
+```python
 from lib.saved_deployments import (
     save_config, list_configs, get_config, delete_config,
     seed_defaults, def_chart_is_singleton, load_default_charts,
@@ -418,7 +413,7 @@ from lib.saved_deployments import (
 Persists per-user saved configurations as a JSON file per namespace under
 `manager/data/<namespace>.json`.
 
-```{code-block} python
+```python
 # Save a deployment spec (kind: "container" | "helm")
 entry = save_config(namespace="user-abc123", kind="container",
                     config={"name": "my-job", "image": "ubuntu:22.04", ...})
@@ -434,7 +429,7 @@ delete_config("user-abc123", "<id>")         # -> bool
 
 ### Default-chart seeding
 
-```{code-block} python
+```python
 seed_defaults("user-abc123", site_config={"hostname": "..."})
 ```
 
@@ -446,7 +441,7 @@ every login.
 
 ### Helpers
 
-```{code-block} python
+```python
 charts = load_default_charts()                 # -> list[dict] from charts_config.yaml
 is_singleton = def_chart_is_singleton("oci://ghcr.io/chbrandt/interlink")
 ```

@@ -3,9 +3,11 @@
 HPC Pilot is a Flask web application for deploying **HPC jobs** (container
 workloads forwarded to HPC batch systems via
 [interLink](https://interlink-project.dev)) and managing per-user InterLink
-pods in a Kubernetes cluster. It authenticates via
-[EGI Check-in](https://www.egi.eu/service/check-in/) access tokens, and every
-authenticated user gets their own isolated Kubernetes namespace.
+pods in a Kubernetes cluster. It authenticates users via
+[EGI Check-in](https://www.egi.eu/service/check-in/) — either by pasting an
+access token or, when `site.oidc` is configured, with the browser-based
+**🎫 Log in with EGI Check-in** button (OAuth 2.0 authorization-code flow) —
+and every authenticated user gets their own isolated Kubernetes namespace.
 
 The manager can run **outside** the cluster (local dev, VM) or **inside** the
 cluster as a Kubernetes Deployment managed by the
@@ -21,7 +23,7 @@ cluster as a Kubernetes Deployment managed by the
 | **InterLink deployment** | Deploy InterLink virtual-kubelet nodes (wstunnel server + virtual-kubelet), one per (user, HPC node) pair, with per-user placeholder resolution from the `charts` section of `pilot_config.yaml` |
 | **HPC node management** | Install/start/stop/status/uninstall the wstunnel client + supervisord + InterLink plugin on a remote HPC edge-node via `mccli` |
 | **Unified workloads view** | Single page listing container jobs and the InterLink Helm release |
-| **EGI Check-in auth** | Token-based authentication; user namespace derived deterministically from the `sub` claim |
+| **EGI Check-in auth** | Token-paste and OAuth browser login (GA4); user namespace derived deterministically from the `sub` claim |
 | **User isolation** | Each user can only see and delete workloads in their own namespace |
 | **Token expiry handling** | Navbar expiry countdown; auto-logout on expiry; one-click token refresh |
 | **Saved configs** | Per-user store of reusable job / release templates, seeded with defaults on first login |
@@ -53,7 +55,7 @@ lifecycle.
 | Python ≥ 3.9 | Tested with 3.11 / 3.12 |
 | `helm` CLI (v3) | Must be on `$PATH`; used for chart operations |
 | `kubectl` access | Via `KUBECONFIG` or `~/.kube/config` (or in-cluster ServiceAccount) |
-| EGI Check-in access token | An access token obtained from EGI Check-in (e.g. via the `lib/token_checkin.py` helper) |
+| EGI Check-in access token | For the token-paste login — an access token obtained from EGI Check-in (e.g. via the `lib/token_checkin.py` helper); alternatively configure `site.oidc` and use the 🎫 browser login |
 | `pilot_config.yaml` (`site`) | Operator-level settings (hostname, wstunnel ports, allowed_groups) |
 | `pilot_config.yaml` (`charts`) | Default charts seeded to each user on first login |
 | `mccli` + `flaat-userinfo` | **Only for HPC operations** — `mccli` wraps SSH with OIDC token auth; install with `pip install mccli` |
@@ -90,7 +92,7 @@ site:
 
 Add one entry per HPC site under the `hpc.nodes` section of
 `manager/pilot_config.yaml` (`hostname`, `ssh_port`, `plugin`). See
-[configuration.md](configuration.md#hpc-node-configuration).
+[configuration.md](configuration.md#hpc-section-hpc-node-connection-details).
 
 ### 5. Configure access to the cluster
 
@@ -197,7 +199,7 @@ manager/
 
 - [**Deployment Guide**](deployment.md) — build the image, install the Helm chart, connect InterLink and the HPC edge-node end-to-end
 - [Architecture](architecture.md) — component diagram and request lifecycle
-- [Authentication](authentication.md) — EGI Check-in OIDC token flow
+- [Authentication](authentication.md) — EGI Check-in token-paste and OAuth browser login flows
 - [Web UI Routes](api.md) — all Flask GUI routes
 - [REST API Reference](rest_api.md) — REST API endpoints (also at `/api/docs`)
 - [Python Library](lib.md) — pure-Python package `lib`

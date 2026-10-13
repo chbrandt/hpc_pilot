@@ -9,18 +9,16 @@ All routes (except `/login` and `/logout`) are protected by the
 `require_login` decorator. Unauthenticated HTML requests are redirected to
 `/login`; AJAX/JSON requests get HTTP 401 with a JSON body.
 
-```{contents} Contents
-:local:
-:depth: 2
-```
-
 ---
 
 ## Authentication Routes (`app/auth.py`)
 
 ### `GET /login`
 
-Render the login page (token paste form).
+Render the login page: the token-paste form and, when `site.oidc` is
+configured, the **🎫 Log in with EGI Check-in** button (OAuth
+authorization-code flow — see
+[Authentication](authentication.md#egi-check-in-oauth-login-browser-flow)).
 
 **Query parameters:**
 
@@ -28,7 +26,7 @@ Render the login page (token paste form).
 |---|---|
 | `reason=expired` | Show "session expired" warning banner |
 | `refresh=1` | Show "update your token" banner instead of the normal title |
-| `next=<url>` | URL to redirect to after successful login |
+| `next=<url>` | URL to redirect to after successful login (also forwarded to the EGI Check-in button) |
 
 **Response:** `login.html`
 

@@ -4,9 +4,21 @@ HPC Pilot uses [EGI Check-in](https://www.egi.eu/service/check-in/) access
 tokens for authentication. Tokens are JWT-formatted and validated against the
 issuer's public keys (JWKS) on every login.
 
+Users can log in in two ways:
+
+1. **Paste an access token** on the login form (see
+   [Token-Paste Login Flow](#token-paste-login-flow)), or
+2. click the **🎫 Log in with EGI Check-in** button, which signs them in
+   through the browser with the OAuth 2.0 authorization-code flow (see
+   [EGI Check-in OAuth Login](#egi-check-in-oauth-login-browser-flow));
+   this option only appears when `site.oidc` is configured.
+
+Both methods produce the same session and run identical validation,
+group-access and user-bootstrap logic.
+
 ---
 
-## Login Flow
+## Token-Paste Login Flow
 
 ```
 User pastes token → POST /login
@@ -50,6 +62,94 @@ User pastes token → POST /login
 The same validation + group check runs on every REST API request via the
 `require_token` decorator (no session is used for API calls).
 
+
+---
+
+## EGI Check-in OAuth Login (browser flow)
+
+Since v0.4 the login page can also offer a **🎫 "Log in with EGI Check-in"**
+button (GA4) that signs the user in through the browser instead of asking
+them to paste a token. It implements the OAuth 2.0 **authorization-code
+flow** against the EGI Check-in Keycloak realm, with CSRF `state`
+verification. The button only appears when an OIDC client is configured
+under `site.oidc` (see [Configuration — `site` section](configuration.md#site-section)).
+
+### Flow
+
+```
+🎫 Click "Log in with EGI Check-in"  →  GET /login/egi
+        │
+        ▼
+1. Read site.oidc from pilot_config.yaml
+   (client_id missing → flash "not configured" → back to /login)
+        │
+        ▼
+2. Generate random CSRF state (secrets.token_urlsafe(32)) and store
+   {oidc_state, oidc_next} in the session
+        │
+        ▼
+3. Redirect to {issuer}/protocol/openid-connect/auth
+   ?client_id=...&redirect_uri=<site.hostname>/login/egi/callback
+   &response_type=code&scope=openid&state=...
+        │
+        ▼
+4. User authenticates at EGI Check-in (browser)
+        │
+        ▼
+5. GET /login/egi/callback?code=...&state=...
+        │
+        ▼
+6. Verify state against session (CSRF) — mismatch → flash + /login
+        │
+        ▼
+7. Exchange the code at {issuer}/protocol/openid-connect/token
+   (grant_type=authorization_code; client_secret only if configured)
+        │
+        ▼
+8. _establish_session(access_token, next) — identical to the token-paste
+   login: steps 6–11 of the Token-Paste Login Flow above (JWKS validation
+   → group check → namespace derivation → userspace ensure → config seeding)
+        │
+        ▼
+9. Redirect to the requested page (or /)
+```
+
+Both login methods produce the **same session** (`token`, `claims`,
+`namespace`) and run the same validation, group-access and bootstrap logic —
+`_establish_session()` in `app/auth.py` is shared by `POST /login` and the
+OAuth callback.
+
+### Enabling it
+
+1. Register an OIDC client in EGI Check-in (via the Check-in / VO client
+   registration) with `https://<site.hostname>/login/egi/callback` as an
+   allowed redirect URI.
+2. Configure the client in `manager/pilot_config.yaml`:
+
+```yaml
+site:
+  oidc:
+    client_id: hpc-pilot
+    client_secret: ""           # required only for confidential clients
+    issuer: https://aai.egi.eu/auth/realms/egi
+    redirect_uri: ""            # optional explicit override (derived from hostname)
+```
+
+| Key | Required | Description |
+|---|---|---|
+| `client_id` | ✓ | OIDC client registered in EGI Check-in. Unset/empty → the button is hidden and `GET /login/egi` redirects back to `/login` with an error. |
+| `client_secret` | only for confidential clients | Sent with the authorization-code exchange. |
+| `issuer` | no (defaults to `https://aai.egi.eu/auth/realms/egi`) | Keycloak realm providing the authorize/token endpoints. Must be one of the trusted issuers (see [Trusted Issuers](#trusted-issuers)). |
+| `redirect_uri` | no (derived as `<site.hostname>/login/egi/callback`) | Explicit override; must match a redirect URI allowed for the client. |
+
+Reference: [Web UI Routes — `GET /login/egi` / `GET /login/egi/callback`](api.md#authentication-routes-appauthpy)
+and [Configuration — `site` section](configuration.md#site-section).
+
+> **Known limitation:** the `charts/manager` Helm chart does not (yet)
+> render an `oidc:` block into its generated `pilot_config.yaml`, so
+> in-cluster deployments cannot enable the button through chart values.
+> Provide the `site.oidc` section via your own config file (or extend
+> [`charts/manager/templates/configmap-pilot.yaml`](../charts/manager/templates/configmap-pilot.yaml)).
 
 ---
 
@@ -115,7 +215,8 @@ namespace = "user-03ac674216f3e1"
 
 | Event | Action |
 |---|---|
-| Successful login | `session.clear()` then store `token`, `claims`, `namespace` |
+| Successful login (either method) | `session.clear()` then store `token`, `claims`, `namespace` |
+| EGI Check-in OAuth login started | `GET /login/egi` stores `oidc_state` and `oidc_next`; the callback consumes them |
 | Token expired (client-side) | JS countdown redirects to `/logout?reason=expired` |
 | Manual logout | `GET /logout` clears session, redirects to `/login` |
 | Token refresh | `GET /login?refresh=1` shows the login form; new token overwrites session |
@@ -126,6 +227,11 @@ default cookie-based session backend. The encryption key is `FLASK_SECRET_KEY`.
 ---
 
 ## Getting an EGI Check-in Token
+
+> The steps below are only needed for the **token-paste** login. When the
+> **🎫 Log in with EGI Check-in** button is configured
+> ([OAuth login](#egi-check-in-oauth-login-browser-flow)), no manual token
+> handling is required.
 
 ### Option 1 — EGI Check-in Token Portal
 
@@ -146,7 +252,7 @@ python manager/lib/token_checkin.py new
 ```
 
 Sub-commands: `new` (full device flow), `refresh --file tokens_egi.json`,
-`revoke`. See [lib.md](lib.md#lib-token-checkin).
+`revoke`. See [lib.md](lib.md#libtoken_checkin-cli-token-helper).
 
 ---
 
@@ -166,7 +272,7 @@ a JavaScript countdown every second:
 ## Group Access Control
 
 Access can be restricted to users who hold at least one specific EGI VO
-entitlement by setting `allowed_groups` in `site_config.yaml`.
+entitlement by setting `site.allowed_groups` in `pilot_config.yaml`.
 
 ### How it works
 
@@ -189,7 +295,7 @@ Both fields are checked together (union). An entitlement matches when it
 ### Configuration
 
 ```yaml
-# manager/site_config.yaml
+# pilot_config.yaml (site section)
 allowed_groups:
   - "vo.access.egi.eu"
 ```

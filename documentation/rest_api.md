@@ -9,11 +9,6 @@ It is designed for scripted access (shell, Python, CI pipelines) using
 All responses use `Content-Type: application/json`.
 All endpoints are mounted under the `/api` path prefix.
 
-```{contents} Contents
-:local:
-:depth: 2
-```
-
 ---
 
 ## Authentication
@@ -21,7 +16,7 @@ All endpoints are mounted under the `/api` path prefix.
 Every endpoint is protected. Attach a valid EGI Check-in access token as a
 [Bearer token](https://datatracker.ietf.org/doc/html/rfc6750):
 
-```{code-block} bash
+```bash
 curl -H "Authorization: Bearer $TOKEN" https://manager.example.org/api/jobs
 ```
 
@@ -31,7 +26,7 @@ The token is the same EGI Check-in access token used to log into the web GUI.
 You can obtain one with the Device Authorization Grant helper shipped in this
 repository:
 
-```{code-block} bash
+```bash
 python manager/lib/token_checkin.py new
 # Follow the printed URL, authenticate in your browser, then read the
 # access token from the printed tokens file.
@@ -60,7 +55,7 @@ see or manage other users' resources.
 
 Error body:
 
-```{code-block} json
+```json
 {"error": "human-readable message"}
 ```
 
@@ -103,7 +98,7 @@ Idempotently create the caller's personal namespace (derived from the token
 `sub` claim). Safe to call on every login — returns `"created": false` when the
 namespace already exists.
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/userspace/ | jq .
@@ -111,13 +106,13 @@ curl -s -X POST \
 
 **Response `200`** (already exists):
 
-```{code-block} json
+```json
 {"namespace": "user-a3f1b2c4d5e6f7a8", "created": false}
 ```
 
 **Response `201`** (newly created):
 
-```{code-block} json
+```json
 {"namespace": "user-a3f1b2c4d5e6f7a8", "created": true}
 ```
 
@@ -129,7 +124,7 @@ Delete the caller's personal namespace and every resource inside it (jobs,
 InterLink releases). The namespace is derived from the token, so users can
 only ever delete their own.
 
-```{code-block} bash
+```bash
 curl -s -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/userspace/ | jq .
@@ -137,7 +132,7 @@ curl -s -X DELETE \
 
 **Response `200`**:
 
-```{code-block} json
+```json
 {"namespace": "user-a3f1b2c4d5e6f7a8", "deleted": true}
 ```
 
@@ -152,7 +147,7 @@ uninstall the InterLink release bound to that node, and undeploy the HPC
 Pilot stack on the remote edge-node. Finally delete the user's Kubernetes
 namespace and every resource inside it (including any leftover jobs).
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/userspace/prune | jq .
@@ -160,7 +155,7 @@ curl -s -X POST \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "namespace": "user-a3f1b2c4d5e6f7a8",
   "namespace_deleted": true,
@@ -178,7 +173,7 @@ Return the names of cluster nodes registered as InterLink virtual-kubelet nodes.
 A node is considered an InterLink node when it carries the taint key
 `virtual-node.interlink/no-schedule`.
 
-```{code-block} bash
+```bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/interlink/nodes | jq .
@@ -186,7 +181,7 @@ curl -s \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {"nodes": ["virtual-node-user-a3f1b2c4d5e6f7a8"]}
 ```
 
@@ -197,7 +192,7 @@ curl -s \
 Returns all HPC-Pilot-managed jobs (Deployments labelled
 `created-by=hpc-pilot-webapp`) in the caller's namespace.
 
-```{code-block} bash
+```bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/jobs/preset | jq .
@@ -205,7 +200,7 @@ curl -s \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 [
   {
     "name": "my-job",
@@ -221,7 +216,7 @@ curl -s \
 ---
 ### `POST /api/jobs/preset` — Submit a job (preset)
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -254,7 +249,7 @@ If the namespace does not yet exist it is created automatically before the job.
 
 **Response `201`** (created):
 
-```{code-block} json
+```json
 {
   "success": true,
   "job_name": "my-job",
@@ -272,7 +267,7 @@ the job's pod-template spec, giving full control over containers,
 resources, commands and node pinning; the InterLink toleration is injected
 automatically when missing.
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -298,7 +293,7 @@ containing at least `containers`).
 Read back the full job spec — used by the GUI's "save configuration" feature to
 store a reusable template.
 
-```{code-block} bash
+```bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/jobs/my-job | jq .
@@ -306,7 +301,7 @@ curl -s \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "name": "my-job",
   "image": "ubuntu:22.04",
@@ -322,7 +317,7 @@ curl -s \
 
 ### `GET /api/jobs/<name>/status` — Get job status
 
-```{code-block} bash
+```bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/jobs/my-job/status | jq .
@@ -330,7 +325,7 @@ curl -s \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "name": "my-job",
   "namespace": "user-a3f1b2c4d5e6f7a8",
@@ -358,7 +353,7 @@ For InterLink-backed jobs this includes InterLink's own status lines (SLURM
 submission, node assignment, timing) followed by the container runtime's
 output — the same content as `kubectl logs <pod>`.
 
-```{code-block} bash
+```bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/jobs/my-job/output | jq .
@@ -366,7 +361,7 @@ curl -s \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "name": "my-job",
   "pod": "my-job-abc123",
@@ -377,21 +372,19 @@ curl -s \
 If no pods exist for the job, or the pod log endpoint is unreachable, the
 endpoint returns a `404` with `{"error": "..."}`.
 
-```{note}
-Fetching logs of a pod on an InterLink virtual node is proxied by the API
-server through the virtual-kubelet's serving endpoint (``:10250``). The
-InterLink chart is deployed with ``virtualNode.disableCSR: true``, so the
-virtual-kubelet serves that endpoint with a self-signed certificate that the
-kube-apiserver accepts (it runs with ``--kubelet-insecure-tls``) and no
-kubelet-serving CertificateSigningRequest is created.
-
-On clusters that verify kubelet certificates against a CA (no
-``--kubelet-insecure-tls``), ``disableCSR`` must be false; the manager then
-auto-approves the ``kubernetes.io/kubelet-serving`` CSR right after install
-and, as a self-healing fallback, when a log request fails with a TLS handshake
-error (``remote error: tls: internal error``). Without an approved, cluster-CA
-signed certificate the API server cannot fetch logs from the virtual node.
-```
+> **Note:** Fetching logs of a pod on an InterLink virtual node is proxied by the API
+> server through the virtual-kubelet's serving endpoint (``:10250``). The
+> InterLink chart is deployed with ``virtualNode.disableCSR: true``, so the
+> virtual-kubelet serves that endpoint with a self-signed certificate that the
+> kube-apiserver accepts (it runs with ``--kubelet-insecure-tls``) and no
+> kubelet-serving CertificateSigningRequest is created.
+>
+> On clusters that verify kubelet certificates against a CA (no
+> ``--kubelet-insecure-tls``), ``disableCSR`` must be false; the manager then
+> auto-approves the ``kubernetes.io/kubelet-serving`` CSR right after install
+> and, as a self-healing fallback, when a log request fails with a TLS handshake
+> error (``remote error: tls: internal error``). Without an approved, cluster-CA
+> signed certificate the API server cannot fetch logs from the virtual node.
 
 ---
 
@@ -400,7 +393,7 @@ signed certificate the API server cannot fetch logs from the virtual node.
 Deletes the Deployment. No Service or Ingress is created for jobs, so nothing
 else needs to be removed.
 
-```{code-block} bash
+```bash
 curl -s -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/jobs/my-job | jq .
@@ -408,7 +401,7 @@ curl -s -X DELETE \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {"job": {"success": true, "name": "my-job"}}
 ```
 
@@ -435,7 +428,7 @@ are resolved server-side from the token and `site_config.yaml`.
 
 **Request body:** `hpc_name` (required) — HPC node name from `GET /api/hpc/nodes`.
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -443,29 +436,27 @@ curl -s -X POST \
   https://manager.example.org/api/interlink | jq .
 ```
 
-```{note}
-This call blocks for the duration of `helm install --wait` (timeout 5 minutes).
-
-The InterLink chart is installed with `virtualNode.disableCSR: true`, so its
-virtual-kubelet serves the `:10250` log endpoint with a self-signed certificate
-(valid when the kube-apiserver runs with `--kubelet-insecure-tls`).
-
-On clusters that verify kubelet certificates against a CA, `disableCSR` must be
-false; the manager then best-effort approves the virtual-kubelet's
-`kubernetes.io/kubelet-serving` certificate CSR (Kubernetes ships no
-auto-approval for serving CSRs). This never fails the install, and is retried
-transparently if a pod-log request later fails with a TLS handshake error.
-```
+> **Note:** This call blocks for the duration of `helm install --wait` (timeout 5 minutes).
+>
+> The InterLink chart is installed with `virtualNode.disableCSR: true`, so its
+> virtual-kubelet serves the `:10250` log endpoint with a self-signed certificate
+> (valid when the kube-apiserver runs with `--kubelet-insecure-tls`).
+>
+> On clusters that verify kubelet certificates against a CA, `disableCSR` must be
+> false; the manager then best-effort approves the virtual-kubelet's
+> `kubernetes.io/kubelet-serving` certificate CSR (Kubernetes ships no
+> auto-approval for serving CSRs). This never fails the install, and is retried
+> transparently if a pod-log request later fails with a TLS handshake error.
 
 **Response `201`** (installed):
 
-```{code-block} json
+```json
 {"success": true, "output": "...helm output...", "error": null}
 ```
 
 **Response `400`** (missing/invalid `hpc_name`, or install failed):
 
-```{code-block} json
+```json
 {"error": "..."}
 ```
 
@@ -477,7 +468,7 @@ Return the user-supplied values for the InterLink release bound to `hpc_name`.
 
 **Query parameters:** `hpc_name` (required).
 
-```{code-block} bash
+```bash
 curl -s -G \
   -H "Authorization: Bearer $TOKEN" \
   --data-urlencode "hpc_name=test-echo" \
@@ -486,7 +477,7 @@ curl -s -G \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "success": true,
   "values_yaml": "nodeName: ...\ninterlink: ...\n",
@@ -502,7 +493,7 @@ curl -s -G \
 
 **Request body:** `hpc_name` (required).
 
-```{code-block} bash
+```bash
 curl -s -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -512,7 +503,7 @@ curl -s -X DELETE \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {"success": true, "output": "release \"interlink-test-echo\" uninstalled\n", "error": null}
 ```
 
@@ -532,7 +523,7 @@ duplicated.
 
 This is called automatically at login, but is safe to call on demand.
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/saved/seed | jq .
@@ -540,7 +531,7 @@ curl -s -X POST \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {"seeded": true, "namespace": "user-a3f1b2c4d5e6f7a8"}
 ```
 
@@ -573,7 +564,7 @@ computed internally from the authenticated user's namespace and
 
 Returns all HPC nodes defined by config files in `manager/hpc/*.yaml`.
 
-```{code-block} bash
+```bash
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
   https://manager.example.org/api/hpc/nodes | jq .
@@ -581,7 +572,7 @@ curl -s \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "nodes": [
     {
@@ -607,9 +598,9 @@ curl -s \
 Install the HPC Pilot stack (wstunnel client + supervisord + InterLink plugin)
 on the remote node and start it. The node's hostname, SSH port and plugin are
 read from the config file; the plugin is installed from its published source
-(see [lib.md](lib.md#lib-hpc)).
+(see [lib.md](lib.md#libhpc_client-hpc-node-client)).
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -617,15 +608,13 @@ curl -s -X POST \
   https://manager.example.org/api/hpc/deploy | jq .
 ```
 
-```{note}
-This call may take up to **5 minutes** while the setup steps run on the remote
-node (create venv, `pip install supervisor`, download wstunnel, install plugin,
-start supervisord).
-```
+> **Note:** This call may take up to **5 minutes** while the setup steps run on the remote
+> node (create venv, `pip install supervisor`, download wstunnel, install plugin,
+> start supervisord).
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "success": true,
   "output": "[setup_directories] ...\n[install_supervisord] ...\n[check_status] ...",
@@ -644,7 +633,7 @@ Stop all supervisord-managed services, shut down supervisord, and remove the
 `~/.pilot` installation directory from the remote node. This is the inverse of
 `POST /api/hpc/deploy`.
 
-```{code-block} bash
+```bash
 curl -s -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -654,7 +643,7 @@ curl -s -X DELETE \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {"success": true, "output": "[stop_services] ...\n[remove_installation] Installation removed.", "error": ""}
 ```
 
@@ -665,7 +654,7 @@ curl -s -X DELETE \
 
 Calls `supervisorctl status` on the remote node.
 
-```{code-block} bash
+```bash
 curl -s -G \
   -H "Authorization: Bearer $TOKEN" \
   --data-urlencode "hpc_name=test-echo" \
@@ -674,7 +663,7 @@ curl -s -G \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {
   "success": true,
   "output": "wstunnel   RUNNING   pid 12345, uptime 0:05:32\n",
@@ -686,7 +675,7 @@ curl -s -G \
 
 ### `POST /api/hpc/start` — Start services
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -696,7 +685,7 @@ curl -s -X POST \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {"success": true, "output": "wstunnel: started\n", "error": null}
 ```
 
@@ -704,7 +693,7 @@ curl -s -X POST \
 
 ### `POST /api/hpc/stop` — Stop services
 
-```{code-block} bash
+```bash
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -714,7 +703,7 @@ curl -s -X POST \
 
 **Response `200`:**
 
-```{code-block} json
+```json
 {"success": true, "output": "wstunnel: stopped\n", "error": null}
 ```
 
@@ -731,7 +720,7 @@ curl -s -X POST \
 
 ## Using the API from Python
 
-```{code-block} python
+```python
 import os
 import requests
 

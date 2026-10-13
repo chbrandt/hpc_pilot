@@ -146,7 +146,11 @@ kubectl get ingress -n hpc-pilot
 
 ## Step 4 — First login
 
-Navigate to `https://<hostname>` and log in with your **EGI Check-in** token.
+Navigate to `https://<hostname>` and log in with your **EGI Check-in** token
+— or, when `site.oidc` is configured, click the **🎫 Log in with EGI
+Check-in** button to sign in through the browser (OAuth authorization-code
+flow; see
+[Authentication](authentication.md#egi-check-in-oauth-login-browser-flow)).
 
 On first login the manager:
 
