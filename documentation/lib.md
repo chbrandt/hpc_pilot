@@ -336,7 +336,7 @@ from lib.token_auth import validate_token, derive_namespace, check_group_access,
 ### `validate_token`
 
 ```python
-claims = validate_token("<raw-jwt-string>")
+claims = validate_token("<raw-jwt-string>", audience=None)
 # raises ValueError on any failure
 ```
 
@@ -346,7 +346,9 @@ Full validation:
 2. Extract the `iss` claim without verification.
 3. Check `iss` against the trusted-issuers list.
 4. Fetch (or use a 1-hour-cached) JWKS key set from the issuer.
-5. Verify the RSA signature, expiry (`exp`), and issuer.
+5. Verify the RSA signature, expiry (`exp`) and issuer — plus the `aud`
+   claim when an `audience` is passed (see
+   [Token Audience](authentication.md#token-audience)).
 
 **Trusted issuers** (`token_auth.py`):
 

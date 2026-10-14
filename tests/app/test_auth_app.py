@@ -14,6 +14,9 @@ Patches:
 No real network access is required.
 """
 
+import base64
+import hashlib
+import os
 import time
 from unittest.mock import patch
 
@@ -81,9 +84,28 @@ class TestEgiLoginRedirect:
         assert "client_id=hpc-pilot" in location
         assert "response_type=code" in location
         assert "state=" in location
+        # PKCE (RFC 7636): the challenge pair is mandatory for Check-in
+        assert "code_challenge=" in location
+        assert "code_challenge_method=S256" in location
         # The state must be stored in the session for the callback to verify
         with client.session_transaction() as sess:
             assert sess["oidc_state"]
+
+    def test_pkce_challenge_matches_session_verifier(self, client):
+        with patch(LOAD_SITE_CONFIG_PATCH, return_value=OIDC_CONFIG):
+            resp = client.get(self.URL, follow_redirects=False)
+
+        location = resp.headers["Location"]
+        with client.session_transaction() as sess:
+            verifier = sess["oidc_code_verifier"]
+        # RFC 7636: verifiers must be 43-128 characters
+        assert verifier and len(verifier) >= 43
+        expected = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+        assert f"code_challenge={expected}" in location
 
     def test_next_url_stored_in_session(self, client):
         with patch(LOAD_SITE_CONFIG_PATCH, return_value=OIDC_CONFIG):
@@ -93,7 +115,7 @@ class TestEgiLoginRedirect:
 
 
 class TestEgiCallback:
-    URL = "/login/egi/callback"
+    URL = "/oauth/callback"
 
     def test_redirects_to_login_when_not_configured(self, client):
         with patch(LOAD_SITE_CONFIG_PATCH, return_value=NO_OIDC_CONFIG):
@@ -142,9 +164,12 @@ class TestEgiCallback:
             with client.session_transaction() as sess:
                 sess["oidc_state"] = "expected-state"
                 sess["oidc_next"] = ""
+                sess["oidc_code_verifier"] = "fake-code-verifier"
 
             resp = client.get(
-                self.URL + "?state=expected-state&code=auth-code",
+                self.URL
+                + "?state=expected-state&code=auth-code"
+                + "&iss=https://aai.egi.eu/auth/realms/egi",
                 follow_redirects=False,
             )
 
@@ -157,6 +182,10 @@ class TestEgiCallback:
         # The token exchange must hit the Check-in token endpoint
         url = mock_post.call_args[0][0]
         assert "protocol/openid-connect/token" in url
+        # ... and prove possession of the PKCE verifier (RFC 7636)
+        sent = mock_post.call_args[1]["data"]
+        assert sent["grant_type"] == "authorization_code"
+        assert sent["code_verifier"] == "fake-code-verifier"
 
     def test_token_exchange_failure_redirects_to_login(self, client):
         bad_response = type(
@@ -174,11 +203,108 @@ class TestEgiCallback:
         ):
             with client.session_transaction() as sess:
                 sess["oidc_state"] = "expected-state"
+                sess["oidc_code_verifier"] = "fake-code-verifier"
             resp = client.get(
                 self.URL + "?state=expected-state&code=abc", follow_redirects=False
             )
         assert resp.status_code == 302
         assert "/login" in resp.headers["Location"]
+
+    def test_missing_pkce_verifier_redirects_to_login(self, client):
+        with (
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=OIDC_CONFIG),
+            patch(REQUESTS_POST_PATCH) as mock_post,
+        ):
+            with client.session_transaction() as sess:
+                sess["oidc_state"] = "expected-state"
+            resp = client.get(
+                self.URL + "?state=expected-state&code=abc", follow_redirects=False
+            )
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+        mock_post.assert_not_called()
+
+    def test_issuer_mismatch_redirects_to_login(self, client):
+        with (
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=OIDC_CONFIG),
+            patch(REQUESTS_POST_PATCH) as mock_post,
+        ):
+            with client.session_transaction() as sess:
+                sess["oidc_state"] = "expected-state"
+                sess["oidc_code_verifier"] = "fake-code-verifier"
+            resp = client.get(
+                self.URL
+                + "?state=expected-state&code=abc"
+                + "&iss=https://evil.example.com",
+                follow_redirects=False,
+            )
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+        mock_post.assert_not_called()
+
+
+class TestClientSecretSource:
+    """
+    Precedence between ``site.oidc.client_secret`` (YAML) and the
+    ``PILOT_OIDC_CLIENT_SECRET`` environment variable.
+    """
+
+    URL = "/oauth/callback"
+    YAML_SECRET_CONFIG = {
+        "oidc": {**OIDC_CONFIG["oidc"], "client_secret": "yaml-secret"},
+    }
+
+    def _sent_client_secret(self, client, config, env):
+        """
+        Run the OAuth callback against *config* with env mapping *env*
+        applied (``None`` = variable unset) and return the
+        ``client_secret`` posted to the IdP token endpoint.
+        """
+        # json() -> {} means no access_token: the handler flashes and
+        # redirects, but the token-exchange POST has already been recorded.
+        mock_response = type(
+            "R",
+            (),
+            {
+                "json": staticmethod(lambda: {}),
+                "raise_for_status": staticmethod(lambda: None),
+            },
+        )()
+        with (
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=config),
+            patch(REQUESTS_POST_PATCH, return_value=mock_response) as mock_post,
+            patch.dict(os.environ, {}),
+        ):
+            if env is None:
+                os.environ.pop("PILOT_OIDC_CLIENT_SECRET", None)
+            else:
+                os.environ.update(env)
+            with client.session_transaction() as sess:
+                sess["oidc_state"] = "expected-state"
+                sess["oidc_code_verifier"] = "fake-code-verifier"
+            client.get(
+                self.URL + "?state=expected-state&code=abc",
+                follow_redirects=False,
+            )
+        return mock_post.call_args[1]["data"]["client_secret"]
+
+    def test_env_var_overrides_yaml_secret(self, client):
+        secret = self._sent_client_secret(
+            client,
+            self.YAML_SECRET_CONFIG,
+            {"PILOT_OIDC_CLIENT_SECRET": "env-secret"},
+        )
+        assert secret == "env-secret"
+
+    def test_yaml_secret_used_when_env_unset(self, client):
+        secret = self._sent_client_secret(client, self.YAML_SECRET_CONFIG, None)
+        assert secret == "yaml-secret"
+
+    def test_yaml_secret_used_when_env_empty(self, client):
+        secret = self._sent_client_secret(
+            client, self.YAML_SECRET_CONFIG, {"PILOT_OIDC_CLIENT_SECRET": ""}
+        )
+        assert secret == "yaml-secret"
 
 
 class TestLoginPageOidcButton:
@@ -198,4 +324,32 @@ class TestLoginPageOidcButton:
         html = resp.data.decode()
         assert "Log in with EGI Check-in" in html
         assert "/login/egi" in html
+
+
+class TestAudienceForwarding:
+    """site.oidc.audience is forwarded to validate_token (GUI login)."""
+
+    def _post_login(self, client, config):
+        with (
+            patch(LOAD_SITE_CONFIG_PATCH, return_value=config),
+            patch(
+                VALIDATE_TOKEN_PATCH, return_value=dict(FAKE_CLAIMS)
+            ) as mock_validate,
+            patch(GROUP_ACCESS_PATCH),
+            patch(API_POST_PATCH, return_value={"created": False}),
+        ):
+            resp = client.post(
+                "/login", data={"token": "fake-token"}, follow_redirects=False
+            )
+        assert resp.status_code == 302
+        return mock_validate
+
+    def test_login_passes_configured_audience(self, client):
+        config = {"oidc": {**OIDC_CONFIG["oidc"], "audience": "hpc-pilot"}}
+        mock_validate = self._post_login(client, config)
+        assert mock_validate.call_args[1]["audience"] == "hpc-pilot"
+
+    def test_login_sends_no_audience_by_default(self, client):
+        mock_validate = self._post_login(client, OIDC_CONFIG)
+        assert mock_validate.call_args[1]["audience"] is None
 

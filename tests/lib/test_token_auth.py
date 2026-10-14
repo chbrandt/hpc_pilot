@@ -190,6 +190,65 @@ class TestValidateTokenSuccess:
 
 
 # ---------------------------------------------------------------------------
+# validate_token — audience handling (OAuth tokens carry an `aud` claim)
+# ---------------------------------------------------------------------------
+
+
+def _signed_rs256_token(claims: dict, kid: str = FAKE_KID) -> tuple:
+    """
+    Return a real RS256-signed token for *claims* and its public-key PEM.
+
+    The audience tests need genuine PyJWT verification — mocking
+    ``jwt.decode`` would defeat their purpose.
+    """
+    import jwt as pyjwt
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = pyjwt.encode(claims, private_key, algorithm="RS256", headers={"kid": kid})
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return token, public_pem
+
+
+class TestValidateTokenAudience:
+    """Audience policy of validate_token (regression: browser-login tokens)."""
+
+    def test_token_with_aud_validates_without_expected_audience(self):
+        """OAuth-flow access tokens carry an `aud` claim; with no audience
+        configured they must still validate (this exact bug)."""
+        token, public_pem = _signed_rs256_token(
+            {**FAKE_CLAIMS, "aud": "some-other-client"}
+        )
+        with patch("lib.token_auth._get_public_key", return_value=public_pem):
+            claims = validate_token(token)
+        assert claims["aud"] == "some-other-client"
+
+    def test_matching_audience_passes(self):
+        token, public_pem = _signed_rs256_token({**FAKE_CLAIMS, "aud": "hpc-pilot"})
+        with patch("lib.token_auth._get_public_key", return_value=public_pem):
+            claims = validate_token(token, audience="hpc-pilot")
+        assert claims["sub"] == FAKE_CLAIMS["sub"]
+
+    def test_wrong_audience_raises_value_error(self):
+        token, public_pem = _signed_rs256_token(
+            {**FAKE_CLAIMS, "aud": "other-client"}
+        )
+        with patch("lib.token_auth._get_public_key", return_value=public_pem):
+            with pytest.raises(ValueError, match="audience"):
+                validate_token(token, audience="hpc-pilot")
+
+    def test_missing_aud_when_audience_required_raises(self):
+        token, public_pem = _signed_rs256_token(dict(FAKE_CLAIMS))
+        with patch("lib.token_auth._get_public_key", return_value=public_pem):
+            with pytest.raises(ValueError, match="audience"):
+                validate_token(token, audience="hpc-pilot")
+
+
+# ---------------------------------------------------------------------------
 # check_group_access
 # ---------------------------------------------------------------------------
 

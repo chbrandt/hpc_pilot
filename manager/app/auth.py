@@ -10,11 +10,15 @@ Handles:
 The pure JWT validation logic lives in lib/token_auth.py.
 """
 
+import base64
+import hashlib
 import logging
+import os
 import secrets
 import time
 from functools import wraps
 from typing import Optional
+from urllib.parse import urlencode
 
 import requests
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
@@ -101,9 +105,18 @@ def _oidc_config() -> dict:
     Keys: ``client_id``, ``client_secret`` (optional), ``issuer``
     (optional, defaults to the EGI Check-in production realm), and
     ``redirect_uri`` (optional explicit override).
+
+    The ``PILOT_OIDC_CLIENT_SECRET`` environment variable, when set to a
+    non-empty value, overrides ``client_secret`` so the secret can be kept
+    out of the configuration file (same pattern as ``FLASK_SECRET_KEY``).
     """
     oidc = load_site_config().get("oidc")
-    return oidc if isinstance(oidc, dict) else {}
+    if not isinstance(oidc, dict):
+        return {}
+    env_secret = os.environ.get("PILOT_OIDC_CLIENT_SECRET")
+    if env_secret:
+        return {**oidc, "client_secret": env_secret}
+    return oidc
 
 
 def _establish_session(token: str, next_url: str):
@@ -112,16 +125,18 @@ def _establish_session(token: str, next_url: str):
     namespace / default configs.
 
     Shared by the token-paste login (POST /login) and the EGI Check-in
-    OAuth callback (GET /login/egi/callback).
+    OAuth callback (GET /oauth/callback).
 
     Returns a redirect response on success, or ``None`` on failure (a
     flash message describing the error has already been queued).
     """
     from app.api_client import api_post
 
-    # Validate the token (JWKS signature + expiry + trusted issuer)
+    # Validate the token (JWKS signature + expiry + trusted issuer; the
+    # 'aud' claim only when site.oidc.audience is configured)
+    audience = _oidc_config().get("audience") or None
     try:
-        claims = validate_token(token)
+        claims = validate_token(token, audience=audience)
         logger.debug(f"Token claims: {claims}")
     except ValueError as exc:
         flash(f"Token validation failed: {exc}", "error")
@@ -210,14 +225,31 @@ def login():
 # ── EGI Check-in OAuth authorization-code flow (GA4) ──────────────────
 
 
+def _pkce_challenge(code_verifier: str) -> str:
+    """
+    Compute the ``S256`` PKCE code challenge (RFC 7636) for *code_verifier*.
+
+    Returns the base64url-encoded SHA-256 digest of the verifier, without
+    padding, as required by the ``S256`` method.
+    """
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
 @auth_bp.route("/login/egi")
 def egi_login():
     """
     Redirect the user to the EGI Check-in (Keycloak) authorization endpoint.
 
     Requires an OIDC client registered in EGI Check-in with this manager's
-    ``/login/egi/callback`` as an allowed redirect URI; configure it under
+    ``/oauth/callback`` as an allowed redirect URI; configure it under
     ``site.oidc`` in pilot_config.yaml.
+
+    The request carries a random CSRF ``state`` and a PKCE (RFC 7636, S256)
+    ``code_challenge``; the matching verifier is kept in the session and
+    sent to the token endpoint by :func:`egi_callback`. EGI Check-in
+    clients are registered with PKCE required, so the flow fails without
+    them.
     """
     oidc = _oidc_config()
     client_id = oidc.get("client_id")
@@ -239,26 +271,39 @@ def egi_login():
     session["oidc_state"] = state
     session["oidc_next"] = request.args.get("next", "")
 
+    # PKCE (RFC 7636, S256): EGI Check-in rejects authorization requests
+    # without a code_challenge/code_challenge_method pair.
+    code_verifier = secrets.token_urlsafe(64)
+    session["oidc_code_verifier"] = code_verifier
+
     authorize_url = (
-        f"{issuer}/protocol/openid-connect/auth"
-        f"?client_id={client_id}"
-        f"&redirect_uri={redirect_uri}"
-        f"&response_type=code"
-        f"&scope=openid"
-        f"&state={state}"
+        f"{issuer}/protocol/openid-connect/auth?"
+        + urlencode(
+            {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "scope": "openid",
+                "state": state,
+                "code_challenge": _pkce_challenge(code_verifier),
+                "code_challenge_method": "S256",
+            }
+        )
     )
     return redirect(authorize_url)
 
 
-@auth_bp.route("/login/egi/callback")
+@auth_bp.route("/oauth/callback")
 def egi_callback():
     """
     Exchange the authorization code for tokens and establish the session.
 
     Verifies the ``state`` parameter against the one stored by
-    :func:`egi_login` (CSRF protection), then POSTs the code to the IdP
-    token endpoint and feeds the resulting access token through the same
-    validation and session logic as the token-paste login.
+    :func:`egi_login` (CSRF protection) and, when present, the RFC 9207
+    ``iss`` parameter against the configured issuer (IdP mix-up
+    protection), then POSTs the code and the PKCE ``code_verifier`` to the
+    IdP token endpoint and feeds the resulting access token through the
+    same validation and session logic as the token-paste login.
     """
     oidc = _oidc_config()
     client_id = oidc.get("client_id")
@@ -275,6 +320,16 @@ def egi_callback():
         flash("Login failed: invalid state. Please try again.", "error")
         return redirect(url_for("auth.login"))
 
+    # ── Verify the issuer (RFC 9207, IdP mix-up protection) ──────────
+    issuer = oidc.get("issuer", _DEFAULT_ISSUER).rstrip("/")
+    received_iss = request.args.get("iss", "")
+    if received_iss and received_iss.rstrip("/") != issuer:
+        logger.warning(
+            "OAuth issuer mismatch: expected %s, got %s.", issuer, received_iss
+        )
+        flash("Login failed: unexpected issuer. Please try again.", "error")
+        return redirect(url_for("auth.login"))
+
     code = request.args.get("code", "")
     if not code:
         flash(
@@ -284,8 +339,13 @@ def egi_callback():
         )
         return redirect(url_for("auth.login"))
 
+    # ── PKCE verifier (matches the challenge sent by /login/egi) ─────
+    code_verifier = session.pop("oidc_code_verifier", None)
+    if not code_verifier:
+        flash("Login failed: login session expired. Please try again.", "error")
+        return redirect(url_for("auth.login"))
+
     # ── Exchange the code for tokens ──────────────────────────────────
-    issuer = oidc.get("issuer", _DEFAULT_ISSUER).rstrip("/")
     redirect_uri = oidc.get("redirect_uri") or (
         request.host_url.rstrip("/") + url_for("auth.egi_callback")
     )
@@ -296,6 +356,7 @@ def egi_callback():
         "code": code,
         "redirect_uri": redirect_uri,
         "client_id": client_id,
+        "code_verifier": code_verifier,
     }
     client_secret = oidc.get("client_secret")
     if client_secret:

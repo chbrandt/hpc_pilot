@@ -116,8 +116,10 @@ Where:
 ## Check-in
 
 Check-in provides authN/authZ for EGI communities, here used to manage user
-access to both the Manager app and the HPC edge-node. See
-[`documentation/authentication.md`](./documentation/authentication.md).
+access to both the Manager app and the HPC edge-node. Users can log in by
+pasting an EGI Check-in access token or, when `site.oidc` is configured,
+with the **Log in with EGI Check-in** button (OAuth 2.0 authorization-code
+flow). See [`documentation/authentication.md`](./documentation/authentication.md).
 
 ## Continuous Integration
 

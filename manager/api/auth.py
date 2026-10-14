@@ -25,7 +25,7 @@ from typing import Optional
 
 from flask import g, request
 
-from api.site_config import load_site_config
+from api.site_config import load_oidc_audience, load_site_config
 from lib.token_auth import (
     check_group_access,
     derive_namespace,
@@ -86,7 +86,7 @@ def require_token(f):
             )
 
         try:
-            claims = validate_token(token)
+            claims = validate_token(token, audience=load_oidc_audience())
             logger.debug(f"Token claims: {claims}")
         except ValueError as exc:
             logger.warning("API token validation failed: %s", exc)

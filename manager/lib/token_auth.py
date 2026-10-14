@@ -137,7 +137,7 @@ def _get_public_key(issuer: str, kid: str):
 # ── Token validation ──────────────────────────────────────────────────
 
 
-def validate_token(token: str) -> dict:
+def validate_token(token: str, audience: Optional[str] = None) -> dict:
     """
     Validate an EGI Check-in JWT access token end-to-end.
 
@@ -147,8 +147,15 @@ def validate_token(token: str) -> dict:
     3. Verify 'iss' is in the trusted issuers list.
     4. Fetch (or use cached) JWKS keys for the issuer.
     5. Locate the matching public key by 'kid'.
-    6. Verify the full token: signature, expiry ('exp'), and issuer.
+    6. Verify the full token: signature, expiry ('exp') and issuer —
+       plus the 'aud' claim when *audience* is given.
     7. Return the verified claims dict.
+
+    Audience policy:
+        By default (*audience* is ``None``) the ``aud`` claim is **not**
+        enforced — tokens that carry an audience (e.g. access tokens
+        issued to an OAuth client via the browser login) still validate.
+        Pass *audience* to require ``aud`` to contain that value.
 
     Note:
         The returned claims dict contains only the fields embedded in the
@@ -160,6 +167,8 @@ def validate_token(token: str) -> dict:
 
     Args:
         token: Raw JWT string (the EGI Check-in access token).
+        audience: Optional expected ``aud`` claim value; ``None`` (the
+            default) disables audience verification.
 
     Returns:
         Decoded and verified claims dict.
@@ -204,19 +213,32 @@ def validate_token(token: str) -> dict:
     # Steps 4 & 5 — Fetch JWKS and locate matching public key
     public_key = _get_public_key(issuer, kid)
 
-    # Step 6 — Full verification: signature + exp + iss
+    # Step 6 — Full verification: signature + exp + iss (+ aud if requested)
     try:
         claims = pyjwt.decode(
             token,
             public_key,
             algorithms=[alg],
             issuer=issuer,
-            options={"verify_exp": True},
+            audience=audience,
+            options={
+                "verify_exp": True,
+                # Without an expected audience, tokens that carry an 'aud'
+                # claim must still validate (PyJWT would raise
+                # InvalidAudienceError unless explicitly told not to check).
+                "verify_aud": audience is not None,
+            },
         )
     except pyjwt.exceptions.ExpiredSignatureError:
         raise ValueError("Token has expired.")
     except pyjwt.exceptions.InvalidIssuerError:
         raise ValueError(f"Token issuer mismatch (expected '{issuer}').")
+    except pyjwt.exceptions.InvalidAudienceError:
+        raise ValueError(f"Token audience not accepted (expected '{audience}').")
+    except pyjwt.exceptions.MissingRequiredClaimError:
+        # PyJWT raises this when an audience was required but the token
+        # carries no `aud` claim at all.
+        raise ValueError(f"Token audience not accepted (expected '{audience}').")
     except pyjwt.exceptions.InvalidTokenError as exc:
         raise ValueError(f"Token signature/validation failed: {exc}") from exc
 

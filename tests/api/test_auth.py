@@ -156,3 +156,36 @@ class TestRequireToken:
 
         assert captured["claims"]["namespace"] == "user-derived-ns"
         assert captured["claims"]["_token"] == "tok"
+
+
+class TestRequireTokenAudience:
+    """site.oidc.audience is forwarded to validate_token (REST API)."""
+
+    VALID_CLAIMS = {
+        "sub": "test-sub-xyz",
+        "iss": "https://aai.egi.eu/auth/realms/egi",
+        "exp": int(time.time()) + 3600,
+    }
+
+    def _get_protected(self, mini_client, audience):
+        with (
+            patch(
+                "api.auth.validate_token", return_value=dict(self.VALID_CLAIMS)
+            ) as mock_validate,
+            patch("api.auth.derive_namespace", return_value="user-testns"),
+            patch("api.auth.load_oidc_audience", return_value=audience),
+            patch("api.auth.load_site_config", return_value={}),
+        ):
+            resp = mini_client.get(
+                "/protected", headers={"Authorization": "Bearer validtoken"}
+            )
+        assert resp.status_code == 200
+        return mock_validate
+
+    def test_configured_audience_forwarded(self, mini_client):
+        mock_validate = self._get_protected(mini_client, "hpc-pilot")
+        assert mock_validate.call_args[1]["audience"] == "hpc-pilot"
+
+    def test_no_audience_by_default(self, mini_client):
+        mock_validate = self._get_protected(mini_client, None)
+        assert mock_validate.call_args[1]["audience"] is None

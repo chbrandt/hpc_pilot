@@ -13,6 +13,7 @@ that needs it (only the generic ``lib.config`` loader parses the file).
 """
 
 import logging
+from typing import Optional
 
 from lib.config import get_site_config
 
@@ -39,4 +40,21 @@ def load_site_config() -> dict:
         defaults.
     """
     return get_site_config()
+
+
+def load_oidc_audience() -> Optional[str]:
+    """
+    Return the optional OIDC audience (``site.oidc.audience``) or ``None``.
+
+    When set, token validation requires the JWT ``aud`` claim to contain
+    this value (both the web GUI and the REST API enforce it).  When
+    unset/empty — the default — the audience claim is not checked, so
+    tokens issued to other OIDC clients (or with no ``aud`` at all) are
+    accepted based on issuer + signature + expiry alone.
+    """
+    oidc = load_site_config().get("oidc")
+    if not isinstance(oidc, dict):
+        return None
+    audience = oidc.get("audience")
+    return audience if isinstance(audience, str) and audience else None
 

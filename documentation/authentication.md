@@ -70,9 +70,10 @@ The same validation + group check runs on every REST API request via the
 Since v0.4 the login page can also offer a **🎫 "Log in with EGI Check-in"**
 button (GA4) that signs the user in through the browser instead of asking
 them to paste a token. It implements the OAuth 2.0 **authorization-code
-flow** against the EGI Check-in Keycloak realm, with CSRF `state`
-verification. The button only appears when an OIDC client is configured
-under `site.oidc` (see [Configuration — `site` section](configuration.md#site-section)).
+flow** against the EGI Check-in Keycloak realm, with PKCE (RFC 7636,
+S256) and CSRF `state` verification. The button only appears when an OIDC
+client is configured under `site.oidc` (see
+[Configuration — `site` section](configuration.md#site-section)).
 
 ### Flow
 
@@ -84,25 +85,29 @@ under `site.oidc` (see [Configuration — `site` section](configuration.md#site-
    (client_id missing → flash "not configured" → back to /login)
         │
         ▼
-2. Generate random CSRF state (secrets.token_urlsafe(32)) and store
-   {oidc_state, oidc_next} in the session
+2. Generate a random CSRF state and a PKCE code_verifier
+   (secrets.token_urlsafe); store {oidc_state, oidc_next,
+   oidc_code_verifier} in the session
         │
         ▼
 3. Redirect to {issuer}/protocol/openid-connect/auth
-   ?client_id=...&redirect_uri=<site.hostname>/login/egi/callback
+   ?client_id=...&redirect_uri=<site.hostname>/oauth/callback
    &response_type=code&scope=openid&state=...
+   &code_challenge=<S256(code_verifier)>&code_challenge_method=S256
         │
         ▼
 4. User authenticates at EGI Check-in (browser)
         │
         ▼
-5. GET /login/egi/callback?code=...&state=...
+5. GET /oauth/callback?code=...&state=...&iss=...
         │
         ▼
-6. Verify state against session (CSRF) — mismatch → flash + /login
+6. Verify state against the session (CSRF) and iss against the
+   configured issuer (RFC 9207) — mismatch → flash + /login
         │
         ▼
-7. Exchange the code at {issuer}/protocol/openid-connect/token
+7. Exchange the code + PKCE code_verifier at
+   {issuer}/protocol/openid-connect/token
    (grant_type=authorization_code; client_secret only if configured)
         │
         ▼
@@ -122,8 +127,9 @@ OAuth callback.
 ### Enabling it
 
 1. Register an OIDC client in EGI Check-in (via the Check-in / VO client
-   registration) with `https://<site.hostname>/login/egi/callback` as an
-   allowed redirect URI.
+   registration) with `https://<site.hostname>/oauth/callback` as an
+   allowed redirect URI. PKCE (S256) is always used — Check-in realms
+   reject authorization requests without it.
 2. Configure the client in `manager/pilot_config.yaml`:
 
 ```yaml
@@ -133,16 +139,18 @@ site:
     client_secret: ""           # required only for confidential clients
     issuer: https://aai.egi.eu/auth/realms/egi
     redirect_uri: ""            # optional explicit override (derived from hostname)
+    # audience: ""              # optional: enforce the JWT 'aud' claim
 ```
 
 | Key | Required | Description |
 |---|---|---|
 | `client_id` | ✓ | OIDC client registered in EGI Check-in. Unset/empty → the button is hidden and `GET /login/egi` redirects back to `/login` with an error. |
-| `client_secret` | only for confidential clients | Sent with the authorization-code exchange. |
+| `client_secret` | only for confidential clients | Sent with the authorization-code exchange. Prefer the `PILOT_OIDC_CLIENT_SECRET` environment variable, which overrides this value when non-empty (keeps the secret out of git). |
 | `issuer` | no (defaults to `https://aai.egi.eu/auth/realms/egi`) | Keycloak realm providing the authorize/token endpoints. Must be one of the trusted issuers (see [Trusted Issuers](#trusted-issuers)). |
-| `redirect_uri` | no (derived as `<site.hostname>/login/egi/callback`) | Explicit override; must match a redirect URI allowed for the client. |
+| `redirect_uri` | no (derived as `<site.hostname>/oauth/callback`) | Explicit override; must match a redirect URI allowed for the client. |
+| `audience` | no | Optional expected JWT `aud` claim; enforced by both the GUI and the REST API (see [Token Audience](#token-audience)). Default: not checked. |
 
-Reference: [Web UI Routes — `GET /login/egi` / `GET /login/egi/callback`](api.md#authentication-routes-appauthpy)
+Reference: [Web UI Routes — `GET /login/egi` / `GET /oauth/callback`](api.md#authentication-routes-appauthpy)
 and [Configuration — `site` section](configuration.md#site-section).
 
 > **Known limitation:** the `charts/manager` Helm chart does not (yet)
@@ -166,6 +174,30 @@ TRUSTED_ISSUERS = [
 ```
 
 A token from any other issuer is rejected with a `ValueError`.
+
+---
+
+## Token Audience
+
+`validate_token` always verifies the signature, expiry and issuer. The
+JWT `aud` (audience) claim is **not enforced by default**: access tokens
+that carry an audience — e.g. tokens issued to an OAuth client through
+the **Log in with EGI Check-in** browser flow — validate fine, as do
+tokens without an `aud` claim at all (the classic token-portal /
+`oidc-agent` paste login).
+
+To require the claim, set the optional key in `pilot_config.yaml`; both
+the web GUI and the REST API enforce it consistently:
+
+```yaml
+site:
+  oidc:
+    audience: hpc-pilot   # JWT `aud` must contain this value
+```
+
+To find the right value, decode an access token (paste it into
+[jwt.io](https://jwt.io) and read the `aud` claim). On mismatch the
+login fails with `Token audience not accepted (expected '<audience>')`.
 
 ---
 
@@ -321,7 +353,7 @@ authenticated EGI user is allowed (and the UserInfo call is skipped entirely).
 
 | Function | Description |
 |---|---|
-| `validate_token(token)` | Full validation; returns claims dict or raises `ValueError` |
+| `validate_token(token, audience=None)` | Full validation; returns claims dict or raises `ValueError`. The `aud` claim is only checked when *audience* is given — see [Token Audience](#token-audience) |
 | `fetch_userinfo(token, issuer)` | Fetch entitlements from the issuer's UserInfo endpoint; returns a claims dict |
 | `check_group_access(claims, allowed_groups)` | Verifies group membership via entitlement substring match; raises `ValueError` on denial |
 | `derive_namespace(sub)` | Derives namespace string from subject claim |
