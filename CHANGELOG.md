@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.1] - 2026-10-13
+
+### Added
+
+- **MkDocs documentation site**: the `documentation/` pages are now built
+  with MkDocs + Material (`mkdocs.yml`); MyST-style code fences were
+  replaced with plain Markdown so every page renders correctly.
+
+### Fixed
+
+- **EGI Check-in OAuth login** (`GA4`): access tokens carrying an `aud`
+  claim (issued to OAuth clients by the browser login) failed validation
+  with "Invalid audience" — PyJWT requires an expected audience whenever
+  the claim is present, but none was supplied. Audience verification is
+  now opt-in via the new `site.oidc.audience` key (enforced consistently
+  by the web GUI and the REST API); by default the claim is not checked,
+  matching the historical token-paste behaviour.
+- **EGI Check-in OAuth login** (`GA4`): added PKCE (RFC 7636, S256) to the
+  authorization-code flow — Check-in realms reject authorization requests
+  without a `code_challenge`/`code_challenge_method` pair. The callback now
+  sends the `code_verifier` in the token exchange and verifies the RFC 9207
+  `iss` parameter (IdP mix-up protection); the authorize URL is properly
+  percent-encoded. Callback route renamed to `GET /oauth/callback`.
+
+### Security
+
+- **EGI Check-in OAuth login** (`GA4`): the OIDC `client_secret` can (and
+  should) be supplied via the `PILOT_OIDC_CLIENT_SECRET` environment
+  variable, which overrides `site.oidc.client_secret` when non-empty —
+  keeps the secret out of `pilot_config.yaml` and git (same pattern as
+  `FLASK_SECRET_KEY`).
+
+### Documentation
+
+- **EGI Check-in OAuth login** (`GA4`): documented the authorization-code
+  login in `documentation/authentication.md` (flow diagram, `site.oidc`
+  configuration, OIDC-client setup), with follow-up updates in
+  `configuration.md`, `deployment.md`, `api.md` and the README files;
+  noted that the `charts/manager` chart does not render `site.oidc` yet.
+
 ## [v0.4] - 2026-09-18
 
 ### Added
@@ -132,6 +172,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the now-unused templates `helm.html`, `hpc.html`, `releases.html` and
   `helm_result.html`.
 
-[Unreleased]: https://github.com/chbrandt/hpc_pilot/compare/v0.4...HEAD
+[Unreleased]: https://github.com/chbrandt/hpc_pilot/compare/v0.4.1...HEAD
+[v0.4.1]: https://github.com/chbrandt/hpc_pilot/compare/v0.4...v0.4.1
 [v0.4]: https://github.com/chbrandt/hpc_pilot/compare/v0.3.10...v0.4
 [v0.3.10]: https://github.com/chbrandt/hpc_pilot/compare/v0.3.9...v0.3.10
